@@ -24,16 +24,34 @@ When making changes, work inside `genecrew/src/genecrew/` for crew logic — the
 
 ## Genealogy stack (Gramps Web)
 
-`docker-compose.yml` at the repo root provisions a **Gramps Web** genealogy stack (unrelated to the crewAI scaffold above by name, but this is the data backend the crew is intended to work against):
+This repo does **not** provision Gramps Web. An earlier root-level `docker-compose.yml` did,
+but it was redundant with the stack already provisioned by the sibling `gramps-mcp` project
+and has been **deleted**. Do not recreate a `docker-compose.yml` here and do not run
+`docker compose` from this repo.
 
-- `grampsweb` — the Gramps Web app/API, exposed on host port `80` → container port `5000`.
-- `grampsweb_celery` — Celery worker sharing the same image/config as `grampsweb` (via YAML anchor `&grampsweb`/`<<: *grampsweb`), running `celery -A gramps_webapi.celery worker`.
-- `grampsweb_redis` — Valkey/Redis, used as both the Celery broker and rate-limit store.
-- Named volumes persist the Gramps user DB, search index, thumbnails, export cache, Flask secret, the actual genealogy database, and media files — treat these as durable state, not disposable.
+The live Gramps Web stack — this is the data backend the crew is intended to work against — is
+brought up from the **`gramps-mcp`** project (sibling repo, e.g.
+`/Users/fjacquet/Projects/gramps-mcp`), using its own `docker-compose.yml`:
 
-Bring the stack up/down with standard `docker compose` commands from the repo root (`docker compose up -d`, `docker compose down`).
+```bash
+cd /Users/fjacquet/Projects/gramps-mcp
+docker compose up -d
+```
 
-There is also a separate **`gramps-mcp`** container (not defined in this repo's `docker-compose.yml` — started independently) that exposes an MCP server at `http://localhost:8000/mcp` with ~16 tools for querying the Gramps Web API (people, families, events, etc.). It is not registered with Claude Code by default (`claude mcp list` won't show it) — add it with `claude mcp add` if a task requires querying live genealogy data, and mention that to the user before doing so.
+This starts the containers `gramps-mcp-grampsweb-1` (Gramps Web app/API), `grampsweb_celery`
+(Celery worker), `grampsweb_redis` (Valkey/Redis broker/rate-limit store), and
+`gramps-mcp-grampsweb_postgres-1` (Postgres). Named volumes persist the Gramps user DB, search
+index, thumbnails, export cache, Flask secret, the genealogy database, and media files — treat
+these as durable state, not disposable. Gramps Web itself is exposed on host port `80`.
+
+`gramps-mcp` also exposes an MCP server at `http://localhost:8000/mcp` with ~16 tools for
+querying the Gramps Web API (people, families, events, etc.). It is not registered with Claude
+Code by default (`claude mcp list` won't show it) — add it with `claude mcp add` if a task
+requires querying live genealogy data, and mention that to the user before doing so.
+
+See `docs/USER_GUIDE.md` for the full Phase 0 setup sequence, including the `GRAMPS_API_URL`
+distinction between host-run `genecrew` (`http://localhost:80/api`) and containerized
+`gramps-mcp` (`host.docker.internal:80`, no `/api` suffix).
 
 ## Commands
 
@@ -55,11 +73,9 @@ cd genecrew && uv run test <n_iterations> <eval_llm>
 
 # Lint (ruff is a root dependency; no ruff config file exists yet — defaults apply)
 uv run ruff check .
-
-# Bring up the Gramps Web genealogy backend
-docker compose up -d
-docker compose down
 ```
+
+Gramps Web is **not** brought up from this repo — see "Genealogy stack (Gramps Web)" above.
 
 There are no tests yet (`genecrew/tests/` is empty) and no CI configuration in this repo.
 
