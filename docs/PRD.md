@@ -35,12 +35,13 @@ phasage, se référer à `docs/document-de-travail.md`.
 
 ## 3. Contrainte d'échelle
 
-L'arbre compte entre 1 000 et 5 000 personnes (~2 119 personnes réelles dans l'arbre cible).
-Le travail est massif et s'étalera sur des mois. Tout le pipeline est donc conçu pour tourner
+L'arbre compte entre 1 000 et 5 000 personnes. Le travail est massif et s'étalera sur des mois. Tout le pipeline est donc conçu pour tourner
 **par lots**, être **interrompu et repris** sans perte, et **maîtriser le coût LLM** en
 confiant le gros du volume à des règles déterministes gratuites.
 
 (document-de-travail.md, §1.3)
+
+En phase 0, relevé `genecrew stats` du 2026-07-17 sur l'arbre « My Family Tree » : 2 119 personnes.
 
 ## 4. Non-objectifs
 

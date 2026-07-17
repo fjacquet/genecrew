@@ -8,8 +8,8 @@
 
 ## Contexte
 
-L'arbre compte 1 000 à 5 000 personnes (~2 119 personnes réelles), le travail s'étale sur des
-mois, et le coût LLM doit rester maîtrisé (§1.3). La détection d'anomalies (R1–R10, doublons),
+L'arbre compte 1 000 à 5 000 personnes, le travail s'étale sur des
+mois, et le coût LLM doit rester maîtrisé (§1.3). En phase 0, relevé `genecrew stats` du 2026-07-17 sur l'arbre « My Family Tree » : 2 119 personnes. La détection d'anomalies (R1–R10, doublons),
 la résolution de périmètre et le découpage en lots sont des calculs mécaniques : les confier à
 un LLM serait à la fois plus coûteux et moins fiable qu'un calcul déterministe.
 
