@@ -64,7 +64,9 @@ uv sync
 # Run the crew (from genecrew/, using its own console script)
 cd genecrew && crewai run
 # equivalent direct entry point:
-cd genecrew && uv run genecrew
+cd genecrew && uv run run_crew
+# `uv run genecrew` is the GeneCrew CLI (argparse), not the crew itself —
+# e.g. `uv run genecrew stats` (more subcommands land in later phases)
 
 # Train / replay / test the crew (from genecrew/)
 cd genecrew && uv run train <n_iterations> <filename>
