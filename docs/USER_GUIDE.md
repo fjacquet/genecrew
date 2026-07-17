@@ -2,8 +2,8 @@
 
 Ce guide couvre l'usage courant de GeneCrew, phase par phase. **Chaque phase ajoute sa
 section** : ce document n'est complet qu'après la Phase 6 (voir le phasage,
-`docs/document-de-travail.md`, §9). Pour l'instant, seule la Phase 0 (« Plomberie ») est
-livrée.
+`docs/document-de-travail.md`, §9). Pour l'instant, la Phase 0 (« Plomberie ») et la Phase 1a
+(« Audit déterministe », le socle sans LLM de la Phase 1 — voir §9) sont livrées.
 
 ---
 
@@ -64,7 +64,7 @@ ce fichier — il est exclu par `genecrew/.gitignore`). Clés attendues, telles 
 | `GRAMPS_PASSWORD` | mot de passe du compte ci-dessus |
 | `GENECREW_DRY_RUN` | simule les écritures (défaut `true`) |
 | `GENECREW_BATCH_SIZE` | taille des lots (défaut `25`) |
-| `GENECREW_OUTPUT_DIR` | dossier des rapports/checkpoints (défaut `output/`) |
+| `GENECREW_OUTPUT_DIR` | dossier des rapports d'audit (défaut `output/`) |
 
 Aucune valeur n'est donnée ici volontairement — voir `genecrew/.env.example` pour les valeurs
 par défaut non sensibles, et compléter `GRAMPS_USERNAME`/`GRAMPS_PASSWORD` avec les
@@ -96,8 +96,76 @@ sortie de la Phase 0.
 
 ---
 
+## Phase 1a — Audit déterministe
+
+Livrable de la Phase 1a : le socle sans LLM de la Phase 1 (§9 du document de travail) —
+moteur d'audit déterministe (règles R1–R10, §6.1) + rapport Markdown.
+Aucune interprétation LLM, aucun tag, aucune note, aucune écriture dans Gramps à ce stade : ce
+sera l'objet de la Phase 1b (ADR 0006, `docs/adr/0006-audit-deterministe-personfacts.md`).
+
+### Prérequis
+
+- Phase 0 opérationnelle : `uv run genecrew stats` fonctionne déjà (voir ci-dessus) — le client
+  Gramps, la configuration `.env` et la dépendance à `crewai_custom_tools` sont en place.
+- Aucun prérequis supplémentaire : l'audit ne consomme aucune clé LLM (`MODEL` n'est pas
+  utilisé par cette commande).
+
+### Lancer un audit
+
+Depuis la racine du dépôt `genecrew` :
+
+```bash
+uv run genecrew audit --scope all --limit 200
+```
+
+Options de la sous-commande `audit` :
+
+| Option | Rôle |
+|---|---|
+| `--scope` | périmètre à auditer : `all` (toutes les personnes, paginées) ou `person:ID` (une seule personne). `branch:ID` (ascendants/descendants) est différé à la Phase 1b. |
+| `--limit N` | limite l'échantillon à N personnes (utile pour un run rapide ou un test terrain). |
+| `--batch-size N` | taille des lots traités (défaut : `GENECREW_BATCH_SIZE`, voir Phase 0). |
+| `--date` | force la date du rapport (défaut : aujourd'hui). |
+
+### Où trouver le rapport
+
+La commande écrit un rapport Markdown dans `output/audit/<AAAA-MM-JJ>_audit_<scope>.md` (par
+exemple `output/audit/2026-07-17_audit_all.md`) et affiche son chemin sur la sortie standard.
+
+L'audit déterministe est rapide (environ 1 minute pour tout l'arbre, aucun appel LLM) : en cas
+d'interruption, il suffit de relancer la commande plutôt que de reprendre un run partiel. Le
+« resumable batching » (checkpoints de reprise) est réservé à la Phase 1b (interprétation LLM,
+plus coûteuse et donc plus utile à reprendre).
+
+### Lire les sévérités
+
+Le rapport liste les anomalies par personne, avec pour chacune une règle (R1 à R10) et une
+sévérité :
+
+- **haute** — problème quasiment certain (ex. R3 : âge parental impossible à la naissance
+  d'un enfant ; R5 : naissance après le décès d'un parent). À vérifier en priorité.
+- **moyenne** — incohérence de date à examiner (ex. R6, R7 : événement daté hors de la vie de
+  la personne, ou dans un ordre anormal).
+- **basse** — signal d'hygiène des données plutôt qu'anomalie factuelle (ex. R9 : personne sans
+  aucune source ni citation rattachée). Le volume de cette catégorie peut être élevé sur un
+  arbre peu sourcé — c'est attendu.
+
+Une section « Candidats doublons » (règle R10) liste séparément les paires de personnes dont le
+nom normalisé et la date de naissance se recoupent (voir §6.1 et §8 du document de travail pour
+le détail des règles et des sévérités).
+
+### Aucun coût LLM, aucune écriture dans Gramps
+
+L'audit est un calcul 100 % déterministe (fonctions pures sur `PersonFacts`/`FamilyFacts`, voir
+ADR 0006) : il ne fait aucun appel LLM et ne modifie rien dans Gramps (ni tag, ni note, ni
+citation). Sur l'arbre réel, un run `--scope all --limit 200` s'exécute en quelques secondes.
+Il peut donc être relancé aussi souvent que nécessaire, y compris avant que la Phase 1b (pose
+des tags `ia-anomalie`/`ia-a-verifier`, interprétation LLM, export PDF) ne soit livrée.
+
+---
+
 ## Phases suivantes
 
-Les sections Phase 1 (Audit lecture seule) à Phase 6 (Archiviste Numérique) seront ajoutées
-au fil de leur livraison, conformément au phasage décrit dans
+Les sections Phase 1b (interprétation LLM, tags, PDF) à Phase 6 (Archiviste Numérique) seront
+ajoutées au fil de leur livraison, conformément au phasage décrit dans
 `docs/document-de-travail.md`, §9.
