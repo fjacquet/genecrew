@@ -8,7 +8,6 @@ from crewai_custom_tools.tools.genealogy.analysis.duplicates import find_duplica
 from crewai_custom_tools.tools.genealogy.analysis.rules import check_family, check_person
 from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient
 
-from genecrew.checkpoint import Checkpoint, load_checkpoint, save_checkpoint
 from genecrew.facts import FactsFetcher
 from genecrew.report import render_report
 from genecrew.scope import resolve_handles
@@ -21,15 +20,10 @@ def _batches(items, size):
 
 def run_audit(
     client: GrampsClient, scope: str, output_dir: Path, *,
-    date: str, batch_size: int = 25, limit: int | None = None, resume: bool = False,
+    date: str, batch_size: int = 25, limit: int | None = None,
 ) -> Path:
     """Run the deterministic audit over `scope` and write a Markdown report."""
     output_dir = Path(output_dir)
-    cp_path = output_dir / "checkpoints" / f"audit_{scope.replace(':', '_')}.json"
-    checkpoint = load_checkpoint(cp_path) if resume else None
-    if checkpoint is None:
-        checkpoint = Checkpoint(workflow="audit", scope=scope)
-
     fetcher = FactsFetcher(client)
     handles = resolve_handles(client, scope, limit=limit)
 
@@ -40,8 +34,6 @@ def run_audit(
     for batch in _batches(handles, batch_size):
         batch_people = []
         for handle, _gid in batch:
-            if handle in checkpoint.done_handles:
-                continue
             person = fetcher.get_person_facts(handle)
             if person is None:
                 continue
@@ -65,8 +57,6 @@ def run_audit(
                 anomalies.extend(check_family(family, related))
 
         all_people.extend(batch_people)
-        checkpoint.done_handles.update(h for h, _ in batch)
-        save_checkpoint(cp_path, checkpoint)
 
     duplicates = find_duplicates(all_people)
     report = render_report(scope, date, anomalies, duplicates, people_count=len(all_people))

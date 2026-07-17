@@ -96,3 +96,16 @@ def test_get_family_facts_returns_none_on_404():
     client = GrampsClient(CONFIG, transport=httpx.MockTransport(handler))
     fetcher = FactsFetcher(client)
     assert fetcher.get_family_facts("nope") is None
+
+
+def test_get_person_facts_propagates_non_404():
+    import pytest
+    def handler(request):
+        if request.url.path == "/api/token/":
+            return httpx.Response(200, json={"access_token": "t"})
+        return httpx.Response(500)
+
+    client = GrampsClient(CONFIG, transport=httpx.MockTransport(handler))
+    fetcher = FactsFetcher(client)
+    with pytest.raises(httpx.HTTPStatusError):
+        fetcher.get_person_facts("boom")

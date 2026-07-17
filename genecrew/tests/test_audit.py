@@ -43,14 +43,3 @@ def test_run_audit_writes_report_with_r1(tmp_path):
     assert report_path.exists()
     text = report_path.read_text(encoding="utf-8")
     assert "R1" in text and "I0001" in text
-    # un checkpoint a été écrit
-    assert (tmp_path / "checkpoints").exists()
-
-
-def test_run_audit_resume_skips_done(tmp_path):
-    client = GrampsClient(CONFIG, transport=httpx.MockTransport(_handler))
-    # premier run
-    run_audit(client, "all", tmp_path, date="2026-07-17", batch_size=25)
-    # second run avec resume : ne doit pas replanter et reproduire un rapport
-    p = run_audit(client, "all", tmp_path, date="2026-07-18", batch_size=25, resume=True)
-    assert p.exists()

@@ -99,7 +99,7 @@ sortie de la Phase 0.
 ## Phase 1a — Audit déterministe
 
 Livrable de la Phase 1a : le socle sans LLM de la Phase 1 (§9 du document de travail) —
-moteur d'audit déterministe (règles R1–R10, §6.1) + rapport Markdown + checkpoints reprenables.
+moteur d'audit déterministe (règles R1–R10, §6.1) + rapport Markdown.
 Aucune interprétation LLM, aucun tag, aucune note, aucune écriture dans Gramps à ce stade : ce
 sera l'objet de la Phase 1b (ADR 0006, `docs/adr/0006-audit-deterministe-personfacts.md`).
 
@@ -125,16 +125,17 @@ Options de la sous-commande `audit` :
 | `--scope` | périmètre à auditer : `all` (toutes les personnes, paginées) ou `person:ID` (une seule personne). `branch:ID` (ascendants/descendants) est différé à la Phase 1b. |
 | `--limit N` | limite l'échantillon à N personnes (utile pour un run rapide ou un test terrain). |
 | `--batch-size N` | taille des lots traités (défaut : `GENECREW_BATCH_SIZE`, voir Phase 0). |
-| `--resume` | reprend depuis le dernier checkpoint au lieu de repartir de zéro. |
 | `--date` | force la date du rapport (défaut : aujourd'hui). |
 
 ### Où trouver le rapport
 
 La commande écrit un rapport Markdown dans `output/audit/<AAAA-MM-JJ>_audit_<scope>.md` (par
 exemple `output/audit/2026-07-17_audit_all.md`) et affiche son chemin sur la sortie standard.
-Les checkpoints de reprise vivent sous `output/checkpoints/` (un fichier JSON par couple
-workflow/périmètre, voir §6.5 du document de travail) — ils permettent d'interrompre un run
-long et de le reprendre avec `--resume` sans perdre le travail déjà fait.
+
+L'audit déterministe est rapide (environ 1 minute pour tout l'arbre, aucun appel LLM) : en cas
+d'interruption, il suffit de relancer la commande plutôt que de reprendre un run partiel. Le
+« resumable batching » (checkpoints de reprise) est réservé à la Phase 1b (interprétation LLM,
+plus coûteuse et donc plus utile à reprendre).
 
 ### Lire les sévérités
 

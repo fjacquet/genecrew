@@ -108,7 +108,7 @@ def audit_cmd(args) -> None:
     date = args.date or __import__("datetime").date.today().isoformat()
     path = run_audit(
         client, args.scope, output_dir, date=date,
-        batch_size=args.batch_size, limit=args.limit, resume=args.resume,
+        batch_size=args.batch_size, limit=args.limit,
     )
     print(f"Rapport écrit : {path}")
 
@@ -127,8 +127,6 @@ def main() -> None:
                          help="limiter à N personnes (échantillon)")
     audit_p.add_argument("--batch-size", type=int,
                          default=int(os.environ.get("GENECREW_BATCH_SIZE", "25")))
-    audit_p.add_argument("--resume", action="store_true",
-                         help="reprendre depuis le dernier checkpoint")
     audit_p.add_argument("--date", default=None, help="date du rapport (défaut : aujourd'hui)")
 
     args = parser.parse_args()

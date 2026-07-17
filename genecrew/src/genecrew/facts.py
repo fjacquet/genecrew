@@ -95,7 +95,9 @@ class FactsFetcher:
             try:
                 raw = self._client.get_json(
                     f"/people/{handle}", params={"profile": "all", "extend": "event_ref_list"})
-            except httpx.HTTPStatusError:
+            except httpx.HTTPStatusError as exc:
+                if exc.response.status_code != 404:
+                    raise
                 logger.warning("Personne introuvable, ignorée : %s", handle)
                 return None
             self._people[handle] = person_from_json(raw)
@@ -106,7 +108,9 @@ class FactsFetcher:
             try:
                 raw = self._client.get_json(
                     f"/families/{handle}", params={"extend": "event_ref_list"})
-            except httpx.HTTPStatusError:
+            except httpx.HTTPStatusError as exc:
+                if exc.response.status_code != 404:
+                    raise
                 logger.warning("Famille introuvable, ignorée : %s", handle)
                 return None
             self._families[handle] = family_from_json(raw)

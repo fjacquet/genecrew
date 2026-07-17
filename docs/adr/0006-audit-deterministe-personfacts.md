@@ -53,9 +53,12 @@ manipule en permanence des dates partielles, approximatives ou inconnues (une na
   | R10 | candidats doublons : nom normalisé (sans accents, minuscules) + naissance à ±2 ans + `difflib.SequenceMatcher` ≥ 0,85 |
 
 - **Interfaces** : `uv run genecrew audit --scope <all|person:ID> [--limit N] [--batch-size N]
-  [--resume] [--date AAAA-MM-JJ]` (le périmètre `branch:ID` est différé à la Phase 1b, cf. Hors
-  périmètre ci-dessous). Sortie : `output/audit/<date>_audit_<scope>.md` + checkpoints sous
-  `output/checkpoints/`.
+  [--date AAAA-MM-JJ]` (le périmètre `branch:ID` est différé à la Phase 1b, cf. Hors périmètre
+  ci-dessous). Sortie : `output/audit/<date>_audit_<scope>.md`. L'audit étant rapide et sans
+  coût LLM (~1 min pour tout l'arbre), il n'y a pas de reprise sur checkpoint à ce stade : un
+  run interrompu se relance simplement depuis le début. Le module
+  `genecrew/src/genecrew/checkpoint.py` existe déjà mais n'est pas câblé ici — le « resumable
+  batching » est réservé à la Phase 1b (interprétation LLM, plus coûteuse).
 
 ## Conséquences
 
