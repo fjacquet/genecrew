@@ -8,10 +8,16 @@ and citation counts arrive together.
 
 from __future__ import annotations
 
+import logging
+
+import httpx
+
 from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient
 from crewai_custom_tools.tools.genealogy.models.domain import (
     EventFact, FamilyFacts, PersonFacts,
 )
+
+logger = logging.getLogger(__name__)
 
 _SEX = {0: "F", 1: "M", 2: "U"}
 _LIST_PARAMS = {"profile": "all", "extend": "event_ref_list", "sort": "gramps_id"}
@@ -86,14 +92,22 @@ class FactsFetcher:
 
     def get_person_facts(self, handle: str) -> PersonFacts | None:
         if handle not in self._people:
-            raw = self._client.get_json(
-                f"/people/{handle}", params={"profile": "all", "extend": "event_ref_list"})
+            try:
+                raw = self._client.get_json(
+                    f"/people/{handle}", params={"profile": "all", "extend": "event_ref_list"})
+            except httpx.HTTPStatusError:
+                logger.warning("Personne introuvable, ignorée : %s", handle)
+                return None
             self._people[handle] = person_from_json(raw)
         return self._people.get(handle)
 
     def get_family_facts(self, handle: str) -> FamilyFacts | None:
         if handle not in self._families:
-            raw = self._client.get_json(
-                f"/families/{handle}", params={"extend": "event_ref_list"})
+            try:
+                raw = self._client.get_json(
+                    f"/families/{handle}", params={"extend": "event_ref_list"})
+            except httpx.HTTPStatusError:
+                logger.warning("Famille introuvable, ignorée : %s", handle)
+                return None
             self._families[handle] = family_from_json(raw)
         return self._families.get(handle)

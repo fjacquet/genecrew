@@ -74,3 +74,25 @@ def test_get_person_facts_is_cached():
     b = fetcher.get_person_facts("h1")
     assert a.gramps_id == b.gramps_id == "I0001"
     assert calls["n"] == 1                       # deuxième appel servi par le cache
+
+
+def test_get_person_facts_returns_none_on_404():
+    def handler(request):
+        if request.url.path == "/api/token/":
+            return httpx.Response(200, json={"access_token": "t"})
+        return httpx.Response(404)
+
+    client = GrampsClient(CONFIG, transport=httpx.MockTransport(handler))
+    fetcher = FactsFetcher(client)
+    assert fetcher.get_person_facts("nope") is None
+
+
+def test_get_family_facts_returns_none_on_404():
+    def handler(request):
+        if request.url.path == "/api/token/":
+            return httpx.Response(200, json={"access_token": "t"})
+        return httpx.Response(404)
+
+    client = GrampsClient(CONFIG, transport=httpx.MockTransport(handler))
+    fetcher = FactsFetcher(client)
+    assert fetcher.get_family_facts("nope") is None
