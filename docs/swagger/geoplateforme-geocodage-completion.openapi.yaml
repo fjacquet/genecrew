@@ -1,0 +1,419 @@
+openapi: "3.1.0"
+info:
+  title: API Géoplateforme - Autocomplétion
+  description: Ce service permet de suggérer des localisants possibles au fur et à mesure de la saisie d'une adresse ou d'un nom de lieu / point d'intérêt ou d'une parcelle.
+  contact:
+      name: "Geoplateforme"
+      email: "geoplateforme@ign.fr"
+      url: "http://cartes.gouv.fr"
+  version: 1.0.0
+  termsOfService: "https://cartes.gouv.fr/cgu"
+  license:
+    name: Licence ouverte 2.0
+    url: https://www.etalab.gouv.fr/licence-ouverte-open-licence
+servers:
+  - url: https://data.geopf.fr/geocodage/completion
+paths:
+  /getCapabilities:
+    get:
+      tags:
+        - getCapabilities
+      summary: Découvrir le service
+      description: "Découvrir le service: les opérations possibles, les ressources disponibles et les options proposées."
+      operationId: getCapabilities
+      responses:
+        200:
+          description: successful operation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Getcapabilities"
+        404:
+          description: Not found
+
+  /:
+    get:
+      summary: Retourne des suggestions de complétion du texte
+      operationId: completion
+      tags:
+        - completion
+      parameters:
+        - name: text
+          in: query
+          description: Le texte devant être completé
+          required: true
+          schema:
+            type: string
+          example: "2, avenue pasteur saint m"
+        - name: terr
+          in: query
+          description:  Une limitation de la zone de recherche de localisants.
+                        Une liste peut être fournie en séparant les valeurs par des virgules.
+                        Les valeurs acceptées sont METROPOLE, DOMTOM, code(s) INSEE de département, code(s) postaux de commune.
+          required: false
+          schema:
+            type: string
+          example: "DOMTOM,METROPOLE,75,75013"
+        - name: poiType
+          in: query
+          description: |
+            Filtre sur le type de localisant pour le type POI.
+            Les valeurs possibles sont listées dans le getCapabilities du service d'autocompletion.
+          required: false
+          schema:
+            type: string
+          example: "administratif"
+        - name: depcode
+          in: query
+          description: "Filtre pour les index address et poi. Il permet de filtrer les résultats par code départmeent. Accepte plusieurs valeurs séparées par des virgules (maximum 10)."
+          schema:
+            oneOf:
+              - $ref: "#/components/schemas/DepCode"
+              - type: array
+                items:
+                  $ref: "#/components/schemas/DepCode"
+                maxItems: 10
+          style: form
+          explode: false
+        - name: zipcode
+          in: query
+          description: "Filtre pour les index address et poi. Il permet de filtrer les résultats par code postal. Accepte plusieurs valeurs séparées par des virgules (maximum 50)."
+          schema:
+            oneOf:
+              - $ref: "#/components/schemas/DepCode"
+              - type: array
+                items:
+                  $ref: "#/components/schemas/DepCode"
+                maxItems: 50
+          style: form
+          explode: false
+        - name: citycode
+          in: query
+          description: "Filtre pour les index address et poi. Il permet de filtrer les résultats par code INSEE. Accepte plusieurs valeurs séparées par des virgules (maximum 200)."
+          schema:
+            oneOf:
+              - $ref: "#/components/schemas/InseeCode"
+              - type: array
+                items:
+                  $ref: "#/components/schemas/InseeCode"
+                maxItems: 200
+          style: form
+          explode: false
+        - name: lonlat
+          in: query
+          description: "coordonnées (longitude,latitude) d'un localisant pour favoriser les candidats les plus proches."
+          schema:
+            type: string
+            pattern: '^\d+\.?\d*\,\d+\.?\d*$'
+        - name: type
+          in: query
+          description: |
+            Le type de localisants recherchés.
+            Il est possible de spécifier plusieurs types séparés par une virgule.
+          required: false
+          schema:
+            type: string
+            enum:
+              [
+                "PositionOfInterest",
+                "StreetAddress",
+                "PositionOfInterest,StreetAddress",
+              ]
+            default: "PositionOfInterest,StreetAddress"
+          example: ""
+        - name: maximumResponses
+          in: query
+          description: Le nombre maximum de réponses que l’on souhaite voir retournées (entre 1 et 15)
+          required: false
+          schema:
+            type: integer
+            default: 10
+        - name: bbox
+          in: query
+          description: Filtre avec une bbox suivant l'ordre xmin,ymin,xmax,ymax
+          required: false
+          schema:
+            type: string
+            pattern: '^\d+\.?\d*\,\d+\.?\d*\,\d+\.?\d*\,\d+\.?\d*$'
+      responses:
+        "200":
+          description: Une liste de suggestions de completions possibles
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Response"
+              example:
+                {
+                  "status": "OK",
+                  "results":
+                    [
+                      {
+                        "country": "StreetAddress",
+                        "city": "Saint-Malo",
+                        "x": -2.004141,
+                        "y": 48.655722,
+                        "zipcode": "35400",
+                        "street": "2 av pasteur",
+                        "classification": 7,
+                        "kind": "",
+                        "fulltext": "2 av pasteur,35400 Saint-Malo",
+                      },
+                      {
+                        "country": "PositionOfInterest",
+                        "names": [
+                          "Saint-Malo"
+                        ],
+                        "zipcode": "35400",
+                        "zipcodes": [
+                          "35400"
+                        ],
+                        "metropole": true,
+                        "city": "Saint-Malo",
+                        "street": "Saint-Malo",
+                        "poiType": [
+                          "lieu-dit habité",
+                          "zone d'habitation"
+                        ],
+                        "kind": "lieu-dit habité",
+                        "fulltext": "Saint-Malo, 35400 Saint-Malo",
+                        "classification": 7,
+                        "x": -1.994067,
+                        "y": 48.647186
+                      }
+                    ],
+                }
+        default:
+          description: unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                value: { "status": "OK", "results": [] }
+components:
+  schemas:
+    Getcapabilities:
+      type: "object"
+      properties:
+        info:
+          type: "object"
+          properties:
+            name:
+              type: "string"
+            url:
+              type: "string"
+            description:
+              type: "string"
+        api:
+          type: "object"
+          properties:
+            name:
+              type: "string"
+              example: "rest"
+            version:
+              type: "string"
+              example: "0.0.0"
+        operations:
+          type: "array"
+          items:
+            type: "object"
+            properties:
+              id:
+                type: "string"
+              description:
+                type: "string"
+              url:
+                type: "string"
+              methods:
+                type: "array"
+                items:
+                  type: "string"
+                  enum: ["GET", "POST", "PUT", "DELETE"]
+              parameters:
+                type: "array"
+                items:
+                  type: "object"
+                  properties:
+                    name:
+                      type: "string"
+                    in:
+                      type: "string"
+                    description:
+                      type: "string"
+                    required:
+                      type: "boolean"
+                    default:
+                      description: "default value"
+                    schema:
+                      type: "object"
+                      properties:
+                        type:
+                          type: "string"
+                        example:
+                          type: "string"
+                    example:
+                      type: "string"
+        indexes:
+          type: "array"
+          items:
+            type: "object"
+            properties:
+              id:
+                type: "string"
+              description:
+                type: "string"
+              fields:
+                type: "array"
+                items:
+                  type: "object"
+                  properties:
+                    name:
+                      type: "string"
+                    description:
+                      type: "string"
+                    type:
+                      type: "string"
+                    queryable:
+                      type: "boolean"
+                    filter:
+                      type: "boolean"
+                    values:
+                      type: "array"
+                      items:
+                        description: allowed value
+    Response:
+      type: object
+      required:
+        - status
+        - results
+      properties:
+        status:
+          type: string
+        results:
+          type: array
+          items:
+            oneOf:
+              - $ref: "#/components/schemas/Address"
+              - $ref: "#/components/schemas/Poi"
+    Address:
+      type: object
+      required:
+        - country
+        - city
+        - x
+        - y
+        - zipcode
+        - street
+        - classification
+        - kind
+        - fulltext
+        - metropole
+      properties:
+        country:
+          type: string
+        city:
+          type: string
+        x:
+          type: number
+          format: float
+        y:
+          type: number
+          format: float
+        zipcode:
+          type: string
+          minLength: 5
+          maxLength: 5
+        street:
+          type: string
+        classification:
+          type: integer
+          format: int32
+        kind:
+          type: string
+        fulltext:
+          type: string
+        metropole:
+          type: boolean
+
+    DepCode:
+      maxLength: 3
+      minLength: 2
+      type: string
+      description: "Code du département"
+
+    ZipcodeCode:
+      maxLength: 5
+      minLength: 5
+      type: string
+      description: "Code postal"
+    
+    InseeCode:
+      maxLength: 5
+      minLength: 2
+      type: string
+      description: "Code INSEE"
+
+    Poi:
+      type: object
+      required:
+        - country
+        - city
+        - x
+        - y
+        - zipcode
+        - zipcodes
+        - poiType
+        - street
+        - classification
+        - kind
+        - fulltext
+        - metropole
+      properties:
+        country:
+          type: string
+        city:
+          type: string
+        x:
+          type: number
+          format: float
+        y:
+          type: number
+          format: float
+        zipcode:
+          type: string
+          minLength: 5
+          maxLength: 5
+        zipcodes:
+          type: array
+          items:
+            type: string
+            minLength: 5
+            maxLength: 5
+        poiType:
+          type: array
+          items:
+            type: string
+        street:
+          type: string
+        classification:
+          type: integer
+          format: int32
+        kind:
+          type: string
+        fulltext:
+          type: string
+        metropole:
+          type: boolean
+    Error:
+      type: object
+      required:
+        - status
+        - results
+      properties:
+        status:
+          type: string
+        results:
+          type: array
+          items:
+            type: object
+            maxItems: 0
