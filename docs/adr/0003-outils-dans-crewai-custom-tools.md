@@ -43,7 +43,7 @@ Intégration des deux dépôts frères (§3.4) :
 > dependencies = ["crewai>=1.15.2", "crewai-custom-tools"]
 >
 > [tool.uv.sources]
-> crewai-custom-tools = { path = "../crewai_custom_tools", editable = true }
+> crewai-custom-tools = { path = "../../crewai_custom_tools", editable = true }
 > ```
 
 ## Conséquences
