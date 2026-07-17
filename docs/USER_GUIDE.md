@@ -64,7 +64,7 @@ ce fichier — il est exclu par `genecrew/.gitignore`). Clés attendues, telles 
 | `GRAMPS_PASSWORD` | mot de passe du compte ci-dessus |
 | `GENECREW_DRY_RUN` | simule les écritures (défaut `true`) |
 | `GENECREW_BATCH_SIZE` | taille des lots (défaut `25`) |
-| `GENECREW_OUTPUT_DIR` | dossier des rapports/checkpoints (défaut `output/`) |
+| `GENECREW_OUTPUT_DIR` | dossier des rapports d'audit (défaut `output/`) |
 
 Aucune valeur n'est donnée ici volontairement — voir `genecrew/.env.example` pour les valeurs
 par défaut non sensibles, et compléter `GRAMPS_USERNAME`/`GRAMPS_PASSWORD` avec les
