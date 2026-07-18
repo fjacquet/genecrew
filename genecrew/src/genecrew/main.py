@@ -135,6 +135,25 @@ def names_cmd(args) -> None:
     print(f"Noms à vérifier : {incomplete}")
 
 
+def gender_cmd(args) -> None:
+    """Infer gender from first name (read-only); print the report + proposals paths."""
+    from pathlib import Path
+
+    from crewai_custom_tools.tools.genealogy.gramps.client import (
+        GrampsClient,
+        GrampsConfig,
+    )
+
+    from genecrew.gender import run_gender
+
+    client = GrampsClient(GrampsConfig.from_env())
+    output_dir = Path(os.environ.get("GENECREW_OUTPUT_DIR", "output"))
+    date = args.date or __import__("datetime").date.today().isoformat()
+    report, proposals = run_gender(client, args.scope, output_dir, date=date, limit=args.limit)
+    print(f"Rapport : {report}")
+    print(f"Propositions : {proposals}")
+
+
 def main() -> None:
     """CLI entry point: genecrew <command>."""
     load_dotenv()
@@ -160,6 +179,12 @@ def main() -> None:
                          help="aperçu sans écrire (défaut : écriture réelle)")
     names_p.add_argument("--date", default=None, help="date du rapport (défaut : aujourd'hui)")
 
+    gender_p = sub.add_parser("gender",
+                              help="Inférence de genre à partir du prénom (lecture seule)")
+    gender_p.add_argument("--scope", default="all", help="all | person:ID")
+    gender_p.add_argument("--limit", type=int, default=None, help="limiter à N personnes")
+    gender_p.add_argument("--date", default=None, help="date du rapport (défaut : aujourd'hui)")
+
     args = parser.parse_args()
     if args.command == "stats":
         stats()
@@ -167,6 +192,8 @@ def main() -> None:
         audit_cmd(args)
     elif args.command == "names":
         names_cmd(args)
+    elif args.command == "gender":
+        gender_cmd(args)
 
 
 if __name__ == "__main__":
