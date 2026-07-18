@@ -113,6 +113,28 @@ def audit_cmd(args) -> None:
     print(f"Rapport écrit : {path}")
 
 
+def names_cmd(args) -> None:
+    """Standardize name casing over a scope; print the report paths."""
+    from pathlib import Path
+
+    from crewai_custom_tools.tools.genealogy.gramps.client import (
+        GrampsClient,
+        GrampsConfig,
+    )
+
+    from genecrew.names import run_names
+
+    client = GrampsClient(GrampsConfig.from_env())
+    output_dir = Path(os.environ.get("GENECREW_OUTPUT_DIR", "output"))
+    date = args.date or __import__("datetime").date.today().isoformat()
+    report, incomplete = run_names(
+        client, args.scope, output_dir, date=date,
+        batch_size=args.batch_size, limit=args.limit, dry_run=args.dry_run,
+    )
+    print(f"Rapport : {report}")
+    print(f"Noms à vérifier : {incomplete}")
+
+
 def main() -> None:
     """CLI entry point: genecrew <command>."""
     load_dotenv()
@@ -129,11 +151,22 @@ def main() -> None:
                          default=int(os.environ.get("GENECREW_BATCH_SIZE", "25")))
     audit_p.add_argument("--date", default=None, help="date du rapport (défaut : aujourd'hui)")
 
+    names_p = sub.add_parser("names", help="Standardisation de la casse des noms")
+    names_p.add_argument("--scope", default="all", help="all | person:ID")
+    names_p.add_argument("--limit", type=int, default=None, help="limiter à N personnes")
+    names_p.add_argument("--batch-size", type=int,
+                         default=int(os.environ.get("GENECREW_BATCH_SIZE", "25")))
+    names_p.add_argument("--dry-run", action="store_true",
+                         help="aperçu sans écrire (défaut : écriture réelle)")
+    names_p.add_argument("--date", default=None, help="date du rapport (défaut : aujourd'hui)")
+
     args = parser.parse_args()
     if args.command == "stats":
         stats()
     elif args.command == "audit":
         audit_cmd(args)
+    elif args.command == "names":
+        names_cmd(args)
 
 
 if __name__ == "__main__":
