@@ -80,6 +80,7 @@ cd genecrew && uv run genecrew stats                          # tree stats (Phas
 cd genecrew && uv run genecrew audit --scope all --limit 200  # deterministic audit, read-only (Phase 1a)
 cd genecrew && uv run genecrew names --dry-run                # name-casing standardizer (first writer)
 cd genecrew && uv run genecrew gender --scope all --limit 200  # inférence de genre, lecture seule
+cd genecrew && uv run genecrew gender-apply --dry-run          # applique les corrections de genre (write, ADR 0009)
 
 # Train / replay / test the crew (from genecrew/)
 cd genecrew && uv run train <n_iterations> <filename>
