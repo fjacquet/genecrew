@@ -154,6 +154,25 @@ def gender_cmd(args) -> None:
     print(f"Propositions : {proposals}")
 
 
+def gender_apply_cmd(args) -> None:
+    """Apply high-confidence gender corrections (write); print the report path."""
+    from pathlib import Path
+
+    from crewai_custom_tools.tools.genealogy.gramps.client import (
+        GrampsClient,
+        GrampsConfig,
+    )
+
+    from genecrew.gender_apply import run_gender_apply
+
+    client = GrampsClient(GrampsConfig.from_env())
+    output_dir = Path(os.environ.get("GENECREW_OUTPUT_DIR", "output"))
+    date = args.date or __import__("datetime").date.today().isoformat()
+    report = run_gender_apply(client, args.scope, output_dir, date=date,
+                              min_ratio=args.min_ratio, limit=args.limit, dry_run=args.dry_run)
+    print(f"Rapport : {report}")
+
+
 def main() -> None:
     """CLI entry point: genecrew <command>."""
     load_dotenv()
@@ -185,6 +204,15 @@ def main() -> None:
     gender_p.add_argument("--limit", type=int, default=None, help="limiter à N personnes")
     gender_p.add_argument("--date", default=None, help="date du rapport (défaut : aujourd'hui)")
 
+    apply_p = sub.add_parser("gender-apply",
+                             help="Applique (écrit) les corrections de genre à haute confiance")
+    apply_p.add_argument("--scope", default="all", help="all | person:ID")
+    apply_p.add_argument("--min-ratio", type=float, default=0.98,
+                         help="seuil de confiance pour écrire (défaut 0.98)")
+    apply_p.add_argument("--limit", type=int, default=None, help="limiter à N personnes")
+    apply_p.add_argument("--dry-run", action="store_true", help="simuler sans écrire")
+    apply_p.add_argument("--date", default=None, help="date du rapport (défaut : aujourd'hui)")
+
     args = parser.parse_args()
     if args.command == "stats":
         stats()
@@ -194,6 +222,8 @@ def main() -> None:
         names_cmd(args)
     elif args.command == "gender":
         gender_cmd(args)
+    elif args.command == "gender-apply":
+        gender_apply_cmd(args)
 
 
 if __name__ == "__main__":
