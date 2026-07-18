@@ -173,6 +173,28 @@ def gender_apply_cmd(args) -> None:
     print(f"Rapport : {report}")
 
 
+def apply_all_cmd(args) -> None:
+    """Apply casing then gender in one pass; print all report paths."""
+    from pathlib import Path
+
+    from crewai_custom_tools.tools.genealogy.gramps.client import (
+        GrampsClient,
+        GrampsConfig,
+    )
+
+    from genecrew.apply_all import run_apply_all
+
+    client = GrampsClient(GrampsConfig.from_env())
+    output_dir = Path(os.environ.get("GENECREW_OUTPUT_DIR", "output"))
+    date = args.date or __import__("datetime").date.today().isoformat()
+    paths = run_apply_all(client, args.scope, output_dir, date=date,
+                          min_ratio=args.min_ratio, batch_size=args.batch_size,
+                          limit=args.limit, dry_run=args.dry_run)
+    print(f"Casse : {paths['names']}")
+    print(f"Noms à vérifier : {paths['incomplete']}")
+    print(f"Genres : {paths['gender']}")
+
+
 def main() -> None:
     """CLI entry point: genecrew <command>."""
     load_dotenv()
@@ -213,6 +235,17 @@ def main() -> None:
     apply_p.add_argument("--dry-run", action="store_true", help="simuler sans écrire")
     apply_p.add_argument("--date", default=None, help="date du rapport (défaut : aujourd'hui)")
 
+    all_p = sub.add_parser("apply-all",
+                           help="Applique toutes les corrections auto : casse puis genre")
+    all_p.add_argument("--scope", default="all", help="all | person:ID")
+    all_p.add_argument("--min-ratio", type=float, default=0.98,
+                       help="seuil de confiance du volet genre (défaut 0.98)")
+    all_p.add_argument("--limit", type=int, default=None, help="limiter à N personnes")
+    all_p.add_argument("--batch-size", type=int,
+                       default=int(os.environ.get("GENECREW_BATCH_SIZE", "25")))
+    all_p.add_argument("--dry-run", action="store_true", help="simuler sans écrire")
+    all_p.add_argument("--date", default=None, help="date des rapports (défaut : aujourd'hui)")
+
     args = parser.parse_args()
     if args.command == "stats":
         stats()
@@ -224,6 +257,8 @@ def main() -> None:
         gender_cmd(args)
     elif args.command == "gender-apply":
         gender_apply_cmd(args)
+    elif args.command == "apply-all":
+        apply_all_cmd(args)
 
 
 if __name__ == "__main__":

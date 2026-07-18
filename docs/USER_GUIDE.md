@@ -300,6 +300,21 @@ Le global `GENECREW_DRY_RUN=true` (défaut du `.env`) force la simulation quel q
 
 ---
 
+## Tout appliquer d'un coup
+
+`apply-all` enchaîne les corrections automatiques en un passage : d'abord la **casse** des noms
+(forme), puis les **genres** à haute confiance (fait, ADR 0009). Mêmes garde-fous que les
+commandes séparées (dry-run recommandé d'abord ; `GENECREW_DRY_RUN=true` force la simulation).
+
+```bash
+cd genecrew && uv run genecrew apply-all --scope all --dry-run   # simuler
+cd genecrew && uv run genecrew apply-all --scope all             # écrire (si GENECREW_DRY_RUN=false)
+```
+
+Affiche les chemins des rapports (casse, noms à vérifier, genres appliqués) dans `output/`.
+
+---
+
 ## Phases suivantes
 
 Les sections Phase 1b (interprétation LLM, tags, PDF) à Phase 6 (Archiviste Numérique) seront
