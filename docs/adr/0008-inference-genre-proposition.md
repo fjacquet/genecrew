@@ -1,7 +1,10 @@
 # 0008 — Inférence de genre : proposition, pas écriture
 
-## Statut
-Accepté — 2026-07-18
+| | |
+|---|---|
+| **Statut** | Accepté |
+| **Date** | 2026-07-18 |
+| **Source** | `docs/superpowers/specs/2026-07-18-inference-genre-design.md` |
 
 ## Contexte
 Des personnes ont un genre inconnu (`gender=2`). On peut l'inférer depuis le
