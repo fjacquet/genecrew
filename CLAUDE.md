@@ -20,7 +20,17 @@ When making changes, work inside `genecrew/src/genecrew/` for crew logic — the
 - `tools/custom_tool.py` — placeholder `BaseTool` subclass template for adding custom CrewAI tools.
 - `knowledge/user_preference.txt` — static knowledge file (currently placeholder content) available to the crew via CrewAI's knowledge sources.
 
-**Current state**: this is still the unmodified `crewai create crew` template (default "researcher" + "reporting_analyst" agents producing a `report.md` about an `{topic}` input, defaulted to `"AI LLMs"` in `main.py`). Agents, tasks, and tools have not yet been adapted to the project's actual domain.
+**Current state**: the `crew.py`/`agents.yaml`/`tasks.yaml` scaffold is still the stock template (unused for now), but real functionality is built alongside it as an argparse CLI in `main.py`: Phase 0 (`stats`), Phase 1a deterministic audit (`audit`), and the name-casing standardizer (`names`). The genealogy logic itself lives in the sibling `crewai_custom_tools` library (see below), not here. The LLM crew (agents.yaml personas) is a later phase.
+
+## Where the genealogy code lives
+
+genecrew depends on the sibling **`crewai_custom_tools`** library as an editable uv dependency
+(`[tool.uv.sources] crewai-custom-tools = { path = "../../crewai_custom_tools", editable = true }`).
+All genealogy logic lives THERE under `src/crewai_custom_tools/tools/genealogy/`: `gramps/`
+(httpx+JWT client, read/write tools), `models/` (generated + `domain.py`), `analysis/` (pure
+rules R1–R10 + D1–D3, duplicate finder), `standardize/` (name casing). genecrew holds only
+orchestration/CLI: `audit.py`, `names.py`, `facts.py`, `scope.py`, `batching.py`, `report.py`.
+After bumping the library version, run `uv sync` from the genecrew root to pick it up.
 
 ## Genealogy stack (Gramps Web)
 
@@ -65,8 +75,10 @@ uv sync
 cd genecrew && crewai run
 # equivalent direct entry point:
 cd genecrew && uv run run_crew
-# `uv run genecrew` is the GeneCrew CLI (argparse), not the crew itself —
-# e.g. `uv run genecrew stats` (more subcommands land in later phases)
+# `uv run genecrew <cmd>` is the GeneCrew CLI (argparse), NOT the crew itself:
+cd genecrew && uv run genecrew stats                          # tree stats (Phase 0)
+cd genecrew && uv run genecrew audit --scope all --limit 200  # deterministic audit, read-only (Phase 1a)
+cd genecrew && uv run genecrew names --dry-run                # name-casing standardizer (first writer)
 
 # Train / replay / test the crew (from genecrew/)
 cd genecrew && uv run train <n_iterations> <filename>
@@ -79,9 +91,18 @@ uv run ruff check .
 
 Gramps Web is **not** brought up from this repo — see "Genealogy stack (Gramps Web)" above.
 
-There are no tests yet (`genecrew/tests/` is empty) and no CI configuration in this repo.
+Tests live in `genecrew/tests/` — run `uv run python -m pytest genecrew/tests/ -q` from the root; the `crewai_custom_tools` library has its own offline suite. No CI in this repo yet.
 
 ## Environment / secrets
 
-- `genecrew/.env` holds the `OPENAI_API_KEY` (or other LLM provider key) used by the crew — required before `crewai run` will work. Never print or commit its contents.
+- `genecrew/.env` holds `MODEL` (LiteLLM, currently Gemini), the `GRAMPS_*` connection vars, and `GENECREW_*` pipeline settings — see `genecrew/.env.example`. Never print or commit its contents.
 - `genecrew/.gitignore` excludes `.env`, `__pycache__/`, and `.DS_Store` for the nested project; the root `.gitignore` covers standard Python build/venv artifacts.
+
+## Gotchas
+
+- **Bash `cd` persists within one compound command**: a single `cd repoA && git … && cd repoB && git …` runs BOTH gits in repoA. Do per-repo git operations in separate tool calls (default cwd is the genecrew root).
+- **Efficient people fetch**: `GET /api/people/?profile=all&extend=event_ref_list` returns human strings + citation counts (`profile`) AND raw dates with `sortval` (`extended.events`) in one call per page.
+- **Dates**: compare via the integer `sortval` (Julian day; `0` = unknown/unsortable). Undated events come back as `dateval=[0,0,0,False]`, `year=0`, `sortval=0` (not empty). Text-only dates have `modifier==6`.
+- **Gender int**: `0=F, 1=M, 2=U`.
+- **Form vs fact**: casing/whitespace = *form* → direct write allowed (guarded by a case-only invariant); anything asserting a *fact* (dates, gender, relationships, a name's spelling) needs a source → proposal for human review.
+- Full-tree `audit`/`names` runs are slow (minutes: per-family N+1 fetch + O(n²) duplicate check); iterate with `--limit`.
