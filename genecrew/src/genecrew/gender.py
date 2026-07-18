@@ -6,9 +6,17 @@ review (Markdown report + YAML). This module never writes to Gramps.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+from pathlib import Path
+
 import yaml
 
+from crewai_custom_tools.tools.genealogy.analysis.gender import infer_sex, load_prenoms_table
+from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient
 from crewai_custom_tools.tools.genealogy.models.domain import Proposition
+
+from genecrew.batching import iter_people_batches
+from genecrew.facts import FactsFetcher
 
 _PRIORITE_ORDER = {"haute": 0, "moyenne": 1}
 
@@ -58,3 +66,53 @@ def render_propositions_yaml(propositions: list[Proposition]) -> str:
     """Serialize propositions to YAML (machine-readable, for a future apply step)."""
     return yaml.safe_dump([p.model_dump() for p in propositions],
                           allow_unicode=True, sort_keys=False)
+
+
+def _build_proposition(person, inf) -> Proposition:
+    preuve = (f"prénom « {inf.key} » : {inf.ratio * 100:.1f}% "
+              f"{inf.sex} sur {inf.total} naissances (INSEE+OFS)")
+    if person.sex == "U":
+        return Proposition(
+            type="genre_inconnu", gramps_id=person.gramps_id, handle=person.handle,
+            personne=person.name, valeur_actuelle="U", valeur_proposee=inf.sex,
+            preuve=preuve, confiance=_confiance(inf.ratio), priorite="moyenne")
+    return Proposition(
+        type="genre_contradiction", gramps_id=person.gramps_id, handle=person.handle,
+        personne=person.name, valeur_actuelle=person.sex, valeur_proposee=inf.sex,
+        preuve=preuve, confiance=_confiance(inf.ratio), priorite="haute")
+
+
+def run_gender(client: GrampsClient, scope: str, output_dir, *, date: str,
+               batch_size: int = 25, limit: int | None = None,
+               table: Mapping[str, tuple[int, int]] | None = None) -> tuple[Path, Path]:
+    """Infer sex over `scope`; write a Markdown report + a YAML proposals file. Read-only."""
+    output_dir = Path(output_dir)
+    if table is None:
+        table = load_prenoms_table()
+    fetcher = FactsFetcher(client)
+    propositions: list[Proposition] = []
+    indecidables: list[tuple[str, str, str]] = []
+    people_count = 0
+
+    for batch in iter_people_batches(client, fetcher, scope, batch_size, limit):
+        for person in batch:
+            people_count += 1
+            inf = infer_sex(person.given, table)
+            if inf.sex is None:
+                if person.sex == "U" and person.given.strip():
+                    raison = "unisexe/rare" if inf.total else "non couvert"
+                    indecidables.append((person.gramps_id, person.given, raison))
+                continue
+            if person.sex == "U" or inf.sex != person.sex:
+                propositions.append(_build_proposition(person, inf))
+
+    out = output_dir / "inference"
+    out.mkdir(parents=True, exist_ok=True)
+    scope_slug = scope.replace(":", "_")
+    report_path = out / f"{date}_genres_{scope_slug}.md"
+    report_path.write_text(
+        render_gender_report(scope, date, propositions, indecidables, people_count),
+        encoding="utf-8")
+    yaml_path = out / f"{date}_propositions_genre_{scope_slug}.yaml"
+    yaml_path.write_text(render_propositions_yaml(propositions), encoding="utf-8")
+    return report_path, yaml_path

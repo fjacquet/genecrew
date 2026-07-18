@@ -1,10 +1,12 @@
 """Tests de l'inférence de genre : rendus purs + orchestration lecture seule."""
 
+import httpx
 import yaml
 
+from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient, GrampsConfig
 from crewai_custom_tools.tools.genealogy.models.domain import Proposition
 
-from genecrew.gender import render_gender_report, render_propositions_yaml
+from genecrew.gender import render_gender_report, render_propositions_yaml, run_gender
 
 _P_CONTRA = Proposition(
     type="genre_contradiction", gramps_id="I0002", handle="h2", personne="Marguerite Dupont",
@@ -35,3 +37,45 @@ def test_render_yaml_roundtrips():
     text = render_propositions_yaml([_P_CONTRA, _P_INCONNU])
     back = [Proposition(**d) for d in yaml.safe_load(text)]
     assert back == [_P_CONTRA, _P_INCONNU]
+
+
+CONFIG = GrampsConfig(api_url="http://g.test/api", username="u", password="p")
+
+PEOPLE = [
+    {"handle": "h1", "gramps_id": "I0001", "gender": 2,          # inconnu -> F
+     "primary_name": {"first_name": "Suzanne", "surname_list": [{"surname": "Martin"}]}},
+    {"handle": "h2", "gramps_id": "I0002", "gender": 1,          # M mais prénom F -> contradiction
+     "primary_name": {"first_name": "Marguerite", "surname_list": [{"surname": "Dupont"}]}},
+    {"handle": "h3", "gramps_id": "I0003", "gender": 2,          # inconnu, unisexe -> indécidable
+     "primary_name": {"first_name": "Dominique", "surname_list": [{"surname": "Roy"}]}},
+    {"handle": "h4", "gramps_id": "I0004", "gender": 0,          # F et prénom F -> rien
+     "primary_name": {"first_name": "Suzanne", "surname_list": [{"surname": "Blanc"}]}},
+]
+
+TABLE = {"SUZANNE": (9990, 10), "MARGUERITE": (11988, 12), "DOMINIQUE": (5000, 5000)}
+
+
+def _readonly_handler(request):
+    if request.url.path == "/api/token/":
+        return httpx.Response(200, json={"access_token": "t"})
+    if request.method == "GET" and request.url.path == "/api/people/":
+        page = int(request.url.params.get("page", "1"))
+        return httpx.Response(200, json=PEOPLE if page == 1 else [])
+    if request.method in ("PUT", "POST"):
+        raise AssertionError("lecture seule : aucune écriture attendue")
+    return httpx.Response(404)
+
+
+def test_run_gender_is_read_only_and_classifies(tmp_path):
+    client = GrampsClient(CONFIG, transport=httpx.MockTransport(_readonly_handler))
+    report, proposals = run_gender(
+        client, "all", tmp_path, date="2026-07-18", batch_size=25, table=TABLE)
+
+    props = yaml.safe_load(proposals.read_text(encoding="utf-8"))
+    by_id = {p["gramps_id"]: p for p in props}
+    assert by_id["I0001"]["type"] == "genre_inconnu" and by_id["I0001"]["valeur_proposee"] == "F"
+    assert by_id["I0002"]["type"] == "genre_contradiction"
+    assert by_id["I0002"]["valeur_actuelle"] == "M" and by_id["I0002"]["valeur_proposee"] == "F"
+    assert "I0003" not in by_id and "I0004" not in by_id     # indécidable / correct
+    md = report.read_text(encoding="utf-8")
+    assert "Dominique" in md                                 # I0003 listé en indécidable
