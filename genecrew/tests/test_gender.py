@@ -50,9 +50,12 @@ PEOPLE = [
      "primary_name": {"first_name": "Dominique", "surname_list": [{"surname": "Roy"}]}},
     {"handle": "h4", "gramps_id": "I0004", "gender": 0,          # F et prénom F -> rien
      "primary_name": {"first_name": "Suzanne", "surname_list": [{"surname": "Blanc"}]}},
+    {"handle": "h5", "gramps_id": "I0005", "gender": 2,          # inconnu, ratio 0.96 -> confiance moyenne
+     "primary_name": {"first_name": "Camille", "surname_list": [{"surname": "Petit"}]}},
 ]
 
-TABLE = {"SUZANNE": (9990, 10), "MARGUERITE": (11988, 12), "DOMINIQUE": (5000, 5000)}
+TABLE = {"SUZANNE": (9990, 10), "MARGUERITE": (11988, 12), "DOMINIQUE": (5000, 5000),
+         "CAMILLE": (96, 4)}
 
 
 def _readonly_handler(request):
@@ -77,5 +80,10 @@ def test_run_gender_is_read_only_and_classifies(tmp_path):
     assert by_id["I0002"]["type"] == "genre_contradiction"
     assert by_id["I0002"]["valeur_actuelle"] == "M" and by_id["I0002"]["valeur_proposee"] == "F"
     assert "I0003" not in by_id and "I0004" not in by_id     # indécidable / correct
+    assert by_id["I0002"]["priorite"] == "haute"             # contradiction -> haute
+    assert by_id["I0001"]["priorite"] == "moyenne"           # genre inconnu -> moyenne
+    assert by_id["I0001"]["confiance"] == "haute"            # ratio 99.9% >= 0.99
+    assert by_id["I0005"]["type"] == "genre_inconnu"
+    assert by_id["I0005"]["confiance"] == "moyenne"          # ratio 0.96 dans [0.95, 0.99)
     md = report.read_text(encoding="utf-8")
     assert "Dominique" in md                                 # I0003 listé en indécidable
