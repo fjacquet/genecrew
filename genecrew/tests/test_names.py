@@ -24,3 +24,16 @@ def test_report_separates_prenom_and_nom():
 def test_report_dry_run_marked():
     out = render_names_report("all", "2026-07-18", [], [], dry_run=True)
     assert "aperçu" in out.lower() or "dry" in out.lower()
+
+
+def test_report_shows_write_errors():
+    results = [{"gramps_id": "I0007", "changes": [], "dry_run": False,
+                "error": "gramps_update_name_case: h7 first_name non purement de casse"}]
+    out = render_names_report("all", "2026-07-18", results, [], dry_run=False)
+    assert "Erreurs" in out
+    assert "I0007" in out and "non purement de casse" in out
+
+
+def test_report_no_errors_line():
+    out = render_names_report("all", "2026-07-18", [], [], dry_run=False)
+    assert "Aucune erreur" in out

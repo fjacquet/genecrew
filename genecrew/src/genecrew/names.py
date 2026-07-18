@@ -45,6 +45,16 @@ def render_names_report(scope, date, results, incomplete, dry_run,
     else:
         lines.append("Aucune correction de casse.")
     lines.append("")
+    lines.append("## Erreurs")
+    lines.append("")
+    error_rows = [r for r in results if r.get("error")]
+    if error_rows:
+        lines += ["| Personne | Erreur |", "|---|---|"]
+        for r in error_rows:
+            lines.append(f"| {_link(r['gramps_id'], base_url)} | {r['error']} |")
+    else:
+        lines.append("Aucune erreur d'écriture.")
+    lines.append("")
     lines.append("## Noms à vérifier (incomplets)")
     lines.append("")
     if incomplete:
@@ -62,9 +72,9 @@ def render_incomplete_report(scope, date, incomplete, base_url="http://localhost
     lines = [f"# Noms à vérifier (incomplets) — {scope} — {date}", "",
              f"- Noms « ? » ou à chiffres : {len(incomplete)}", ""]
     if incomplete:
-        lines += ["| Personne | Champ | Valeur |", "|---|---|---|"]
+        lines += ["| Personne | Type | Valeur |", "|---|---|---|"]
         for gid, field, value in incomplete:
-            lines.append(f"| [{gid}]({base_url}/person/{gid}) | {field} | {value} |")
+            lines.append(f"| {_link(gid, base_url)} | {field} | {value} |")
     else:
         lines.append("Aucun nom incomplet.")
     lines.append("")
