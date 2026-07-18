@@ -45,3 +45,31 @@ Chroniqueur écrit (document-de-travail.md, §5).
   YAML/Markdown pour revue humaine (§8.4), jamais par une écriture directe.
 - Le hook `@before_tool_call` reste une ceinture optionnelle et n'est pas la garantie
   principale : celle-ci est structurelle (absence de l'outil dangereux dans la bibliothèque).
+
+## Raffinement (2026-07-18)
+
+> Ce raffinement précise la politique d'écriture ci-dessus ; il ne l'annule pas. Contexte
+> complet : `docs/superpowers/specs/2026-07-18-standardisateur-noms-design.md`, §2.
+
+La décision d'origine range toute **modification de champ existant** (dates, noms, liens de
+parenté, hiérarchies de lieux…) du côté « proposition pour revue humaine », sans distinguer la
+nature du champ modifié. Le travail sur le Standardisateur de noms a rendu nécessaire de
+préciser le principe directeur :
+
+> **La preuve est requise pour les faits, pas pour la forme.**
+
+- **Assertion factuelle** (une date, l'orthographe d'un nom, un lien de parenté, un lieu) →
+  exige une source ; reste, comme avant, interdite en écriture autonome — proposition pour
+  revue humaine uniquement (format `Proposition`, §8.4).
+- **Présentation / forme** (casse, espaces) → n'affirme **aucun fait nouveau**. Recapitaliser
+  `JACQUET` en `Jacquet` ne change pas le nom, seulement son écriture : aucune preuve n'est donc
+  nécessaire, et l'écriture directe est autorisée — à condition que la garantie reste
+  **structurelle, pas rédactionnelle** (dans l'esprit de la décision d'origine) : un **invariant
+  technique** doit garantir, avant toute écriture, que la modification est purement formelle
+  (voir ADR 0007, invariant de casse `is_case_only_change`).
+
+Ce raffinement ne change rien aux conséquences de la décision d'origine pour les champs
+factuels : toute proposition de modification d'un champ cœur (lieu, date, nom, parenté) reste
+soumise à revue humaine. Il ouvre seulement une exception étroite, gardée par invariant, pour les
+changements de pure forme — dont le premier exemple concret est la standardisation de la casse
+des noms (ADR 0007).
