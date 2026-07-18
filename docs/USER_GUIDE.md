@@ -264,8 +264,9 @@ entreront dans l'arbre.
 ## Inférence de genre (lecture seule)
 
 Propose un genre (F/M) pour les personnes de genre inconnu et signale les
-contradictions genre/prénom, à partir d'un dictionnaire prénom→sexe INSEE+OFS.
-**Aucune écriture Gramps** : sortie en propositions pour revue humaine.
+contradictions genre/prénom, à partir d'un dictionnaire prénom→sexe INSEE
+(couverture suisse OFS en option). **Aucune écriture Gramps** : sortie en
+propositions pour revue humaine.
 
 ```bash
 cd genecrew && uv run genecrew gender --scope all --limit 200
@@ -273,9 +274,11 @@ cd genecrew && uv run genecrew gender --scope all --limit 200
 
 Produit dans `output/inference/` : un rapport Markdown (`*_genres_*.md`) et un
 fichier de propositions YAML (`*_propositions_genre_*.yaml`, pour un futur
-« apply »). Prérequis : la table `prenoms_sexe.csv` doit avoir été générée
-(voir `crewai_custom_tools/.../data/README.md`) ; sinon la commande échoue en
-signalant le fichier absent.
+« apply »). **Prêt à l'emploi** : la table prénom→sexe (INSEE, 43 460 prénoms)
+est embarquée dans `crewai_custom_tools`. Pour la rafraîchir, l'outil se
+provisionne seul en une commande — `uv run python scripts/build_prenoms_sexe.py`
+(dans `crewai_custom_tools`) télécharge l'INSEE et régénère la table
+(voir `.../data/README.md` ; couverture suisse OFS en option).
 
 ---
 
