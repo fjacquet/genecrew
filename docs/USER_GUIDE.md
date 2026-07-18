@@ -274,11 +274,11 @@ cd genecrew && uv run genecrew gender --scope all --limit 200
 
 Produit dans `output/inference/` : un rapport Markdown (`*_genres_*.md`) et un
 fichier de propositions YAML (`*_propositions_genre_*.yaml`, pour un futur
-« apply »). **Prêt à l'emploi** : la table prénom→sexe (INSEE, 43 460 prénoms)
+« apply »). **Prêt à l'emploi** : la table prénom→sexe (INSEE+OFS, ~85 500 prénoms)
 est embarquée dans `crewai_custom_tools`. Pour la rafraîchir, l'outil se
 provisionne seul en une commande — `uv run python scripts/build_prenoms_sexe.py`
-(dans `crewai_custom_tools`) télécharge l'INSEE et régénère la table
-(voir `.../data/README.md` ; couverture suisse OFS en option).
+(dans `crewai_custom_tools`) télécharge l'INSEE et l'OFS et régénère la table
+(voir `.../data/README.md` ; `--no-ofs` pour l'INSEE seul).
 
 ---
 
