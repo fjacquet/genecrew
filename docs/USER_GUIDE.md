@@ -3,7 +3,9 @@
 Ce guide couvre l'usage courant de GeneCrew, phase par phase. **Chaque phase ajoute sa
 section** : ce document n'est complet qu'après la Phase 6 (voir le phasage,
 `docs/document-de-travail.md`, §9). Pour l'instant, la Phase 0 (« Plomberie ») et la Phase 1a
-(« Audit déterministe », le socle sans LLM de la Phase 1 — voir §9) sont livrées.
+(« Audit déterministe », le socle sans LLM de la Phase 1 — voir §9) sont livrées, ainsi qu'un
+premier sous-système du Standardisateur : la standardisation de la casse des noms (voir
+« Standardisation — noms » plus bas).
 
 ---
 
@@ -161,6 +163,96 @@ ADR 0006) : il ne fait aucun appel LLM et ne modifie rien dans Gramps (ni tag, n
 citation). Sur l'arbre réel, un run `--scope all --limit 200` s'exécute en quelques secondes.
 Il peut donc être relancé aussi souvent que nécessaire, y compris avant que la Phase 1b (pose
 des tags `ia-anomalie`/`ia-a-verifier`, interprétation LLM, export PDF) ne soit livrée.
+
+---
+
+## Standardisation — noms
+
+Livrable : premier sous-système du Standardisateur (`docs/document-de-travail.md`, §5.2) — la
+normalisation de la **casse** des noms importés depuis GEDCOM. Voir la spec complète
+(`docs/superpowers/specs/2026-07-18-standardisateur-noms-design.md`) et la décision d'écriture
+(`docs/adr/0007-standardisation-casse-invariant.md`). C'est le **premier composant du dépôt qui
+écrit réellement dans Gramps** — jusqu'ici, `genecrew stats` et `genecrew audit` étaient tous
+deux en lecture seule.
+
+### Prérequis
+
+- Phase 0 opérationnelle (client Gramps, `.env`, voir plus haut).
+- Un compte Gramps Web avec le rôle **Editor** (la lecture seule ne suffit plus). Le compte
+  dédié `genecrew-ia` mentionné dans `genecrew/.env.example` est prévu pour ce rôle ;
+  `GRAMPS_USERNAME`/`GRAMPS_PASSWORD` doivent pointer vers un compte disposant des droits
+  d'écriture avant de lancer la commande sans `--dry-run`.
+
+### Lancer une standardisation
+
+Depuis la racine du dépôt `genecrew` :
+
+```bash
+uv run genecrew names --scope all --limit 200 --dry-run
+```
+
+Options de la sous-commande `names` :
+
+| Option | Rôle |
+|---|---|
+| `--scope` | périmètre : `all` (toutes les personnes, paginées) ou `person:ID` (une seule personne). |
+| `--limit N` | limite l'échantillon à N personnes. |
+| `--batch-size N` | taille des lots traités (défaut : `GENECREW_BATCH_SIZE`, voir Phase 0). |
+| `--dry-run` | aperçu sans écrire (voir ci-dessous) ; absent = écriture réelle. |
+| `--date` | force la date du rapport (défaut : aujourd'hui). |
+
+Note : contrairement à la variable `GENECREW_DRY_RUN` de la table d'environnement (Phase 0),
+cette commande ne lit pas cette variable — seul le flag `--dry-run` contrôle l'écriture.
+
+### Où trouver les rapports
+
+Deux fichiers Markdown sous `output/standardize/` :
+
+- `<AAAA-MM-JJ>_noms_<scope>.md` — le rapport des changements de casse faits ou simulés, avec
+  une colonne **Type** (`prénom` ou `nom` — prénom et patronyme sont deux entrées distinctes et
+  étiquetées séparément), les valeurs avant/après, et une section **Erreurs** listant les rares
+  cas où l'invariant de casse a refusé une écriture (aucun PUT dans ce cas — la ligne apparaît en
+  erreur, jamais en changement silencieux).
+- `<AAAA-MM-JJ>_noms_a_verifier_<scope>.md` — la liste séparée des noms incomplets (contenant
+  « ? » ou un chiffre) : des faits incomplets, jamais écrits ni inventés, seulement proposés à la
+  recherche humaine.
+
+### Écriture réelle par défaut, aperçu avec `--dry-run`
+
+Le défaut de cette commande est l'**écriture réelle** (choix utilisateur, cf. ADR 0007) : sans
+`--dry-run`, les recapitalisations sont appliquées directement dans Gramps Web via
+`GrampsUpdateNameTool`. Avec `--dry-run`, le même calcul est effectué et le même rapport est
+produit, mais aucun PUT n'est envoyé (`dry_run: true` dans les données du rapport).
+
+Les écritures réelles sont **réversibles** : elles apparaissent dans l'historique des
+transactions Gramps (`GET /api/transactions/history/`) et peuvent être annulées individuellement
+(`POST …/{id}/undo`), comme toute autre écriture du projet (ADR 0001).
+
+### Sécurité : seule la casse change
+
+- **Invariant de casse** : `GrampsUpdateNameTool` refuse (erreur, aucune écriture) tout champ
+  dont la nouvelle valeur diffère de l'ancienne autrement que par la casse
+  (`old.casefold() == new.casefold()`) — il ne peut donc jamais ré-orthographier un nom, tout au
+  plus le recapitaliser.
+- **Cible restreinte** : seuls les noms **entièrement en capitales ou entièrement en
+  minuscules** sont candidats à la correction ; un nom déjà en casse mixte (ex.
+  `van Beethoven`) n'est **jamais** modifié.
+- **Périmètre v1** : seul le nom principal (`primary_name`) est traité, pas les
+  `alternate_names`.
+
+### Un outil réutilisable, pas un nettoyage ponctuel
+
+Le Standardisateur de noms n'est pas un script à usage unique pour « nettoyer une fois » l'import
+GEDCOM initial : c'est une **capacité répétable**, à relancer à chaque nouvelle donnée importée
+dans l'arbre (par exemple un nouvel import GEDCOM qui remettrait des patronymes tout en
+capitales). Sur l'échantillon hors ligne `samples/data.gramps` utilisé pour concevoir l'outil,
+686 patronymes et 57 prénoms étaient entièrement en capitales — mais lors de la validation
+terrain sur l'arbre réel (`--scope all --limit 200`), seules **4 corrections** ont été trouvées
+(`JACQUET → Jacquet` ×2, `VILLAUDY → Villaudy` ×2) et aucun nom incomplet. C'est attendu : l'arbre
+réel est déjà largement normalisé au moment de cette validation. La valeur de l'outil n'est pas
+dans le volume corrigé ce jour-là, mais dans la capacité à le relancer sans risque — grâce à
+l'invariant de casse et à la cible restreinte — chaque fois que des données moins propres
+entreront dans l'arbre.
 
 ---
 
