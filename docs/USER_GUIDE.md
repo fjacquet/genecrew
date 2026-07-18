@@ -261,6 +261,24 @@ entreront dans l'arbre.
 
 ---
 
+## Inférence de genre (lecture seule)
+
+Propose un genre (F/M) pour les personnes de genre inconnu et signale les
+contradictions genre/prénom, à partir d'un dictionnaire prénom→sexe INSEE+OFS.
+**Aucune écriture Gramps** : sortie en propositions pour revue humaine.
+
+```bash
+cd genecrew && uv run genecrew gender --scope all --limit 200
+```
+
+Produit dans `output/inference/` : un rapport Markdown (`*_genres_*.md`) et un
+fichier de propositions YAML (`*_propositions_genre_*.yaml`, pour un futur
+« apply »). Prérequis : la table `prenoms_sexe.csv` doit avoir été générée
+(voir `crewai_custom_tools/.../data/README.md`) ; sinon la commande échoue en
+signalant le fichier absent.
+
+---
+
 ## Phases suivantes
 
 Les sections Phase 1b (interprétation LLM, tags, PDF) à Phase 6 (Archiviste Numérique) seront
