@@ -104,5 +104,6 @@ Tests live in `genecrew/tests/` — run `uv run python -m pytest genecrew/tests/
 - **Efficient people fetch**: `GET /api/people/?profile=all&extend=event_ref_list` returns human strings + citation counts (`profile`) AND raw dates with `sortval` (`extended.events`) in one call per page.
 - **Dates**: compare via the integer `sortval` (Julian day; `0` = unknown/unsortable). Undated events come back as `dateval=[0,0,0,False]`, `year=0`, `sortval=0` (not empty). Text-only dates have `modifier==6`.
 - **Gender int**: `0=F, 1=M, 2=U`.
-- **Form vs fact**: casing/whitespace = *form* → direct write allowed (guarded by a case-only invariant); anything asserting a *fact* (dates, gender, relationships, a name's spelling) needs a source → proposal for human review.
+- **Form vs fact**: casing = *form* → direct write allowed, guarded by a case-only invariant that refuses any non-casing change (whitespace normalization isn't implemented yet); anything asserting a *fact* (dates, gender, relationships, a name's spelling) needs a source → proposal for human review.
+- **Write safety switch**: writes are gated by the per-command `--dry-run` flag AND the global `GENECREW_DRY_RUN` env var — if `GENECREW_DRY_RUN=true` (the default in `.env.example`), every write is simulated; set it false to write for real.
 - Full-tree `audit`/`names` runs are slow (minutes: per-family N+1 fetch + O(n²) duplicate check); iterate with `--limit`.

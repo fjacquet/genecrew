@@ -198,11 +198,13 @@ Options de la sous-commande `names` :
 | `--scope` | périmètre : `all` (toutes les personnes, paginées) ou `person:ID` (une seule personne). |
 | `--limit N` | limite l'échantillon à N personnes. |
 | `--batch-size N` | taille des lots traités (défaut : `GENECREW_BATCH_SIZE`, voir Phase 0). |
-| `--dry-run` | aperçu sans écrire (voir ci-dessous) ; absent = écriture réelle. |
+| `--dry-run` | aperçu sans écrire (voir ci-dessous). |
 | `--date` | force la date du rapport (défaut : aujourd'hui). |
 
-Note : contrairement à la variable `GENECREW_DRY_RUN` de la table d'environnement (Phase 0),
-cette commande ne lit pas cette variable — seul le flag `--dry-run` contrôle l'écriture.
+Note : l'écriture est bornée par **deux** leviers — le flag `--dry-run` (par appel) **et**
+l'interrupteur global `GENECREW_DRY_RUN` (table d'environnement, Phase 0). Si l'un ou l'autre
+est actif, l'écriture est simulée. `GENECREW_DRY_RUN=true` (le défaut de `.env.example`) force
+donc la simulation même sans `--dry-run` : mets-le à `false` pour écrire réellement.
 
 ### Où trouver les rapports
 
@@ -217,12 +219,15 @@ Deux fichiers Markdown sous `output/standardize/` :
   « ? » ou un chiffre) : des faits incomplets, jamais écrits ni inventés, seulement proposés à la
   recherche humaine.
 
-### Écriture réelle par défaut, aperçu avec `--dry-run`
+### Écriture réelle vs aperçu (`--dry-run` et `GENECREW_DRY_RUN`)
 
-Le défaut de cette commande est l'**écriture réelle** (choix utilisateur, cf. ADR 0007) : sans
-`--dry-run`, les recapitalisations sont appliquées directement dans Gramps Web via
-`GrampsUpdateNameTool`. Avec `--dry-run`, le même calcul est effectué et le même rapport est
-produit, mais aucun PUT n'est envoyé (`dry_run: true` dans les données du rapport).
+La commande écrit réellement (recapitalisations appliquées dans Gramps Web via
+`GrampsUpdateNameTool`) **uniquement** si aucun des deux leviers de simulation n'est actif :
+ni `--dry-run`, ni `GENECREW_DRY_RUN=true`. Dès que l'un est actif, le même calcul est effectué
+et le même rapport produit, mais aucun PUT n'est envoyé (`dry_run: true` dans les données du
+rapport). Comme `.env.example` fixe `GENECREW_DRY_RUN=true`, le comportement par défaut est donc
+la **simulation** ; pour l'écriture réelle, mets `GENECREW_DRY_RUN=false` (le choix « écriture
+directe » de l'ADR 0007 reste vrai au niveau de l'outil, sous l'interrupteur global).
 
 Les écritures réelles sont **réversibles** : elles apparaissent dans l'historique des
 transactions Gramps (`GET /api/transactions/history/`) et peuvent être annulées individuellement
