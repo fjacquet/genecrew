@@ -10,12 +10,37 @@ from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient
 
 from genecrew.facts import FactsFetcher
 from genecrew.report import render_report
-from genecrew.scope import resolve_handles
+from genecrew.scope import parse_scope, resolve_handles
 
 
-def _batches(items, size):
-    for i in range(0, len(items), size):
-        yield items[i:i + size]
+def _people_batches(client, fetcher, scope, batch_size, limit):
+    """Yield successive batches of PersonFacts for `scope`.
+
+    'all' is bulk-fetched one page (=batch_size) per HTTP call via
+    list_people_facts; 'person:' resolves and fetches the single person;
+    'branch:' raises NotImplementedError (via resolve_handles).
+    """
+    kind, _gid = parse_scope(scope)
+    if kind != "all":
+        handles = resolve_handles(client, scope)
+        people = [p for h, _ in handles
+                  if (p := fetcher.get_person_facts(h)) is not None]
+        if people:
+            yield people
+        return
+    fetched = 0
+    page = 1
+    while True:
+        people = fetcher.list_people_facts(page, batch_size)
+        if not people:
+            break
+        if limit is not None and fetched + len(people) > limit:
+            people = people[: limit - fetched]
+        yield people
+        fetched += len(people)
+        if limit is not None and fetched >= limit:
+            break
+        page += 1
 
 
 def run_audit(
@@ -25,19 +50,13 @@ def run_audit(
     """Run the deterministic audit over `scope` and write a Markdown report."""
     output_dir = Path(output_dir)
     fetcher = FactsFetcher(client)
-    handles = resolve_handles(client, scope, limit=limit)
 
     anomalies = []
     all_people = []
     seen_families: set[str] = set()
 
-    for batch in _batches(handles, batch_size):
-        batch_people = []
-        for handle, _gid in batch:
-            person = fetcher.get_person_facts(handle)
-            if person is None:
-                continue
-            batch_people.append(person)
+    for batch_people in _people_batches(client, fetcher, scope, batch_size, limit):
+        for person in batch_people:
             anomalies.extend(check_person(person))
 
         for person in batch_people:
