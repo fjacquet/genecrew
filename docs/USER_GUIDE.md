@@ -282,6 +282,24 @@ provisionne seul en une commande — `uv run python scripts/build_prenoms_sexe.p
 
 ---
 
+## Appliquer les corrections de genre (écriture)
+
+Écrit dans Gramps les corrections de genre à haute confiance : remplit les genres inconnus et
+corrige les contradictions, au-dessus d'un seuil (défaut 0.98) sur la table INSEE+OFS. **Écrit une
+donnée cœur** (ADR 0009) — réversible via l'historique des transactions Gramps.
+
+```bash
+# 1) Simuler d'abord (aucune écriture) et relire le rapport :
+cd genecrew && uv run genecrew gender-apply --scope all --dry-run
+# 2) Écrire pour de vrai (nécessite GENECREW_DRY_RUN=false dans .env) :
+cd genecrew && uv run genecrew gender-apply --scope all
+```
+
+Rapport dans `output/inference/*_genres_appliques_*.md` : genres écrits, cas sous le seuil, erreurs.
+Le global `GENECREW_DRY_RUN=true` (défaut du `.env`) force la simulation quel que soit le flag.
+
+---
+
 ## Phases suivantes
 
 Les sections Phase 1b (interprétation LLM, tags, PDF) à Phase 6 (Archiviste Numérique) seront
