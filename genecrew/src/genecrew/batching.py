@@ -32,3 +32,21 @@ def iter_people_batches(client: GrampsClient, fetcher: FactsFetcher,
         if limit is not None and fetched >= limit:
             break
         page += 1
+
+
+def iter_places(client: GrampsClient, scope: str, batch_size: int, limit: int | None):
+    """Yield successive batches of raw Gramps place dicts for `scope` (all supported in P1-P4)."""
+    fetched = 0
+    page = 1
+    while True:
+        places = client.get_json("/places/", params={"page": page, "pagesize": batch_size,
+                                                      "sort": "gramps_id"})
+        if not places:
+            break
+        if limit is not None and fetched + len(places) > limit:
+            places = places[: limit - fetched]
+        yield places
+        fetched += len(places)
+        if limit is not None and fetched >= limit:
+            break
+        page += 1
