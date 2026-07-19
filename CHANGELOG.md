@@ -26,9 +26,12 @@ Non publié / non versionné (`0.1.0`) : entrées **datées par livraison**. La 
 
 ### Fixed
 
-- Rapports de casse/genre : la ligne « Mode » reflétait le seul flag CLI `--dry-run`, pas le
-  dry-run **effectif** (override `GENECREW_DRY_RUN`) — un run pouvait annoncer « écritures
-  appliquées » alors que rien n'était écrit. *(Correctif à venir — inscrit au backlog en priorité.)*
+- **Dry-run sûr et honnête** (double correctif). (1) La ligne « Mode » des rapports (casse et
+  genre) reflète désormais le dry-run **effectif** — override `GENECREW_DRY_RUN` inclus, plus
+  seulement le flag CLI `--dry-run` : un run ne peut plus annoncer « écritures appliquées » alors
+  que rien n'est écrit. (2) Défaut **sûr** : quand `GENECREW_DRY_RUN` est *absente*, on **simule**
+  (helper `effective_dry_run` côté `crewai_custom_tools` 0.11.1) au lieu d'écrire. Mettre
+  `GENECREW_DRY_RUN=false` pour écrire pour de vrai.
 
 ## 2026-07-18
 

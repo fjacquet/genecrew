@@ -20,7 +20,7 @@ PEOPLE = [
 
 @pytest.fixture(autouse=True)
 def _no_global_dry_run(monkeypatch):
-    monkeypatch.delenv("GENECREW_DRY_RUN", raising=False)
+    monkeypatch.setenv("GENECREW_DRY_RUN", "false")   # défaut réel = simuler ; ici on écrit
 
 
 @pytest.fixture(autouse=True)

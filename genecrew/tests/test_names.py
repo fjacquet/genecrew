@@ -1,12 +1,19 @@
 import json
 
 import httpx
+import pytest
 
 from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient, GrampsConfig
 from crewai_custom_tools.tools.genealogy.models.domain import PersonFacts
 from genecrew.names import render_names_report, run_names
 
 CONFIG = GrampsConfig(api_url="http://g.test/api", username="u", password="p")
+
+
+@pytest.fixture(autouse=True)
+def _no_global_dry_run(monkeypatch):
+    """Défaut réel = simuler ; on pose false pour que le test d'écriture e2e écrive."""
+    monkeypatch.setenv("GENECREW_DRY_RUN", "false")
 
 # Personne A : prénom incomplet (chiffre) — NE DOIT JAMAIS être écrit.
 PERSON_A = {
