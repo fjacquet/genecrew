@@ -15,19 +15,36 @@ warnings.filterwarnings("ignore", category=SyntaxWarning, module="pysbd")
 # Replace with inputs you want to test with, it will automatically
 # interpolate any tasks and agents information
 
+def _placeholder_inputs() -> dict:
+    """Minimal inputs so train/test interpolate without real findings."""
+    return {
+        "anomalies_block": "(aucune anomalie fournie)",
+        "date": datetime.now().date().isoformat(),
+    }
+
+
 def run():
     """
-    Run the crew.
-    """
-    from genecrew.crew import Genecrew
+    Run the audit crew over a bounded sample (dry-run) via the orchestrator.
 
-    inputs = {
-        'topic': 'AI LLMs',
-        'current_year': str(datetime.now().year)
-    }
-    
+    `crewai run` / `run_crew` is a dev convenience: it runs the real audit workflow
+    on a small slice so writes are always simulated. Use `genecrew crew-audit` for the
+    full command with flags.
+    """
+    from pathlib import Path
+
+    from crewai_custom_tools.tools.genealogy.gramps.client import get_client
+
+    from genecrew.crew_audit import run_crew_audit
+
+    load_dotenv()
+    limit = int(os.environ.get("GENECREW_CREW_LIMIT", "25"))
+    output_dir = Path(os.environ.get("GENECREW_OUTPUT_DIR", "output"))
     try:
-        Genecrew().crew().kickoff(inputs=inputs)
+        report = run_crew_audit(
+            get_client(), "all", output_dir,
+            date=datetime.now().date().isoformat(), limit=limit, dry_run=True)
+        print(f"Rapport : {report}")
     except Exception as e:
         raise Exception(f"An error occurred while running the crew: {e}")
 
@@ -38,12 +55,9 @@ def train():
     """
     from genecrew.crew import Genecrew
 
-    inputs = {
-        "topic": "AI LLMs",
-        'current_year': str(datetime.now().year)
-    }
     try:
-        Genecrew().crew().train(n_iterations=int(sys.argv[1]), filename=sys.argv[2], inputs=inputs)
+        Genecrew().crew().train(
+            n_iterations=int(sys.argv[1]), filename=sys.argv[2], inputs=_placeholder_inputs())
 
     except Exception as e:
         raise Exception(f"An error occurred while training the crew: {e}")
@@ -66,13 +80,9 @@ def test():
     """
     from genecrew.crew import Genecrew
 
-    inputs = {
-        "topic": "AI LLMs",
-        "current_year": str(datetime.now().year)
-    }
-
     try:
-        Genecrew().crew().test(n_iterations=int(sys.argv[1]), eval_llm=sys.argv[2], inputs=inputs)
+        Genecrew().crew().test(
+            n_iterations=int(sys.argv[1]), eval_llm=sys.argv[2], inputs=_placeholder_inputs())
 
     except Exception as e:
         raise Exception(f"An error occurred while testing the crew: {e}")
@@ -244,6 +254,23 @@ def lieux_merge_cmd(args) -> None:
     print(f"Rapport : {report}")
 
 
+def crew_audit_cmd(args) -> None:
+    """Run the two-agent audit crew over a scope; print the report path."""
+    from pathlib import Path
+
+    from crewai_custom_tools.tools.genealogy.gramps.client import get_client
+
+    from genecrew.crew_audit import run_crew_audit
+
+    client = get_client()
+    output_dir = Path(os.environ.get("GENECREW_OUTPUT_DIR", "output"))
+    date = args.date or __import__("datetime").date.today().isoformat()
+    report = run_crew_audit(client, args.scope, output_dir, date=date,
+                            batch_size=args.batch_size, limit=args.limit,
+                            dry_run=args.dry_run)
+    print(f"Rapport : {report}")
+
+
 def main() -> None:
     """CLI entry point: genecrew <command>."""
     load_dotenv()
@@ -325,6 +352,16 @@ def main() -> None:
     lm_p.add_argument("--dry-run", action="store_true", help="simuler sans fusionner")
     lm_p.add_argument("--date", default=None, help="date du rapport (défaut : aujourd'hui)")
 
+    ca_p = sub.add_parser("crew-audit",
+                          help="Audit interprété par la crew LLM (Détective → Chroniqueur)")
+    ca_p.add_argument("--scope", default="all", help="all | person:ID")
+    ca_p.add_argument("--limit", type=int, default=None, help="limiter à N personnes (borne le coût LLM)")
+    ca_p.add_argument("--batch-size", type=int,
+                      default=int(os.environ.get("GENECREW_BATCH_SIZE", "25")))
+    ca_p.add_argument("--dry-run", action="store_true",
+                      help="simuler les écritures (défaut sûr : simulation via GENECREW_DRY_RUN)")
+    ca_p.add_argument("--date", default=None, help="date du rapport (défaut : aujourd'hui)")
+
     args = parser.parse_args()
     if args.command == "stats":
         stats()
@@ -344,6 +381,8 @@ def main() -> None:
         lieux_apply_cmd(args)
     elif args.command == "lieux-merge":
         lieux_merge_cmd(args)
+    elif args.command == "crew-audit":
+        crew_audit_cmd(args)
 
 
 if __name__ == "__main__":
