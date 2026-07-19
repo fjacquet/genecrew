@@ -174,25 +174,24 @@ def gender_apply_cmd(args) -> None:
 
 
 def apply_all_cmd(args) -> None:
-    """Apply casing then gender in one pass; print all report paths."""
+    """Apply casing, then gender, then places in one pass; print all report paths."""
     from pathlib import Path
 
-    from crewai_custom_tools.tools.genealogy.gramps.client import (
-        GrampsClient,
-        GrampsConfig,
-    )
+    from crewai_custom_tools.tools.genealogy.gramps.client import get_client
 
     from genecrew.apply_all import run_apply_all
 
-    client = GrampsClient(GrampsConfig.from_env())
+    client = get_client()
     output_dir = Path(os.environ.get("GENECREW_OUTPUT_DIR", "output"))
     date = args.date or __import__("datetime").date.today().isoformat()
     paths = run_apply_all(client, args.scope, output_dir, date=date,
-                          min_ratio=args.min_ratio, batch_size=args.batch_size,
+                          min_ratio=args.min_ratio, min_score=args.min_score,
+                          batch_size=args.batch_size,
                           limit=args.limit, dry_run=args.dry_run)
     print(f"Casse : {paths['names']}")
     print(f"Noms à vérifier : {paths['incomplete']}")
     print(f"Genres : {paths['gender']}")
+    print(f"Lieux : {paths['lieux']}")
 
 
 def lieux_cmd(args) -> None:
@@ -286,10 +285,12 @@ def main() -> None:
     apply_p.add_argument("--date", default=None, help="date du rapport (défaut : aujourd'hui)")
 
     all_p = sub.add_parser("apply-all",
-                           help="Applique toutes les corrections auto : casse puis genre")
+                           help="Applique toutes les corrections auto : casse puis genre puis lieux")
     all_p.add_argument("--scope", default="all", help="all | person:ID")
     all_p.add_argument("--min-ratio", type=float, default=0.98,
                        help="seuil de confiance du volet genre (défaut 0.98)")
+    all_p.add_argument("--min-score", type=float, default=0.90,
+                       help="seuil de score du volet lieux (défaut 0.90)")
     all_p.add_argument("--limit", type=int, default=None, help="limiter à N personnes")
     all_p.add_argument("--batch-size", type=int,
                        default=int(os.environ.get("GENECREW_BATCH_SIZE", "25")))
