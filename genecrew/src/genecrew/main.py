@@ -195,6 +195,24 @@ def apply_all_cmd(args) -> None:
     print(f"Genres : {paths['gender']}")
 
 
+def lieux_cmd(args) -> None:
+    """Standardize places over a scope (read-only); print the report paths."""
+    from pathlib import Path
+
+    from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient, GrampsConfig
+
+    from genecrew.places import run_places
+
+    client = GrampsClient(GrampsConfig.from_env())
+    output_dir = Path(os.environ.get("GENECREW_OUTPUT_DIR", "output"))
+    date = args.date or __import__("datetime").date.today().isoformat()
+    report, proposals = run_places(client, args.scope, output_dir, date=date,
+                                   batch_size=args.batch_size, limit=args.limit,
+                                   min_score=args.min_score)
+    print(f"Rapport : {report}")
+    print(f"Propositions : {proposals}")
+
+
 def main() -> None:
     """CLI entry point: genecrew <command>."""
     load_dotenv()
@@ -246,6 +264,15 @@ def main() -> None:
     all_p.add_argument("--dry-run", action="store_true", help="simuler sans écrire")
     all_p.add_argument("--date", default=None, help="date des rapports (défaut : aujourd'hui)")
 
+    lieux_p = sub.add_parser("lieux", help="Standardisation des lieux (lecture seule)")
+    lieux_p.add_argument("--scope", default="all", help="all | person:ID")
+    lieux_p.add_argument("--limit", type=int, default=None, help="limiter à N lieux")
+    lieux_p.add_argument("--batch-size", type=int,
+                         default=int(os.environ.get("GENECREW_BATCH_SIZE", "25")))
+    lieux_p.add_argument("--min-score", type=float, default=0.90,
+                         help="seuil de score pour action=ecrire (défaut 0.90)")
+    lieux_p.add_argument("--date", default=None, help="date du rapport (défaut : aujourd'hui)")
+
     args = parser.parse_args()
     if args.command == "stats":
         stats()
@@ -259,6 +286,8 @@ def main() -> None:
         gender_apply_cmd(args)
     elif args.command == "apply-all":
         apply_all_cmd(args)
+    elif args.command == "lieux":
+        lieux_cmd(args)
 
 
 if __name__ == "__main__":
