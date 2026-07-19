@@ -10,6 +10,7 @@ import json
 from collections import defaultdict
 from pathlib import Path
 
+import yaml
 from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient
 from crewai_custom_tools.tools.genealogy.gramps.write_tools import (
     GrampsCreatePlaceTool, GrampsUpdatePlaceTool, effective_dry_run,
@@ -121,4 +122,9 @@ def run_places_apply(client: GrampsClient, scope: str, output_dir, *, date: str,
     path = out / f"{date}_lieux_appliques_{scope_slug}.md"
     path.write_text(render_apply_report(scope, date, applied, proposals, merges, errors,
                                         effective_dry_run(dry_run)), encoding="utf-8")
+
+    merges_path = out / f"{date}_fusions_lieux_{scope_slug}.yaml"
+    merges_path.write_text(
+        yaml.safe_dump([m.model_dump() for m in merges], allow_unicode=True, sort_keys=False),
+        encoding="utf-8")
     return path
