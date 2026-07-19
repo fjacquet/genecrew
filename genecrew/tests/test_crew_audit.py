@@ -132,7 +132,7 @@ def test_run_crew_audit_batches_writes_report_and_pins_dry_run(tmp_path, monkeyp
     people = [_person(f"I{i}", f"h{i}", f"Pers {i}") for i in range(3)]
     anomalies = [_anom("R1", "haute", f"I{i}", f"h{i}", f"souci {i}") for i in range(3)]
     monkeypatch.setattr(crew_audit, "collect_audit_findings",
-                        lambda *a, **k: (anomalies, [], people))
+                        lambda *a, **k: (anomalies, [], people, []))
 
     report = run_crew_audit(client=None, scope="all", output_dir=tmp_path,
                             date="2026-07-19", batch_size=2, dry_run=True,
@@ -190,7 +190,7 @@ def test_run_crew_audit_survives_missing_structured_output(tmp_path, monkeypatch
     monkeypatch.delenv("GENECREW_DRY_RUN", raising=False)
     monkeypatch.setattr(crew_audit, "collect_audit_findings",
                         lambda *a, **k: ([_anom("R1", "haute", "I1", "h1", "x")],
-                                         [], [_person("I1", "h1", "A B")]))
+                                         [], [_person("I1", "h1", "A B")], []))
     report = run_crew_audit(client=None, scope="all", output_dir=tmp_path,
                             date="2026-07-19", dry_run=True,
                             crew_factory=_UnstructuredFactory)
@@ -235,7 +235,7 @@ def test_run_crew_audit_parses_strict_json_from_raw_text(tmp_path, monkeypatch):
     monkeypatch.delenv("GENECREW_DRY_RUN", raising=False)
     monkeypatch.setattr(crew_audit, "collect_audit_findings",
                         lambda *a, **k: ([_anom("R1", "haute", "I1", "h1", "x")],
-                                         [], [_person("I1", "h1", "A B")]))
+                                         [], [_person("I1", "h1", "A B")], []))
     report = run_crew_audit(client=None, scope="all", output_dir=tmp_path,
                             date="2026-07-19", dry_run=True,
                             crew_factory=_RawJsonFactory)
@@ -261,7 +261,7 @@ def test_run_crew_audit_survives_a_crashing_batch(tmp_path, monkeypatch):
     monkeypatch.delenv("GENECREW_DRY_RUN", raising=False)
     monkeypatch.setattr(crew_audit, "collect_audit_findings",
                         lambda *a, **k: ([_anom("R1", "haute", "I1", "h1", "x")],
-                                         [], [_person("I1", "h1", "A B")]))
+                                         [], [_person("I1", "h1", "A B")], []))
     report = run_crew_audit(client=None, scope="all", output_dir=tmp_path,
                             date="2026-07-19", dry_run=True,
                             crew_factory=_CrashingFactory)
@@ -275,7 +275,7 @@ def test_run_crew_audit_real_write_mode_leaves_switch_untouched(tmp_path, monkey
     monkeypatch.setenv("GENECREW_DRY_RUN", "false")            # operator opted into writes
     monkeypatch.setattr(crew_audit, "collect_audit_findings",
                         lambda *a, **k: ([_anom("R1", "haute", "I1", "h1", "x")],
-                                         [], [_person("I1", "h1", "A B")]))
+                                         [], [_person("I1", "h1", "A B")], []))
 
     run_crew_audit(client=None, scope="all", output_dir=tmp_path, date="2026-07-19",
                    dry_run=False, crew_factory=_FakeFactory)

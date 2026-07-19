@@ -178,7 +178,7 @@ def run_crew_audit(
     # FileHandler only accepts .txt/.json (anything else gets ".txt" appended).
     crew_log_path = report_dir / f"{date}_crew_audit_{slug}.log.txt"
 
-    anomalies, _duplicates, all_people = collect_audit_findings(
+    anomalies, _duplicates, all_people, _det_props = collect_audit_findings(
         client, scope, batch_size=batch_size, limit=limit)
     persons = group_anomalies_by_person(anomalies, all_people)
 

@@ -1,4 +1,5 @@
 import httpx
+import yaml
 
 from genecrew.audit import run_audit
 from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient, GrampsConfig
@@ -43,3 +44,62 @@ def test_run_audit_writes_report_with_r1(tmp_path):
     assert report_path.exists()
     text = report_path.read_text(encoding="utf-8")
     assert "R1" in text and "I0001" in text
+    # le YAML de propositions D est toujours écrit (vide ici : pas de famille)
+    props = yaml.safe_load(
+        (report_path.parent / "2026-07-17_propositions_audit_deterministes_all.yaml")
+        .read_text(encoding="utf-8"))
+    assert props["propositions"] == []
+
+
+# --- règles D : cas I0010 reconstitué (événement = mariage des parents) ---
+
+CLAUDE = {
+    "gramps_id": "I0010", "handle": "h10", "gender": 1, "citation_list": ["c"],
+    "family_list": [], "parent_family_list": ["hF"], "birth_ref_index": 0,
+    "death_ref_index": -1,
+    "primary_name": {"first_name": "Claude", "surname_list": [{"surname": "Villaudy"}]},
+    "profile": {"birth": {"citations": 1}},
+    "event_ref_list": [{"ref": "e1"}, {"ref": "e2"}],
+    "extended": {"events": [
+        {"type": "Birth", "citation_list": ["c"],
+         "date": {"sortval": 2342800, "year": 1703, "dateval": [1, 1, 1703, False],
+                  "modifier": 0, "quality": 0}},
+        {"type": "Marriage", "citation_list": [],
+         "date": {"sortval": 2342000, "year": 1701, "dateval": [31, 1, 1701, False],
+                  "modifier": 0, "quality": 0}},
+    ]},
+}
+FAMILY = {
+    "gramps_id": "F0011", "handle": "hF", "father_handle": None, "mother_handle": None,
+    "child_ref_list": [{"ref": "h10"}],
+    "extended": {"events": [
+        {"type": "Marriage",
+         "date": {"sortval": 2342000, "year": 1701, "dateval": [31, 1, 1701, False],
+                  "modifier": 0, "quality": 0}}]},
+}
+
+
+def _handler_d(request):
+    if request.url.path == "/api/token/":
+        return httpx.Response(200, json={"access_token": "t"})
+    path = request.url.path
+    if path == "/api/people/":
+        page = int(request.url.params.get("page", 1))
+        return httpx.Response(200, json=[CLAUDE] if page == 1 else [])
+    if path == "/api/people/h10":
+        return httpx.Response(200, json=CLAUDE)
+    if path == "/api/families/hF":
+        return httpx.Response(200, json=FAMILY)
+    return httpx.Response(200, json=[])
+
+
+def test_run_audit_emits_d_rule_proposition(tmp_path):
+    client = GrampsClient(CONFIG, transport=httpx.MockTransport(_handler_d))
+    report_path = run_audit(client, "all", tmp_path, date="2026-07-17", batch_size=25)
+    props = yaml.safe_load(
+        (report_path.parent / "2026-07-17_propositions_audit_deterministes_all.yaml")
+        .read_text(encoding="utf-8"))["propositions"]
+    assert len(props) == 1
+    p = props[0]
+    assert p["gramps_id"] == "I0010" and p["type"] == "relation" and p["confiance"] == 2
+    assert "F0011" in p["action"] and "1701" in p["action"]
