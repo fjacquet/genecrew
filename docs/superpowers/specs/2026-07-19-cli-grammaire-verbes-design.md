@@ -147,14 +147,17 @@ qui a été fait à sa date ; c'est l'ADR 0012 qui fait le pont, pas la réécri
 
 ## Tests
 
-- Les 7 `genecrew/tests/test_cli_*.py` sont adaptés à la nouvelle surface et renommés
-  d'après le verbe (`test_cli_propose_places.py`, `test_cli_apply_citations.py`, …).
-- Ils appellent `build_parser()` directement plutôt que `subprocess` là où c'est possible —
-  plus rapide, et ça teste la construction du parseur, pas l'installation de `uv`.
-- **Un test nouveau** vérifie que chacun des 16 anciens noms échoue avec un code de retour
-  non nul. La coupure nette devient un comportement testé, pas un effet de bord.
-- Un test vérifie que `apply citations` accepte indifféremment un YAML INSEE et un YAML
-  Mémoire des hommes — la fusion des deux commandes est vérifiée, pas supposée.
+- Les 7 `genecrew/tests/test_cli_*.py` sont **fusionnés** dans un `test_cli_parser.py`.
+  Chacun ne faisait qu'un `uv run` complet pour vérifier la présence d'un flag dans
+  `--help` ; ils deviennent des tests de parsing appelant `build_parser()` directement —
+  plus rapides, et ils testent la construction du parseur, pas l'installation de `uv`.
+- **Un test nouveau** vérifie que chacun des 16 anciens noms échoue. La coupure nette
+  devient un comportement testé, pas un effet de bord.
+- Un `test_cli_dispatch.py` vérifie que chaque feuille route vers la bonne fonction `*_cmd`.
+- La fusion `deces-apply`/`militaires-apply` **est déjà couverte** par
+  `test_deces_apply.py:54` et `:62` (INSEE et Mémoire des hommes passent par
+  `run_deces_apply`). On n'ajoute donc qu'une vérification que la CLI n'expose pas deux
+  portes vers ce moteur — pas un doublon de la couverture moteur.
 
 ## Ce que ce chantier n'est pas
 
