@@ -16,6 +16,8 @@ PLACES = [{"handle": "h1", "gramps_id": "P0001",
 def _handler(request):
     if request.url.path == "/api/token/":
         return httpx.Response(200, json={"access_token": "t"})
+    if request.method != "GET":
+        return httpx.Response(405)          # read-only: no write must ever reach here
     if request.url.path == "/api/places/":
         page = int(request.url.params.get("page", "1"))
         return httpx.Response(200, json=PLACES if page == 1 else [])
@@ -37,6 +39,19 @@ def test_run_places_readonly_writes_reports_no_http_write(tmp_path, monkeypatch,
     assert "Bourges" in md and "geo.api.gouv.fr" in md
     assert "ecrire" in md                       # action calculée mais RIEN écrit (lecture seule)
     assert yaml_path.exists()
+
+
+def test_run_places_indecidable_when_unresolved(tmp_path, monkeypatch):
+    # resolve_place renvoie None -> proposition indécidable, sans lever, rendue avec placeholders
+    monkeypatch.setattr(places, "resolve_place", lambda parsed: None)
+    client = GrampsClient(CONFIG, transport=httpx.MockTransport(_handler))
+    report, yaml_path = run_places(client, "all", tmp_path, date="2026-07-19")
+    md = report.read_text(encoding="utf-8")
+    assert "indecidable" in md
+    # le YAML porte bien une proposition de type lieu_indecidable, resolution nulle
+    import yaml as _yaml
+    props = _yaml.safe_load(yaml_path.read_text(encoding="utf-8"))
+    assert props and props[0]["type"] == "lieu_indecidable" and props[0]["resolution"] is None
 
 
 def test_render_places_report_has_links_and_sections():
