@@ -8,6 +8,7 @@ typée — compléter (décès absent), confirmer (décès non sourcé concordan
 
 from __future__ import annotations
 
+import time
 from datetime import date as _date
 from pathlib import Path
 
@@ -23,6 +24,15 @@ from genecrew.logging_setup import get_logger
 from genecrew.propositions import PropositionAudit
 
 MIN_BIRTH_YEAR = 1850  # né avant → mort avant 1970 quasi certain, hors fichier
+THROTTLE_S = 0.3       # politesse API MatchID (gratuite) ; 0 dans les tests
+
+
+def first_given(given: str) -> str:
+    """First given name, tree commas stripped ('Paul, Marcel' -> 'Paul'). Pure.
+
+    MatchID answers 422 on 'Paul,'.
+    """
+    return (given.replace(",", " ").split() or [""])[0]
 
 
 def event_iso(event: EventFact | None) -> str:
@@ -150,8 +160,9 @@ def run_deces(client: GrampsClient, scope: str, output_dir: Path, *, date: str,
             candidates += 1
             birth_iso = event_iso(person.birth)
             try:
-                matches = search_deces(person.surname, first_name=person.given.split()[0]
-                                       if person.given else "",
+                if THROTTLE_S:
+                    time.sleep(THROTTLE_S)
+                matches = search_deces(person.surname, first_name=first_given(person.given),
                                        birth_date=birth_iso[:4], limit=10)
                 queried += 1
             except Exception:

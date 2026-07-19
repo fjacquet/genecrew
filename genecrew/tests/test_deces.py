@@ -3,15 +3,29 @@
 import yaml
 from crewai_custom_tools.tools.genealogy.models.domain import EventFact, PersonFacts
 
+import pytest
+
 from genecrew import deces
 from genecrew.deces import (
     build_deces_proposition,
     event_iso,
+    first_given,
     is_candidate,
     run_deces,
 )
 
 TODAY = 2026
+
+
+@pytest.fixture(autouse=True)
+def _no_throttle(monkeypatch):
+    monkeypatch.setattr(deces, "THROTTLE_S", 0)
+
+
+def test_first_given_strips_tree_commas():
+    assert first_given("Paul, Marcel, Andre") == "Paul"        # MatchID 422 sur "Paul,"
+    assert first_given("Odette") == "Odette"
+    assert first_given("") == ""
 
 
 def _person(gid, handle, given, surname, birth=None, death=None):
@@ -88,7 +102,7 @@ def test_divergent_death_flags_contradiction():
 # --- orchestration (offline) ---
 
 def test_run_deces_queries_candidates_scores_and_writes_yaml(tmp_path, monkeypatch):
-    odette = _person("I0300", "h300", "Odette", "Rippert",
+    odette = _person("I0300", "h300", "Odette, Henriette", "Rippert",
                      birth=_event("Birth", 1922, 29, 9))
     ancien = _person("I0010", "h10", "Claude", "Villaudy", birth=_event("Birth", 1703))
     monkeypatch.setattr(deces, "iter_people_batches",
