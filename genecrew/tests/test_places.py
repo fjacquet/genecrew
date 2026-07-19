@@ -40,6 +40,29 @@ def test_run_places_readonly_writes_reports_no_http_write(tmp_path, monkeypatch,
     assert yaml_path.exists()
 
 
+def _boom(parsed):
+    # Un géocodeur qui échoue (503, timeout…) sur un lieu ne doit pas faire tomber tout le run.
+    raise httpx.HTTPStatusError(
+        "503", request=httpx.Request("GET", "http://x"), response=httpx.Response(503))
+
+
+def test_build_proposition_resolver_http_error_is_indecidable(monkeypatch):
+    monkeypatch.setattr(places, "resolve_place", _boom)
+    prop = places.build_proposition(
+        {"handle": "h", "gramps_id": "P9", "name": {"value": "Murten/Morat"}}, 0.90)
+    assert prop.action == "indecidable"
+    assert prop.resolution is None
+    assert "erreur" in prop.preuve.lower()      # l'erreur est remontée dans la preuve
+
+
+def test_run_places_continues_past_resolver_http_error(tmp_path, monkeypatch):
+    monkeypatch.setattr(places, "resolve_place", _boom)
+    client = GrampsClient(CONFIG, transport=httpx.MockTransport(_handler))
+    report, yaml_path = run_places(client, "all", tmp_path, date="2026-07-19")
+    md = report.read_text(encoding="utf-8")
+    assert "P0001" in md and "indecidable" in md    # le run se termine, le lieu est indécidable
+
+
 def test_run_places_indecidable_when_unresolved(tmp_path, monkeypatch):
     # resolve_place renvoie None -> proposition indécidable, sans lever, rendue avec placeholders
     monkeypatch.setattr(places, "resolve_place", lambda parsed: None)
