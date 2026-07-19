@@ -16,7 +16,7 @@ When making changes, work inside `genecrew/src/genecrew/` for crew logic.
 
 ### CrewAI project structure (`genecrew/src/genecrew/`)
 
-- `crew.py` — the real audit crew (`@CrewBase Genecrew`, `Process.sequential`): `detective` (read Gramps + Wikipedia, **no** write tool) → `chroniqueur` (the **only** writer, holds only the append-only note/tag tools). Write isolation is structural, not a prompt promise. LLM from the `MODEL` env via `build_llm()`.
+- `crew.py` — the real audit crew (`@CrewBase Genecrew`, `Process.sequential`, 4 agents): `detective` (judges) → `historien` (external proof: MatchID/Gallica/Wikidata) → `standardisateur` (precise propositions, strict JSON validated by `PropositionsLot`, confidence ≤ 2) → `chroniqueur` (the **only** writer, append-only note/tag tools). Write isolation is structural. LLM per role via `build_llm(role)` (`MODEL_<ROLE>` env, fallback `MODEL`), **always `is_litellm=True`** — CrewAI's native provider hardcodes `"strict": true` on tool schemas, which Mistral rejects.
 - `config/agents.yaml` — `detective`/`chroniqueur` personas (French, static).
 - `config/tasks/audit.yaml` — `interpreter_anomalies` (Détective) → `rediger_annotations` (Chroniqueur), templated with `{anomalies_block}` and `{date}`. (`crew.py` sets `tasks_config` to this path; the stock `config/tasks.yaml` was deleted.)
 - `main.py` — the argparse CLI dispatcher (all `genecrew <cmd>` subcommands) **and** the CrewAI console entry points (`run`/`train`/`test`/`replay`). `run` delegates to a bounded dry-run `crew-audit`. Sets up durable logging around every command.
@@ -104,7 +104,7 @@ Tests live in `genecrew/tests/` — run `uv run python -m pytest genecrew/tests/
 
 ## Environment / secrets
 
-- `.env` (repo root) holds `MODEL` (LiteLLM via **OpenRouter** — `openrouter/z-ai/glm-5.2`; needs `OPENROUTER_API_KEY`), the `GRAMPS_*` connection vars, and `GENECREW_*` pipeline settings — see `.env.example`. Never print or commit its contents.
+- `.env` (repo root) holds the LLM config (**OpenRouter**, needs `OPENROUTER_API_KEY`; per-role mix: `MODEL`=`openrouter/mistralai/mistral-small-2603` for historien/chroniqueur, `MODEL_DETECTIVE`/`MODEL_STANDARDISATEUR`=`openrouter/z-ai/glm-5.2` for judgment — mistral-small alone fails the Détective post), the `GRAMPS_*` connection vars, and `GENECREW_*` pipeline settings — see `.env.example`. Never print or commit its contents.
 - The root `.gitignore` excludes `.env`, `__pycache__/`, `.DS_Store`, and standard Python build/venv artifacts.
 
 ## Gotchas
@@ -117,5 +117,5 @@ Tests live in `genecrew/tests/` — run `uv run python -m pytest genecrew/tests/
 - **Write safety switch**: writes are gated by the per-command `--dry-run` flag OR the global `GENECREW_DRY_RUN` env var. The env can only *force* simulation; the **default when the var is absent is to simulate** (safe — via `effective_dry_run` in `crewai_custom_tools` 0.12.0). Set `GENECREW_DRY_RUN=false` in `.env` to write for real. The report's `Mode:` line reflects the **effective** dry-run (env included), so it never claims writes that didn't happen.
 - Full-tree `audit`/`names` runs are slow (minutes: per-family N+1 fetch + O(n²) duplicate check); iterate with `--limit`.
 - **Crew write isolation & cost**: only the `chroniqueur` agent has write tools (append-only note/tag); the `detective` cannot write. A `crew-audit` run costs ~23k LLM tokens/person (heavy read correlation) — always bound full-tree runs with `--limit`.
-- **Durable logs**: every `genecrew <cmd>` appends to `output/logs/<date>_genecrew.log` (START/DONE/FAILED + the `genecrew`/`crewai_custom_tools` namespaces); `crew-audit` also writes a structured agent/tool trace to `output/crew_audit/<date>_crew_audit_<scope>.log`, alongside its `.md`/`.yaml` report.
+- **Durable logs**: every `genecrew <cmd>` appends to `output/logs/<date>_genecrew.log` (START/DONE/FAILED + the `genecrew`/`crewai_custom_tools` namespaces); `crew-audit` also writes a structured agent/tool trace to `output/crew_audit/<date>_crew_audit_<scope>.log.txt` (CrewAI only accepts `.txt`/`.json`), plus its `.md`/`.yaml` report and the human-review `<date>_propositions_audit_<scope>.yaml`.
 - **GPS des lieux**: coordonnées **WGS84** décimales ; GeoJSON = `[lon, lat]` (ne pas inverser) ; swisstopo : lire `lat`/`lon`, **jamais `x`/`y`** (grille suisse LV95). Le géocodage passe par des résolveurs `geo/` routés par pays (`crewai_custom_tools`).
