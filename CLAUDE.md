@@ -23,7 +23,7 @@ When making changes, work inside `genecrew/src/genecrew/` for crew logic.
 - `tools/custom_tool.py` — placeholder `BaseTool` subclass template for adding custom CrewAI tools.
 - `knowledge/user_preference.txt` — static knowledge file (currently placeholder content) available to the crew via CrewAI's knowledge sources.
 
-**Current state**: the `crew.py`/`agents.yaml`/`tasks.yaml` scaffold is still the stock template (unused for now), but real functionality is built alongside it as an argparse CLI in `main.py`: Phase 0 (`stats`), Phase 1a deterministic audit (`audit`), and the name-casing standardizer (`names`). The genealogy logic itself lives in the sibling `crewai_custom_tools` library (see below), not here. The LLM crew (agents.yaml personas) is a later phase.
+**Current state**: the `crew.py`/`agents.yaml`/`tasks.yaml` scaffold is still the stock template (unused for now), but real functionality is built alongside it as an argparse CLI in `main.py`: Phase 0 (`stats`), Phase 1a deterministic audit (`audit`), the name-casing standardizer (`names`), gender inference (`gender`, read-only proposals) + its application (`gender-apply`, writes high-confidence gender fixes — ADR 0009), and the umbrella `apply-all` (casing then gender). The genealogy logic itself lives in the sibling `crewai_custom_tools` library (see below), not here. The LLM crew (agents.yaml personas) is a later phase.
 
 ## Where the genealogy code lives
 
@@ -32,7 +32,7 @@ genecrew depends on the sibling **`crewai_custom_tools`** library as an editable
 All genealogy logic lives THERE under `src/crewai_custom_tools/tools/genealogy/`: `gramps/`
 (httpx+JWT client, read/write tools), `models/` (generated + `domain.py`), `analysis/` (pure
 rules R1–R10 + D1–D3, duplicate finder), `standardize/` (name casing). genecrew holds only
-orchestration/CLI: `audit.py`, `names.py`, `facts.py`, `scope.py`, `batching.py`, `report.py`.
+orchestration/CLI: `audit.py`, `names.py`, `gender.py`, `gender_apply.py`, `apply_all.py`, `facts.py`, `scope.py`, `batching.py`, `report.py`.
 After bumping the library version, run `uv sync` from the repo root to pick it up.
 
 ## Genealogy stack (Gramps Web)
@@ -109,6 +109,6 @@ Tests live in `genecrew/tests/` — run `uv run python -m pytest genecrew/tests/
 - **Efficient people fetch**: `GET /api/people/?profile=all&extend=event_ref_list` returns human strings + citation counts (`profile`) AND raw dates with `sortval` (`extended.events`) in one call per page.
 - **Dates**: compare via the integer `sortval` (Julian day; `0` = unknown/unsortable). Undated events come back as `dateval=[0,0,0,False]`, `year=0`, `sortval=0` (not empty). Text-only dates have `modifier==6`.
 - **Gender int**: `0=F, 1=M, 2=U`.
-- **Form vs fact**: casing = *form* → direct write allowed, guarded by a case-only invariant that refuses any non-casing change (whitespace normalization isn't implemented yet); anything asserting a *fact* (dates, gender, relationships, a name's spelling) needs a source → proposal for human review.
-- **Write safety switch**: writes are gated by the per-command `--dry-run` flag AND the global `GENECREW_DRY_RUN` env var — if `GENECREW_DRY_RUN=true` (the default in `.env.example`), every write is simulated; set it false to write for real.
+- **Form vs fact**: casing = *form* → direct write allowed, guarded by a case-only invariant that refuses any non-casing change. A *fact* stays a proposal for human review — **except gender**, now written at high confidence by `gender-apply` (ratio ≥ 0.98 on the INSEE+OFS table, reversible; ADR 0009 relaxes ADR 0008). Other facts (dates, relationships, name spelling) still need a source → proposal.
+- **Write safety switch**: writes are gated by the per-command `--dry-run` flag OR the global `GENECREW_DRY_RUN` env var (the env can only *force* simulation). Set `GENECREW_DRY_RUN=false` in `.env` to write for real. ⚠️ **Two known traps (in `docs/BACKLOG.md`)**: the report's `Mode:` line reflects only the `--dry-run` flag, NOT the effective `GENECREW_DRY_RUN` override — so a run can print `écritures appliquées` while writing nothing; and the tool currently defaults an *absent* `GENECREW_DRY_RUN` to write (not simulate).
 - Full-tree `audit`/`names` runs are slow (minutes: per-family N+1 fetch + O(n²) duplicate check); iterate with `--limit`.
