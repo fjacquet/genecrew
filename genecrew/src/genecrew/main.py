@@ -199,11 +199,11 @@ def lieux_cmd(args) -> None:
     """Standardize places over a scope (read-only); print the report paths."""
     from pathlib import Path
 
-    from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient, GrampsConfig
+    from crewai_custom_tools.tools.genealogy.gramps.client import get_client
 
     from genecrew.places import run_places
 
-    client = GrampsClient(GrampsConfig.from_env())
+    client = get_client()
     output_dir = Path(os.environ.get("GENECREW_OUTPUT_DIR", "output"))
     date = args.date or __import__("datetime").date.today().isoformat()
     report, proposals = run_places(client, args.scope, output_dir, date=date,
@@ -217,11 +217,11 @@ def lieux_apply_cmd(args) -> None:
     """Apply place standardization (write hierarchy + GPS); print the report path."""
     from pathlib import Path
 
-    from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient, GrampsConfig
+    from crewai_custom_tools.tools.genealogy.gramps.client import get_client
 
     from genecrew.places_apply import run_places_apply
 
-    client = GrampsClient(GrampsConfig.from_env())
+    client = get_client()
     output_dir = Path(os.environ.get("GENECREW_OUTPUT_DIR", "output"))
     date = args.date or __import__("datetime").date.today().isoformat()
     report = run_places_apply(client, args.scope, output_dir, date=date,
@@ -234,11 +234,11 @@ def lieux_merge_cmd(args) -> None:
     """Execute human-reviewed place merges from a fusions YAML; print the report path."""
     from pathlib import Path
 
-    from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient, GrampsConfig
+    from crewai_custom_tools.tools.genealogy.gramps.client import get_client
 
     from genecrew.places_merge import run_places_merge
 
-    client = GrampsClient(GrampsConfig.from_env())
+    client = get_client()
     output_dir = Path(os.environ.get("GENECREW_OUTPUT_DIR", "output"))
     date = args.date or __import__("datetime").date.today().isoformat()
     report = run_places_merge(client, args.merges, output_dir, date=date, dry_run=args.dry_run)
