@@ -205,6 +205,8 @@ def apply_all_cmd(args) -> None:
     print(f"Noms à vérifier : {paths['incomplete']}")
     print(f"Genres : {paths['gender']}")
     print(f"Lieux : {paths['lieux']}")
+    print(f"Décès : {paths['deces']}")
+    print(f"Propositions décès : {paths['deces_propositions']}")
 
 
 def lieux_cmd(args) -> None:

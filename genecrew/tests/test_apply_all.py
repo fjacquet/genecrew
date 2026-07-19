@@ -9,6 +9,7 @@ from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient, Gram
 from crewai_custom_tools.tools.genealogy.models.domain import PlaceProposition, ResolvedPlace
 
 from genecrew import places_apply
+from genecrew import deces as deces_mod
 from genecrew.apply_all import run_apply_all
 
 CONFIG = GrampsConfig(api_url="http://g.test/api", username="u", password="p")
@@ -94,9 +95,12 @@ def test_run_apply_all_runs_all_three_steps(tmp_path, mocker):
 
     client = GrampsClient(CONFIG, transport=httpx.MockTransport(_handler(on_write)))
     _patch_write_client(mocker, client)
+    mocker.patch.object(deces_mod, "search_deces", return_value=[])   # MatchID hors-ligne
+    mocker.patch.object(deces_mod, "THROTTLE_S", 0)
     paths = run_apply_all(client, "all", tmp_path, date="2026-07-18",
                           min_ratio=0.98, min_score=0.90, dry_run=False)
-    assert set(paths) == {"names", "incomplete", "gender", "lieux"}
+    assert set(paths) == {"names", "incomplete", "gender", "lieux",
+                          "deces", "deces_propositions"}
     assert all(p.exists() for p in paths.values())
     # casse appliquée (SUZANNE -> Suzanne) ET genre écrit (U -> F = 0)
     assert paths["names"].read_text(encoding="utf-8").count("Suzanne") >= 1
@@ -116,6 +120,9 @@ def test_run_apply_all_dry_run_writes_nothing(tmp_path, mocker):
 
     client = GrampsClient(CONFIG, transport=httpx.MockTransport(_handler(on_write)))
     _patch_write_client(mocker, client)
+    mocker.patch.object(deces_mod, "search_deces", return_value=[])   # MatchID hors-ligne
+    mocker.patch.object(deces_mod, "THROTTLE_S", 0)
     paths = run_apply_all(client, "all", tmp_path, date="2026-07-18", dry_run=True)
-    assert set(paths) == {"names", "incomplete", "gender", "lieux"}
+    assert set(paths) == {"names", "incomplete", "gender", "lieux",
+                          "deces", "deces_propositions"}
     assert all(p.exists() for p in paths.values())               # rapports produits, rien écrit
