@@ -72,7 +72,7 @@ def render_apply_report(date: str, applied: list, skipped: list, errors: list,
                         ignored: int, dry_run: bool) -> str:
     """Markdown report. Pure."""
     mode = "simulation (dry-run, aucune écriture)" if dry_run else "écritures appliquées"
-    lines = [f"# Application des propositions décès (citations INSEE) — {date}", "",
+    lines = [f"# Application des propositions décès (citations de registres) — {date}", "",
              f"Mode : {mode}.", "",
              f"- Citations posées : {len(applied)}",
              f"- Déjà citées (ignorées, idempotent) : {len(skipped)}",
