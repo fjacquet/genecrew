@@ -46,11 +46,24 @@ DEFAULT_MODEL = "openrouter/z-ai/glm-5.2"
 
 
 def build_llm(role: str | None = None) -> LLM:
-    """Build an agent LLM: MODEL_<ROLE> env override, fallback on MODEL."""
-    default = os.environ.get("MODEL", DEFAULT_MODEL)
+    """Build an agent LLM: MODEL_<ROLE> env override, fallback on MODEL.
+
+    For openrouter/* models, OPENROUTER_PROVIDER_ORDER (comma-separated, e.g. "Z.AI")
+    pins the serving provider with allow_fallbacks=false — OpenRouter routing drifts
+    hour to hour and some routed providers reject our tool JSON schemas (400 "Invalid
+    structured output syntax").
+    """
+    model = os.environ.get("MODEL", DEFAULT_MODEL)
     if role:
-        return LLM(model=os.environ.get(f"MODEL_{role.upper()}", default))
-    return LLM(model=default)
+        model = os.environ.get(f"MODEL_{role.upper()}", model)
+    kwargs: dict = {}
+    provider_order = os.environ.get("OPENROUTER_PROVIDER_ORDER", "").strip()
+    if provider_order and model.startswith("openrouter/"):
+        kwargs["extra_body"] = {"provider": {
+            "order": [p.strip() for p in provider_order.split(",") if p.strip()],
+            "allow_fallbacks": False,
+        }}
+    return LLM(model=model, **kwargs)
 
 
 class PropositionAudit(BaseModel):
@@ -156,10 +169,10 @@ class Genecrew:
 
     @task
     def formuler_propositions(self) -> Task:
-        return Task(
-            config=self.tasks_config["formuler_propositions"],  # type: ignore[index]
-            output_pydantic=PropositionsLot,
-        )
+        # Pas d'output_pydantic natif : via OpenRouter, le response_format JSON-schema
+        # n'a pas d'endpoint (Z.AI) ou est rejeté selon le fournisseur routé. Le prompt
+        # impose du JSON strict, validé par PropositionsLot dans l'orchestrateur.
+        return Task(config=self.tasks_config["formuler_propositions"])  # type: ignore[index]
 
     @task
     def rediger_annotations(self) -> Task:

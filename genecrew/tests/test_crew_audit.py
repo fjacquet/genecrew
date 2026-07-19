@@ -144,8 +144,10 @@ def test_run_crew_audit_batches_writes_report_and_pins_dry_run(tmp_path, monkeyp
     assert len(_FakeCrew.kickoff_inputs) == 2
     assert set(_FakeCrew.kickoff_inputs[0]) == {"anomalies_block", "date"}
 
-    # Every batch's crew gets the durable trace file wired (same .log, append mode).
-    assert _FakeCrew.log_files == [str(report.parent / "2026-07-19_crew_audit_all.log")] * 2
+    # Every batch's crew gets the durable trace file wired (same file, append mode;
+    # .log.txt because CrewAI's FileHandler only accepts .txt/.json).
+    assert _FakeCrew.log_files == [
+        str(report.parent / "2026-07-19_crew_audit_all.log.txt")] * 2
 
     md = report.read_text(encoding="utf-8")
     assert "Mode : simulation (dry-run)" in md
@@ -198,6 +200,74 @@ def test_run_crew_audit_survives_missing_structured_output(tmp_path, monkeypatch
     props = yaml.safe_load(
         (report.parent / "2026-07-19_propositions_audit_all.yaml").read_text())
     assert props["propositions"] == []                         # YAML écrit, vide
+
+
+class _RawJsonOutput:
+    """Le Standardisateur rend du JSON strict en texte (chemin OpenRouter)."""
+    raw = "récapitulatif final du chroniqueur"
+    token_usage = _FakeUsage()
+    tasks_output = [
+        _FakeTaskOutput(),
+        _FakeTaskOutput(),
+        type("T", (), {"pydantic": None, "json_dict": None, "raw":
+             '```json\n{"propositions": [{"type": "date", "gramps_id": "I0300", '
+             '"handle": "h300", "personne": "Odette Rippert", '
+             '"cible": "événement décès", "action": "corriger la date", '
+             '"preuve_url": "", "preuve_detail": "", "priorite": "haute", '
+             '"confiance": 2}]}\n```'})(),
+        _FakeTaskOutput(),
+    ]
+
+
+class _RawJsonCrew:
+    output_log_file = None
+
+    def kickoff(self, inputs):
+        return _RawJsonOutput()
+
+
+class _RawJsonFactory:
+    def crew(self):
+        return _RawJsonCrew()
+
+
+def test_run_crew_audit_parses_strict_json_from_raw_text(tmp_path, monkeypatch):
+    monkeypatch.delenv("GENECREW_DRY_RUN", raising=False)
+    monkeypatch.setattr(crew_audit, "collect_audit_findings",
+                        lambda *a, **k: ([_anom("R1", "haute", "I1", "h1", "x")],
+                                         [], [_person("I1", "h1", "A B")]))
+    report = run_crew_audit(client=None, scope="all", output_dir=tmp_path,
+                            date="2026-07-19", dry_run=True,
+                            crew_factory=_RawJsonFactory)
+    props = yaml.safe_load(
+        (report.parent / "2026-07-19_propositions_audit_all.yaml").read_text())
+    assert props["propositions"][0]["personne"] == "Odette Rippert"
+    assert "Propositions actionnables : 1" in report.read_text(encoding="utf-8")
+
+
+class _CrashingCrew:
+    output_log_file = None
+
+    def kickoff(self, inputs):
+        raise RuntimeError("400 fournisseur LLM")
+
+
+class _CrashingFactory:
+    def crew(self):
+        return _CrashingCrew()
+
+
+def test_run_crew_audit_survives_a_crashing_batch(tmp_path, monkeypatch):
+    monkeypatch.delenv("GENECREW_DRY_RUN", raising=False)
+    monkeypatch.setattr(crew_audit, "collect_audit_findings",
+                        lambda *a, **k: ([_anom("R1", "haute", "I1", "h1", "x")],
+                                         [], [_person("I1", "h1", "A B")]))
+    report = run_crew_audit(client=None, scope="all", output_dir=tmp_path,
+                            date="2026-07-19", dry_run=True,
+                            crew_factory=_CrashingFactory)
+    md = report.read_text(encoding="utf-8")
+    assert "Lot en échec" in md                                # rapport écrit quand même
+    assert "Propositions actionnables : 0" in md
 
 
 def test_run_crew_audit_real_write_mode_leaves_switch_untouched(tmp_path, monkeypatch):

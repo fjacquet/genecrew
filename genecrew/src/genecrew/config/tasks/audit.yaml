@@ -57,9 +57,11 @@ formuler_propositions:
       - pas d'action évidente → pas de proposition (pas de remplissage) ;
       - priorite : haute | moyenne | basse.
   expected_output: >
-    La liste structurée des propositions (champs : type, gramps_id, handle, personne,
-    cible, action, preuve_url, preuve_detail, priorite, confiance). Liste vide si aucune
-    action concrète ne se justifie.
+    UNIQUEMENT un objet JSON valide, sans aucune prose autour et sans clôture markdown,
+    de la forme exacte : {"propositions": [{"type": "...", "gramps_id": "...",
+    "handle": "...", "personne": "...", "cible": "...", "action": "...",
+    "preuve_url": "...", "preuve_detail": "...", "priorite": "...", "confiance": 1}]}.
+    Si aucune action concrète ne se justifie : {"propositions": []}.
   agent: standardisateur
 
 rediger_annotations:

@@ -17,8 +17,16 @@ de la collaboration (décision utilisateur : « entre les personas ») :
 3. **Standardisateur** — convertit verdict + preuve en **proposition précise** : objet
    Gramps visé, action exacte, preuve, priorité, confiance (**plafonnée à 2/4** — seul
    l'humain monte au-dessus). Outils : `genealogy_check_person`, `genealogy_find_duplicates`,
-   `genealogy_resolve_place`, `gramps_get_object`. Sortie **structurée** (`output_pydantic`)
-   — jamais de parsing de texte libre.
+   `genealogy_resolve_place`, `gramps_get_object`. Sortie **JSON strict imposé par le
+   prompt, validé côté orchestrateur par le schéma Pydantic** (`PropositionsLot`).
+   *Amendement 2026-07-19* : le `output_pydantic` natif initialement prévu est abandonné —
+   via OpenRouter, le `response_format` JSON-schema n'a pas d'endpoint chez Z.AI (404
+   « No endpoints found ») et d'autres fournisseurs routés le rejettent (400 « Invalid
+   structured output syntax »). La rigueur reste : JSON invalide → repli gracieux, lot
+   signalé au rapport. S'y ajoute l'**épinglage fournisseur** configurable
+   (`OPENROUTER_PROVIDER_ORDER`, ex. `Z.AI`, `allow_fallbacks=false`) car le routage
+   OpenRouter dérive d'une heure à l'autre (les schémas d'outils passaient l'après-midi,
+   rejetés le soir).
 4. **Chroniqueur** — inchangé (notes + tags append-only, seul écrivain).
 
 ## 2. Décisions actées

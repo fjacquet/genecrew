@@ -52,8 +52,9 @@ def test_crew_is_sequential_with_four_agents_and_four_tasks():
 class _FakeLLM:
     """Captures the model string without CrewAI's provider-prefix parsing."""
 
-    def __init__(self, model):
+    def __init__(self, model, **kwargs):
         self.model = model
+        self.kwargs = kwargs
 
 
 def test_build_llm_reads_model_from_env(monkeypatch):
@@ -75,3 +76,22 @@ def test_build_llm_role_override_and_fallback(monkeypatch):
     assert build_llm("historien").model == "openrouter/pas-cher/mini"
     # rôle sans override -> repli sur MODEL
     assert build_llm("chroniqueur").model == "openrouter/z-ai/glm-5.2"
+
+
+def test_build_llm_pins_openrouter_provider(monkeypatch):
+    monkeypatch.setattr("genecrew.crew.LLM", _FakeLLM)
+    monkeypatch.setenv("MODEL", "openrouter/z-ai/glm-5.2")
+    monkeypatch.setenv("OPENROUTER_PROVIDER_ORDER", "Z.AI, Novita")
+    llm = build_llm()
+    assert llm.kwargs["extra_body"] == {"provider": {
+        "order": ["Z.AI", "Novita"], "allow_fallbacks": False}}
+    # modèle non-openrouter -> pas d'épinglage
+    monkeypatch.setenv("MODEL", "gpt-4o-mini")
+    assert "extra_body" not in build_llm().kwargs
+
+
+def test_build_llm_no_pin_when_env_absent(monkeypatch):
+    monkeypatch.setattr("genecrew.crew.LLM", _FakeLLM)
+    monkeypatch.setenv("MODEL", "openrouter/z-ai/glm-5.2")
+    monkeypatch.delenv("OPENROUTER_PROVIDER_ORDER", raising=False)
+    assert "extra_body" not in build_llm().kwargs

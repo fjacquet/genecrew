@@ -8,6 +8,7 @@ in force we pin ``GENECREW_DRY_RUN=true`` so every tool the LLM calls simulates 
 
 from __future__ import annotations
 
+import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -68,13 +69,30 @@ def _chunk(items: list, size: int) -> list[list]:
     return [items[i:i + size] for i in range(0, len(items), size)]
 
 
-def extract_propositions(crew_output) -> tuple[list, bool]:
-    """Pull the Standardisateur's structured PropositionsLot out of a CrewOutput.
+def _parse_lot(text: str) -> PropositionsLot | None:
+    """Parse a strict-JSON propositions object out of an LLM text. Pure, tolerant of
+    markdown fences and surrounding prose; None when absent or schema-invalid."""
+    if not text or "propositions" not in text:
+        return None
+    start, end = text.find("{"), text.rfind("}")
+    if start == -1 or end <= start:
+        return None
+    try:
+        data = json.loads(text[start:end + 1])
+        return PropositionsLot(**data) if isinstance(data, dict) else None
+    except Exception:                               # invalid JSON/schema → graceful
+        return None
 
-    Returns (propositions, structured_ok). Graceful: if the LLM failed to produce the
-    structured output, returns ([], False) — the caller logs and the report flags it.
+
+def extract_propositions(crew_output) -> tuple[list, bool]:
+    """Pull the Standardisateur's PropositionsLot out of a CrewOutput.
+
+    Order: native pydantic/json (future-proof) → strict-JSON parse of each task's raw
+    text (the OpenRouter-compatible path) — always validated by the Pydantic schema.
+    Returns (propositions, structured_ok); ([], False) lets the caller log and flag.
     """
-    for task_output in getattr(crew_output, "tasks_output", None) or []:
+    task_outputs = list(getattr(crew_output, "tasks_output", None) or [])
+    for task_output in task_outputs:
         lot = getattr(task_output, "pydantic", None)
         if isinstance(lot, PropositionsLot):
             return list(lot.propositions), True
@@ -82,8 +100,12 @@ def extract_propositions(crew_output) -> tuple[list, bool]:
         if isinstance(json_dict, dict) and "propositions" in json_dict:
             try:
                 return list(PropositionsLot(**json_dict).propositions), True
-            except Exception:                       # malformed → graceful fallback
-                return [], False
+            except Exception:                       # malformed → keep looking
+                continue
+    for task_output in task_outputs:
+        lot = _parse_lot(getattr(task_output, "raw", "") or "")
+        if lot is not None:
+            return list(lot.propositions), True
     return [], False
 
 
@@ -152,8 +174,9 @@ def run_crew_audit(
     report_dir = output_dir / "crew_audit"
     report_dir.mkdir(parents=True, exist_ok=True)
     slug = scope.replace(":", "_")
-    # Durable crew trace (agents + tool calls), appended across batches (.txt append).
-    crew_log_path = report_dir / f"{date}_crew_audit_{slug}.log"
+    # Durable crew trace (agents + tool calls), appended across batches. CrewAI's
+    # FileHandler only accepts .txt/.json (anything else gets ".txt" appended).
+    crew_log_path = report_dir / f"{date}_crew_audit_{slug}.log.txt"
 
     anomalies, _duplicates, all_people = collect_audit_findings(
         client, scope, batch_size=batch_size, limit=limit)
@@ -164,10 +187,20 @@ def run_crew_audit(
     for idx, batch in enumerate(_chunk(persons, batch_size), 1):
         crew = crew_factory().crew()
         crew.output_log_file = str(crew_log_path)
-        crew_output = crew.kickoff(inputs={
-            "anomalies_block": render_anomalies_block(batch),
-            "date": date,
-        })
+        try:
+            crew_output = crew.kickoff(inputs={
+                "anomalies_block": render_anomalies_block(batch),
+                "date": date,
+            })
+        except Exception:
+            # Un lot qui plante (fournisseur LLM, réseau...) ne tue pas le run.
+            get_logger().exception("crew-audit lot %d : échec du kickoff", idx)
+            batch_results.append({
+                "index": idx, "n_persons": len(batch),
+                "raw": "_Lot en échec (voir le log) — personnes non traitées._",
+                "tokens": 0, "structured": False,
+            })
+            continue
         propositions, structured = extract_propositions(crew_output)
         if not structured:
             get_logger().warning(
