@@ -63,7 +63,10 @@ def build_llm(role: str | None = None) -> LLM:
             "order": [p.strip() for p in provider_order.split(",") if p.strip()],
             "allow_fallbacks": False,
         }}
-    return LLM(model=model, **kwargs)
+    # is_litellm: CrewAI's native OpenAI-compatible provider hardcodes "strict": true on
+    # every tool schema, which Mistral's API rejects (400 "Invalid structured output
+    # syntax"). The LiteLLM path builds plain tool schemas that every provider accepts.
+    return LLM(model=model, is_litellm=True, **kwargs)
 
 
 class PropositionAudit(BaseModel):

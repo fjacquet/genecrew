@@ -8,6 +8,7 @@ dependencies = [
     "crewai[tools]>=1.15.2",
     "crewai-custom-tools",
     "python-dotenv>=1.0.0",
+    "litellm>=1.93.0",
 ]
 
 [project.scripts]
