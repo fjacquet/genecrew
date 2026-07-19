@@ -16,10 +16,10 @@ CONFIG = GrampsConfig(api_url="http://g.test/api", username="u", password="p")
 
 _RESOLVED = ResolvedPlace(
     name="Bourges", place_type="Commune", lat="47.081", long="2.399", code="18033",
+    # contrat résolveurs: chains = les PARENTS seuls; la feuille = name/place_type
     chains=[DatedChain(levels=[
         PlaceLevel(name="France", place_type="Country"),
         PlaceLevel(name="Cher", place_type="Department"),
-        PlaceLevel(name="Bourges", place_type="Commune"),
     ])],
     score=1.0, source="geo.api.gouv.fr", query="Bourges, Cher, France",
 )

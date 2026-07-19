@@ -17,7 +17,6 @@ from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient
 from crewai_custom_tools.tools.genealogy.gramps.write_tools import (
     GrampsCreatePlaceTool, effective_dry_run,
 )
-from crewai_custom_tools.tools.genealogy.models.domain import DatedChain
 from crewai_custom_tools.tools.genealogy.standardize.places import parse_pname
 
 from genecrew.places_apply import _ensure_parents, _seed_parent_index
@@ -43,26 +42,27 @@ def run_lieu_import(client: GrampsClient, raw: str, *, min_score: float = 0.90,
     if action != "ecrire" or not resolved or not resolved.chains:
         return out
 
+    # Contrat des résolveurs : chains = les PARENTS seuls ; la feuille vit dans
+    # resolved.name/place_type/GPS/code (même lecture que places_apply).
     chain = resolved.chains[0]
-    path = ">".join(level.name for level in chain.levels)
-    out["chain"] = path
+    parents_path = ">".join(level.name for level in chain.levels)
+    full_path = f"{parents_path}>{resolved.name}" if parents_path else resolved.name
+    out["chain"] = full_path
 
     index = _seed_parent_index(client)
-    if path in index:                               # déjà dans l'arbre — rien à créer
+    if full_path in index:                          # déjà dans l'arbre — rien à créer
         out["existing"] = True
-        out["handle"] = index[path]
+        out["handle"] = index[full_path]
         return out
 
     creator = GrampsCreatePlaceTool()
-    parents = DatedChain(levels=chain.levels[:-1], date_qualifier=chain.date_qualifier)
-    parent_handle = _ensure_parents(parents, index, creator, dry_run)
-    leaf = chain.levels[-1]
+    parent_handle = _ensure_parents(chain, index, creator, dry_run)
     payload = json.loads(creator._run(
-        name=leaf.name, place_type=leaf.place_type, parent_handle=parent_handle,
+        name=resolved.name, place_type=resolved.place_type, parent_handle=parent_handle,
         date_qualifier=chain.date_qualifier, lat=resolved.lat, long=resolved.long,
-        code=resolved.code or leaf.code, dry_run=dry_run))
+        code=resolved.code, dry_run=dry_run))
     if not payload["success"]:
-        raise RuntimeError(f"création de '{leaf.name}' : {payload['error']}")
+        raise RuntimeError(f"création de '{resolved.name}' : {payload['error']}")
     out["created"] = True
     out["handle"] = payload["data"]["handle"]
     return out
