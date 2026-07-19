@@ -213,6 +213,23 @@ def lieux_cmd(args) -> None:
     print(f"Propositions : {proposals}")
 
 
+def lieux_apply_cmd(args) -> None:
+    """Apply place standardization (write hierarchy + GPS); print the report path."""
+    from pathlib import Path
+
+    from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient, GrampsConfig
+
+    from genecrew.places_apply import run_places_apply
+
+    client = GrampsClient(GrampsConfig.from_env())
+    output_dir = Path(os.environ.get("GENECREW_OUTPUT_DIR", "output"))
+    date = args.date or __import__("datetime").date.today().isoformat()
+    report = run_places_apply(client, args.scope, output_dir, date=date,
+                              min_score=args.min_score, batch_size=args.batch_size,
+                              limit=args.limit, dry_run=args.dry_run)
+    print(f"Rapport : {report}")
+
+
 def main() -> None:
     """CLI entry point: genecrew <command>."""
     load_dotenv()
@@ -273,6 +290,17 @@ def main() -> None:
                          help="seuil de score pour action=ecrire (défaut 0.90)")
     lieux_p.add_argument("--date", default=None, help="date du rapport (défaut : aujourd'hui)")
 
+    la_p = sub.add_parser("lieux-apply",
+                          help="Applique (écrit) la standardisation des lieux au-dessus du score")
+    la_p.add_argument("--scope", default="all", help="all | person:ID")
+    la_p.add_argument("--min-score", type=float, default=0.90,
+                      help="seuil de score pour écrire (défaut 0.90)")
+    la_p.add_argument("--limit", type=int, default=None, help="limiter à N lieux")
+    la_p.add_argument("--batch-size", type=int,
+                      default=int(os.environ.get("GENECREW_BATCH_SIZE", "25")))
+    la_p.add_argument("--dry-run", action="store_true", help="simuler sans écrire")
+    la_p.add_argument("--date", default=None, help="date du rapport (défaut : aujourd'hui)")
+
     args = parser.parse_args()
     if args.command == "stats":
         stats()
@@ -288,6 +316,8 @@ def main() -> None:
         apply_all_cmd(args)
     elif args.command == "lieux":
         lieux_cmd(args)
+    elif args.command == "lieux-apply":
+        lieux_apply_cmd(args)
 
 
 if __name__ == "__main__":
