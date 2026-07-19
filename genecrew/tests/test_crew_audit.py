@@ -88,9 +88,11 @@ class _FakeOutput:
 
 class _FakeCrew:
     kickoff_inputs = []
+    log_files = []
 
     def kickoff(self, inputs):
         _FakeCrew.kickoff_inputs.append(inputs)
+        _FakeCrew.log_files.append(getattr(self, "output_log_file", None))
         return _FakeOutput()
 
 
@@ -101,6 +103,7 @@ class _FakeFactory:
 
 def test_run_crew_audit_batches_writes_report_and_pins_dry_run(tmp_path, monkeypatch):
     _FakeCrew.kickoff_inputs = []
+    _FakeCrew.log_files = []
     monkeypatch.delenv("GENECREW_DRY_RUN", raising=False)
     people = [_person(f"I{i}", f"h{i}", f"Pers {i}") for i in range(3)]
     anomalies = [_anom("R1", "haute", f"I{i}", f"h{i}", f"souci {i}") for i in range(3)]
@@ -116,6 +119,9 @@ def test_run_crew_audit_batches_writes_report_and_pins_dry_run(tmp_path, monkeyp
     # 3 persons / batch 2 → 2 kickoffs, each fed an anomalies_block + date.
     assert len(_FakeCrew.kickoff_inputs) == 2
     assert set(_FakeCrew.kickoff_inputs[0]) == {"anomalies_block", "date"}
+
+    # Every batch's crew gets the durable trace file wired (same .log, append mode).
+    assert _FakeCrew.log_files == [str(report.parent / "2026-07-19_crew_audit_all.log")] * 2
 
     md = report.read_text(encoding="utf-8")
     assert "Mode : simulation (dry-run)" in md

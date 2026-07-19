@@ -124,13 +124,21 @@ def run_crew_audit(
         # Pin the global switch so tools the LLM calls without dry_run still simulate.
         os.environ["GENECREW_DRY_RUN"] = "true"
 
+    report_dir = output_dir / "crew_audit"
+    report_dir.mkdir(parents=True, exist_ok=True)
+    slug = scope.replace(":", "_")
+    # Durable crew trace (agents + tool calls), appended across batches (.txt append).
+    crew_log_path = report_dir / f"{date}_crew_audit_{slug}.log"
+
     anomalies, _duplicates, all_people = collect_audit_findings(
         client, scope, batch_size=batch_size, limit=limit)
     persons = group_anomalies_by_person(anomalies, all_people)
 
     batch_results: list[dict] = []
     for idx, batch in enumerate(_chunk(persons, batch_size), 1):
-        crew_output = crew_factory().crew().kickoff(inputs={
+        crew = crew_factory().crew()
+        crew.output_log_file = str(crew_log_path)
+        crew_output = crew.kickoff(inputs={
             "anomalies_block": render_anomalies_block(batch),
             "date": date,
         })
@@ -145,9 +153,6 @@ def run_crew_audit(
         scope, date, batch_results,
         dry_run=simulate, n_persons=len(persons), n_anomalies=len(anomalies))
 
-    report_dir = output_dir / "crew_audit"
-    report_dir.mkdir(parents=True, exist_ok=True)
-    slug = scope.replace(":", "_")
     report_path = report_dir / f"{date}_crew_audit_{slug}.md"
     report_path.write_text(report, encoding="utf-8")
 

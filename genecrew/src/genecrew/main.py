@@ -5,8 +5,11 @@ import sys
 import warnings
 
 from datetime import datetime
+from pathlib import Path
 
 from dotenv import load_dotenv
+
+from genecrew.logging_setup import configure_logging, get_logger
 
 warnings.filterwarnings("ignore", category=SyntaxWarning, module="pysbd")
 
@@ -363,26 +366,34 @@ def main() -> None:
     ca_p.add_argument("--date", default=None, help="date du rapport (défaut : aujourd'hui)")
 
     args = parser.parse_args()
-    if args.command == "stats":
-        stats()
-    elif args.command == "audit":
-        audit_cmd(args)
-    elif args.command == "names":
-        names_cmd(args)
-    elif args.command == "gender":
-        gender_cmd(args)
-    elif args.command == "gender-apply":
-        gender_apply_cmd(args)
-    elif args.command == "apply-all":
-        apply_all_cmd(args)
-    elif args.command == "lieux":
-        lieux_cmd(args)
-    elif args.command == "lieux-apply":
-        lieux_apply_cmd(args)
-    elif args.command == "lieux-merge":
-        lieux_merge_cmd(args)
-    elif args.command == "crew-audit":
-        crew_audit_cmd(args)
+
+    output_dir = Path(os.environ.get("GENECREW_OUTPUT_DIR", "output"))
+    date = getattr(args, "date", None) or datetime.now().date().isoformat()
+    log_path = configure_logging(output_dir, date=date)
+    log = get_logger()
+    log.info("START command=%s args=%s", args.command,
+             {k: v for k, v in vars(args).items() if k != "command"})
+
+    dispatch = {
+        "stats": lambda: stats(),
+        "audit": lambda: audit_cmd(args),
+        "names": lambda: names_cmd(args),
+        "gender": lambda: gender_cmd(args),
+        "gender-apply": lambda: gender_apply_cmd(args),
+        "apply-all": lambda: apply_all_cmd(args),
+        "lieux": lambda: lieux_cmd(args),
+        "lieux-apply": lambda: lieux_apply_cmd(args),
+        "lieux-merge": lambda: lieux_merge_cmd(args),
+        "crew-audit": lambda: crew_audit_cmd(args),
+    }
+    try:
+        dispatch[args.command]()
+        log.info("DONE command=%s", args.command)
+    except Exception:
+        log.exception("FAILED command=%s", args.command)
+        raise
+    finally:
+        print(f"Log : {log_path}")
 
 
 if __name__ == "__main__":
