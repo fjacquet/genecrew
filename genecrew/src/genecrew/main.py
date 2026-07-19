@@ -277,6 +277,22 @@ def deces_cmd(args) -> None:
     print(f"Propositions : {proposals}")
 
 
+def deces_apply_cmd(args) -> None:
+    """Apply reviewed death propositions (INSEE citations); print the report path."""
+    from pathlib import Path
+
+    from crewai_custom_tools.tools.genealogy.gramps.client import get_client
+
+    from genecrew.deces_apply import run_deces_apply
+
+    client = get_client()
+    output_dir = Path(os.environ.get("GENECREW_OUTPUT_DIR", "output"))
+    date = args.date or __import__("datetime").date.today().isoformat()
+    report = run_deces_apply(client, Path(args.propositions), output_dir,
+                             date=date, dry_run=args.dry_run)
+    print(f"Rapport : {report}")
+
+
 def lieu_import_cmd(args) -> None:
     """Import one place from a free-form address (fuzzy engine); print the summary."""
     from crewai_custom_tools.tools.genealogy.gramps.client import get_client
@@ -386,6 +402,14 @@ def main() -> None:
     lm_p.add_argument("--dry-run", action="store_true", help="simuler sans fusionner")
     lm_p.add_argument("--date", default=None, help="date du rapport (défaut : aujourd'hui)")
 
+    da_p = sub.add_parser("deces-apply",
+                          help="Applique les propositions décès relues : citations INSEE "
+                               "sur les événements décès existants (ADR 0011)")
+    da_p.add_argument("--propositions", required=True,
+                      help="chemin du YAML de propositions RELU par un humain")
+    da_p.add_argument("--dry-run", action="store_true", help="simuler sans écrire")
+    da_p.add_argument("--date", default=None, help="date du rapport (défaut : aujourd'hui)")
+
     li_p = sub.add_parser("lieu-import",
                           help="Importer un lieu depuis une adresse libre (moteur fuzzy)")
     li_p.add_argument("place", help='adresse, ex. "Bourges, Cher, France"')
@@ -435,6 +459,7 @@ def main() -> None:
         "crew-audit": lambda: crew_audit_cmd(args),
         "deces": lambda: deces_cmd(args),
         "lieu-import": lambda: lieu_import_cmd(args),
+        "deces-apply": lambda: deces_apply_cmd(args),
     }
     try:
         dispatch[args.command]()
