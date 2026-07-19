@@ -10,18 +10,6 @@ resolution-markers = [
     "python_full_version < '3.12' and sys_platform != 'emscripten' and sys_platform != 'win32'",
 ]
 
-[manifest]
-members = [
-    "genecrew",
-]
-
-[manifest.dependency-groups]
-dev = [
-    { name = "pytest", specifier = ">=8.3" },
-    { name = "pytest-mock", specifier = ">=3.14" },
-    { name = "ruff", specifier = ">=0.15.22" },
-]
-
 [[package]]
 name = "aiofiles"
 version = "24.1.0"
@@ -807,11 +795,18 @@ wheels = [
 [[package]]
 name = "genecrew"
 version = "0.1.0"
-source = { editable = "genecrew" }
+source = { editable = "." }
 dependencies = [
     { name = "crewai", extra = ["tools"] },
     { name = "crewai-custom-tools" },
     { name = "python-dotenv" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "pytest" },
+    { name = "pytest-mock" },
+    { name = "ruff" },
 ]
 
 [package.metadata]
@@ -819,6 +814,13 @@ requires-dist = [
     { name = "crewai", extras = ["tools"], specifier = ">=1.15.2" },
     { name = "crewai-custom-tools", editable = "../crewai_custom_tools" },
     { name = "python-dotenv", specifier = ">=1.0.0" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pytest", specifier = ">=8.3" },
+    { name = "pytest-mock", specifier = ">=3.14" },
+    { name = "ruff", specifier = ">=0.15.22" },
 ]
 
 [[package]]

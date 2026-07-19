@@ -54,9 +54,9 @@ uv sync
 
 ### Configuration (`.env`)
 
-Copier `genecrew/.env.example` vers `genecrew/.env` et renseigner les valeurs (jamais commiter
+Copier `.env.example` vers `.env` et renseigner les valeurs (jamais commiter
 ce fichier — il est exclu par `genecrew/.gitignore`). Clés attendues, telles que listées dans
-`genecrew/.env.example` :
+`.env.example` :
 
 | Clé | Rôle |
 |---|---|
@@ -68,7 +68,7 @@ ce fichier — il est exclu par `genecrew/.gitignore`). Clés attendues, telles 
 | `GENECREW_BATCH_SIZE` | taille des lots (défaut `25`) |
 | `GENECREW_OUTPUT_DIR` | dossier des rapports d'audit (défaut `output/`) |
 
-Aucune valeur n'est donnée ici volontairement — voir `genecrew/.env.example` pour les valeurs
+Aucune valeur n'est donnée ici volontairement — voir `.env.example` pour les valeurs
 par défaut non sensibles, et compléter `GRAMPS_USERNAME`/`GRAMPS_PASSWORD` avec les
 identifiants réels de l'instance Gramps Web utilisée.
 
@@ -80,11 +80,11 @@ identifiants Gramps Web, mais **pas la même URL** :
   `host.docker.internal:80`, **sans** le suffixe `/api`.
 - `genecrew` (s'exécutant sur l'hôte) doit utiliser
   `GRAMPS_API_URL=http://localhost:80/api` — accès hôte direct, **avec** le suffixe `/api`
-  (c'est la valeur déjà présente dans `genecrew/.env.example`).
+  (c'est la valeur déjà présente dans `.env.example`).
 
 ### Statistiques de l'arbre
 
-Une fois Gramps Web démarré (via `gramps-mcp`, voir plus haut) et `genecrew/.env` renseigné :
+Une fois Gramps Web démarré (via `gramps-mcp`, voir plus haut) et `.env` renseigné :
 
 ```bash
 uv run genecrew stats
@@ -179,7 +179,7 @@ deux en lecture seule.
 
 - Phase 0 opérationnelle (client Gramps, `.env`, voir plus haut).
 - Un compte Gramps Web avec le rôle **Editor** (la lecture seule ne suffit plus). Le compte
-  dédié `genecrew-ia` mentionné dans `genecrew/.env.example` est prévu pour ce rôle ;
+  dédié `genecrew-ia` mentionné dans `.env.example` est prévu pour ce rôle ;
   `GRAMPS_USERNAME`/`GRAMPS_PASSWORD` doivent pointer vers un compte disposant des droits
   d'écriture avant de lancer la commande sans `--dry-run`.
 
@@ -269,7 +269,7 @@ contradictions genre/prénom, à partir d'un dictionnaire prénom→sexe INSEE
 propositions pour revue humaine.
 
 ```bash
-cd genecrew && uv run genecrew gender --scope all --limit 200
+uv run genecrew gender --scope all --limit 200
 ```
 
 Produit dans `output/inference/` : un rapport Markdown (`*_genres_*.md`) et un
@@ -290,9 +290,9 @@ donnée cœur** (ADR 0009) — réversible via l'historique des transactions Gra
 
 ```bash
 # 1) Simuler d'abord (aucune écriture) et relire le rapport :
-cd genecrew && uv run genecrew gender-apply --scope all --dry-run
+uv run genecrew gender-apply --scope all --dry-run
 # 2) Écrire pour de vrai (nécessite GENECREW_DRY_RUN=false dans .env) :
-cd genecrew && uv run genecrew gender-apply --scope all
+uv run genecrew gender-apply --scope all
 ```
 
 Rapport dans `output/inference/*_genres_appliques_*.md` : genres écrits, cas sous le seuil, erreurs.
@@ -307,8 +307,8 @@ Le global `GENECREW_DRY_RUN=true` (défaut du `.env`) force la simulation quel q
 commandes séparées (dry-run recommandé d'abord ; `GENECREW_DRY_RUN=true` force la simulation).
 
 ```bash
-cd genecrew && uv run genecrew apply-all --scope all --dry-run   # simuler
-cd genecrew && uv run genecrew apply-all --scope all             # écrire (si GENECREW_DRY_RUN=false)
+uv run genecrew apply-all --scope all --dry-run   # simuler
+uv run genecrew apply-all --scope all             # écrire (si GENECREW_DRY_RUN=false)
 ```
 
 Affiche les chemins des rapports (casse, noms à vérifier, genres appliqués) dans `output/`.
