@@ -13,12 +13,12 @@ from genecrew.facts import FactsFetcher
 from genecrew.report import render_report
 
 
-def run_audit(
-    client: GrampsClient, scope: str, output_dir: Path, *,
-    date: str, batch_size: int = 25, limit: int | None = None,
-) -> Path:
-    """Run the deterministic audit over `scope` and write a Markdown report."""
-    output_dir = Path(output_dir)
+def collect_audit_findings(
+    client: GrampsClient, scope: str, *, batch_size: int = 25, limit: int | None = None,
+) -> tuple[list, list, list]:
+    """Run the deterministic rules over `scope` and return the STRUCTURED findings
+    `(anomalies, duplicates, all_people)` in memory — the crew consumes these directly
+    (no Markdown parsing). `run_audit` reuses this, then renders the report."""
     fetcher = FactsFetcher(client)
 
     anomalies = []
@@ -48,6 +48,17 @@ def run_audit(
         all_people.extend(batch_people)
 
     duplicates = find_duplicates(all_people)
+    return anomalies, duplicates, all_people
+
+
+def run_audit(
+    client: GrampsClient, scope: str, output_dir: Path, *,
+    date: str, batch_size: int = 25, limit: int | None = None,
+) -> Path:
+    """Run the deterministic audit over `scope` and write a Markdown report."""
+    output_dir = Path(output_dir)
+    anomalies, duplicates, all_people = collect_audit_findings(
+        client, scope, batch_size=batch_size, limit=limit)
     report = render_report(scope, date, anomalies, duplicates, people_count=len(all_people))
 
     report_dir = output_dir / "audit"
