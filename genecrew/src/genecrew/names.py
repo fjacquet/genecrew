@@ -11,7 +11,10 @@ import json
 from pathlib import Path
 
 from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient
-from crewai_custom_tools.tools.genealogy.gramps.write_tools import GrampsUpdateNameTool
+from crewai_custom_tools.tools.genealogy.gramps.write_tools import (
+    GrampsUpdateNameTool,
+    effective_dry_run,
+)
 from crewai_custom_tools.tools.genealogy.standardize.names import (
     is_incomplete_name,
     needs_normalization,
@@ -109,8 +112,9 @@ def run_names(client: GrampsClient, scope: str, output_dir: Path, *,
     out.mkdir(parents=True, exist_ok=True)
     scope_slug = scope.replace(":", "_")
     report_path = out / f"{date}_noms_{scope_slug}.md"
-    report_path.write_text(render_names_report(scope, date, results, incomplete, dry_run),
-                           encoding="utf-8")
+    report_path.write_text(
+        render_names_report(scope, date, results, incomplete, effective_dry_run(dry_run)),
+        encoding="utf-8")
     incomplete_path = out / f"{date}_noms_a_verifier_{scope_slug}.md"
     incomplete_path.write_text(render_incomplete_report(scope, date, incomplete),
                                encoding="utf-8")

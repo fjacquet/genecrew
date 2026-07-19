@@ -15,7 +15,7 @@ CONFIG = GrampsConfig(api_url="http://g.test/api", username="u", password="p")
 @pytest.fixture(autouse=True)
 def _no_global_dry_run(monkeypatch):
     """Tests déterministes : neutralise un GENECREW_DRY_RUN ambiant."""
-    monkeypatch.delenv("GENECREW_DRY_RUN", raising=False)
+    monkeypatch.setenv("GENECREW_DRY_RUN", "false")   # défaut réel = simuler ; ici on écrit
 
 
 PEOPLE = [
@@ -106,3 +106,18 @@ def test_render_apply_report_sections_and_links():
         dry_run=False)
     assert "[I0001](http://localhost/person/I0001)" in md
     assert "genre_inconnu" in md and "Camille" in md and "boom" in md
+
+
+def test_report_reflects_env_forced_simulation(tmp_path, monkeypatch):
+    # Bug corrigé : GENECREW_DRY_RUN=true force la simulation ET le rapport le DIT
+    # (« Mode » reflète le dry-run EFFECTIF, pas seulement le flag CLI --dry-run).
+    monkeypatch.setenv("GENECREW_DRY_RUN", "true")
+
+    def on_put(request):
+        raise AssertionError("aucun PUT : GENECREW_DRY_RUN=true force la simulation")
+
+    client = GrampsClient(CONFIG, transport=httpx.MockTransport(_people_handler(on_put)))
+    report = run_gender_apply(client, "all", tmp_path, date="2026-07-19",
+                              dry_run=False, table=TABLE)   # dry_run param = False
+    md = report.read_text(encoding="utf-8")
+    assert "simulation" in md          # dit SIMULATION, pas « écritures appliquées »

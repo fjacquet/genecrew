@@ -14,7 +14,10 @@ from pathlib import Path
 
 from crewai_custom_tools.tools.genealogy.analysis.gender import infer_sex, load_prenoms_table
 from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient
-from crewai_custom_tools.tools.genealogy.gramps.write_tools import GrampsUpdateGenderTool
+from crewai_custom_tools.tools.genealogy.gramps.write_tools import (
+    GrampsUpdateGenderTool,
+    effective_dry_run,
+)
 
 from genecrew.batching import iter_people_batches
 from genecrew.facts import FactsFetcher
@@ -101,6 +104,7 @@ def run_gender_apply(client: GrampsClient, scope: str, output_dir, *, date: str,
     out.mkdir(parents=True, exist_ok=True)
     scope_slug = scope.replace(":", "_")
     path = out / f"{date}_genres_appliques_{scope_slug}.md"
-    path.write_text(render_apply_report(scope, date, applied, below, errors, dry_run),
-                    encoding="utf-8")
+    path.write_text(
+        render_apply_report(scope, date, applied, below, errors, effective_dry_run(dry_run)),
+        encoding="utf-8")
     return path
