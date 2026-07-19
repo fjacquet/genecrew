@@ -230,6 +230,21 @@ def lieux_apply_cmd(args) -> None:
     print(f"Rapport : {report}")
 
 
+def lieux_merge_cmd(args) -> None:
+    """Execute human-reviewed place merges from a fusions YAML; print the report path."""
+    from pathlib import Path
+
+    from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient, GrampsConfig
+
+    from genecrew.places_merge import run_places_merge
+
+    client = GrampsClient(GrampsConfig.from_env())
+    output_dir = Path(os.environ.get("GENECREW_OUTPUT_DIR", "output"))
+    date = args.date or __import__("datetime").date.today().isoformat()
+    report = run_places_merge(client, args.merges, output_dir, date=date, dry_run=args.dry_run)
+    print(f"Rapport : {report}")
+
+
 def main() -> None:
     """CLI entry point: genecrew <command>."""
     load_dotenv()
@@ -301,6 +316,12 @@ def main() -> None:
     la_p.add_argument("--dry-run", action="store_true", help="simuler sans écrire")
     la_p.add_argument("--date", default=None, help="date du rapport (défaut : aujourd'hui)")
 
+    lm_p = sub.add_parser("lieux-merge",
+                          help="Exécute les fusions de lieux depuis un YAML relu (jamais auto)")
+    lm_p.add_argument("--merges", required=True, help="chemin du YAML de fusions (relu par un humain)")
+    lm_p.add_argument("--dry-run", action="store_true", help="simuler sans fusionner")
+    lm_p.add_argument("--date", default=None, help="date du rapport (défaut : aujourd'hui)")
+
     args = parser.parse_args()
     if args.command == "stats":
         stats()
@@ -318,6 +339,8 @@ def main() -> None:
         lieux_cmd(args)
     elif args.command == "lieux-apply":
         lieux_apply_cmd(args)
+    elif args.command == "lieux-merge":
+        lieux_merge_cmd(args)
 
 
 if __name__ == "__main__":
