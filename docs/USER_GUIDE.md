@@ -315,6 +315,50 @@ Affiche les chemins des rapports (casse, noms à vérifier, genres appliqués) d
 
 ---
 
+## Standardisation des lieux
+
+Reconstruit le modèle Gramps natif des lieux (nom canonique, type, GPS **WGS84**, hiérarchie
+placeref) à partir des lieux importés à plat depuis GEDCOM, en s'appuyant sur la résolution
+autoritaire par code INSEE/OFS et le géocodage par nom (score de confiance). Voir la décision
+d'écriture (`docs/adr/0010-ecriture-lieux-hierarchie.md`) : l'ADR 0001 (lieu = proposition) reste
+la règle, 0010 en relâche l'exception bornée aux lieux — dans l'esprit de l'ADR 0009 pour le genre.
+**Seul `--scope all` est supporté pour les lieux en P1–P6** (`person:ID` lève `NotImplementedError`).
+
+```bash
+# 1) Lecture seule — propositions à relire :
+uv run genecrew lieux --scope all --min-score 0.90
+
+# 2) Écriture — hiérarchie + GPS au-dessus du score (lancer d'abord en --dry-run) :
+uv run genecrew lieux-apply --dry-run --min-score 0.90
+uv run genecrew lieux-apply --min-score 0.90            # si GENECREW_DRY_RUN=false
+
+# 3) Fusions de feuilles — jamais automatique, exécutées seulement après revue humaine :
+uv run genecrew lieux-merge --merges <fusions.yaml> --dry-run
+uv run genecrew lieux-merge --merges <fusions.yaml>
+```
+
+Fichiers produits sous `output/lieux/` :
+
+- `genecrew lieux` : `<AAAA-MM-JJ>_lieux_all.md` (rapport, groupé par action) et
+  `<AAAA-MM-JJ>_propositions_lieux_all.yaml` (propositions, pour revue) — **aucune écriture**.
+- `genecrew lieux-apply` : `<AAAA-MM-JJ>_lieux_appliques_all.md` (hiérarchie/GPS écrits ou
+  simulés, cas sous le seuil, erreurs) et `<AAAA-MM-JJ>_fusions_lieux_all.yaml` — les **fusions
+  proposées** (lieux en doublon résolus vers le même canonique), à relire avant `lieux-merge`.
+- `genecrew lieux-merge` : `<AAAA-MM-JJ>_fusions_appliquees_<stem-du-yaml>.md` — le suffixe
+  reprend le nom du fichier de fusions passé en entrée, pour ne pas écraser le rapport d'un
+  autre run le même jour.
+
+Le double interrupteur dry-run s'applique comme pour `names`/`gender-apply` : `--dry-run` (par
+appel) **et** `GENECREW_DRY_RUN` (global, `.env`) — si l'un des deux est actif, l'écriture est
+simulée ; le défaut (`GENECREW_DRY_RUN=true`) force donc la simulation tant qu'il n'est pas mis à
+`false`. Rappels d'invariants : les coordonnées GPS sont toujours en **WGS84** décimales
+(GeoJSON `[lon, lat]`, jamais inversé ; swisstopo : lire `lat`/`lon`, jamais `x`/`y`) ; la
+résolution par code INSEE/OFS est autoritaire (score 1.0), l'appariement flou géocodé n'écrit
+qu'au-dessus de `--min-score` (défaut 0.90), sinon il reste une proposition. Toutes les écritures
+sont réversibles via l'historique des transactions Gramps (ADR 0001).
+
+---
+
 ## Phases suivantes
 
 Les sections Phase 1b (interprétation LLM, tags, PDF) à Phase 6 (Archiviste Numérique) seront

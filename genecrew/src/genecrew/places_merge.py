@@ -51,7 +51,8 @@ def run_places_merge(client: GrampsClient, merges_yaml, output_dir, *, date: str
             errors.append((m["gramps_id_merge"], payload["error"]))
     out = output_dir / "lieux"
     out.mkdir(parents=True, exist_ok=True)
-    path = out / f"{date}_fusions_appliquees.md"
+    slug = Path(merges_yaml).stem
+    path = out / f"{date}_fusions_appliquees_{slug}.md"
     path.write_text(render_merge_report(date, done, errors, effective_dry_run(dry_run)),
                     encoding="utf-8")
     return path

@@ -1,4 +1,5 @@
 import httpx
+import pytest
 from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient, GrampsConfig
 from genecrew.batching import iter_places
 
@@ -21,3 +22,9 @@ def test_iter_places_paginates_and_limits():
     batches = list(iter_places(client, "all", batch_size=25, limit=2))
     flat = [p for b in batches for p in b]
     assert [p["handle"] for p in flat] == ["h0", "h1"]     # limit respecté
+
+
+def test_iter_places_rejects_unsupported_scope():
+    client = GrampsClient(CONFIG, transport=httpx.MockTransport(_handler))
+    with pytest.raises(NotImplementedError):
+        list(iter_places(client, "person:I0001", batch_size=25, limit=None))

@@ -297,7 +297,8 @@ def main() -> None:
     all_p.add_argument("--date", default=None, help="date des rapports (défaut : aujourd'hui)")
 
     lieux_p = sub.add_parser("lieux", help="Standardisation des lieux (lecture seule)")
-    lieux_p.add_argument("--scope", default="all", help="all | person:ID")
+    lieux_p.add_argument("--scope", default="all",
+                         help="all (seul supporté pour les lieux en P1–P6)")
     lieux_p.add_argument("--limit", type=int, default=None, help="limiter à N lieux")
     lieux_p.add_argument("--batch-size", type=int,
                          default=int(os.environ.get("GENECREW_BATCH_SIZE", "25")))
@@ -307,7 +308,8 @@ def main() -> None:
 
     la_p = sub.add_parser("lieux-apply",
                           help="Applique (écrit) la standardisation des lieux au-dessus du score")
-    la_p.add_argument("--scope", default="all", help="all | person:ID")
+    la_p.add_argument("--scope", default="all",
+                      help="all (seul supporté pour les lieux en P1–P6)")
     la_p.add_argument("--min-score", type=float, default=0.90,
                       help="seuil de score pour écrire (défaut 0.90)")
     la_p.add_argument("--limit", type=int, default=None, help="limiter à N lieux")
