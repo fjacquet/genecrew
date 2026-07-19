@@ -16,14 +16,14 @@ When making changes, work inside `genecrew/src/genecrew/` for crew logic.
 
 ### CrewAI project structure (`genecrew/src/genecrew/`)
 
-- `crew.py` — defines the `Genecrew` class (`@CrewBase`). Agents and tasks are declared here with `@agent`/`@task` decorators and pull their prompts from the YAML config files below. The crew currently runs as `Process.sequential`.
-- `config/agents.yaml` — agent definitions (role/goal/backstory), templated with `{topic}`.
-- `config/tasks.yaml` — task definitions (description/expected_output), templated with `{topic}` and `{current_year}`.
-- `main.py` — entry points (`run`, `train`, `replay`, `test`) that build the `inputs` dict and call `Genecrew().crew().kickoff(...)`. Keep custom input logic here, not business logic.
+- `crew.py` — the real audit crew (`@CrewBase Genecrew`, `Process.sequential`): `detective` (read Gramps + Wikipedia, **no** write tool) → `chroniqueur` (the **only** writer, holds only the append-only note/tag tools). Write isolation is structural, not a prompt promise. LLM from the `MODEL` env via `build_llm()`.
+- `config/agents.yaml` — `detective`/`chroniqueur` personas (French, static).
+- `config/tasks/audit.yaml` — `interpreter_anomalies` (Détective) → `rediger_annotations` (Chroniqueur), templated with `{anomalies_block}` and `{date}`. (`crew.py` sets `tasks_config` to this path; the stock `config/tasks.yaml` was deleted.)
+- `main.py` — the argparse CLI dispatcher (all `genecrew <cmd>` subcommands) **and** the CrewAI console entry points (`run`/`train`/`test`/`replay`). `run` delegates to a bounded dry-run `crew-audit`. Sets up durable logging around every command.
 - `tools/custom_tool.py` — placeholder `BaseTool` subclass template for adding custom CrewAI tools.
 - `knowledge/user_preference.txt` — static knowledge file (currently placeholder content) available to the crew via CrewAI's knowledge sources.
 
-**Current state**: the `crew.py`/`agents.yaml`/`tasks.yaml` scaffold is still the stock template (unused for now), but real functionality is built alongside it as an argparse CLI in `main.py`: Phase 0 (`stats`), Phase 1a deterministic audit (`audit`), the name-casing standardizer (`names`), gender inference (`gender`, read-only proposals) + its application (`gender-apply`, writes high-confidence gender fixes — ADR 0009), and the umbrella `apply-all` (casing then gender). The genealogy logic itself lives in the sibling `crewai_custom_tools` library (see below), not here. The LLM crew (agents.yaml personas) is a later phase.
+**Current state**: two layers ship together. (1) A deterministic argparse CLI in `main.py`: `stats` (Phase 0), `audit` (read-only R1–R10/D1–D3), `names` (casing), `gender`/`gender-apply` (ADR 0009), `apply-all`, and `lieux`/`lieux-apply`/`lieux-merge` (place standardizer). (2) The **real LLM crew** (`crew-audit`): the 2-agent Détective→Chroniqueur audit workflow that interprets the deterministic anomalies and writes **encadré** append-only note/tag annotations (marker `[genecrew:audit:<date>:detective]`), dry-run by default. Genealogy logic lives in the sibling `crewai_custom_tools`; genecrew holds orchestration/CLI only.
 
 ## Where the genealogy code lives
 
@@ -32,7 +32,7 @@ genecrew depends on the sibling **`crewai_custom_tools`** library as an editable
 All genealogy logic lives THERE under `src/crewai_custom_tools/tools/genealogy/`: `gramps/`
 (httpx+JWT client, read/write tools), `models/` (generated + `domain.py`), `analysis/` (pure
 rules R1–R10 + D1–D3, duplicate finder), `standardize/` (name casing). genecrew holds only
-orchestration/CLI: `audit.py`, `names.py`, `gender.py`, `gender_apply.py`, `apply_all.py`, `facts.py`, `scope.py`, `batching.py`, `report.py`.
+orchestration/CLI: `audit.py`, `names.py`, `gender.py`, `gender_apply.py`, `apply_all.py`, `places.py`, `places_apply.py`, `places_merge.py`, `crew_audit.py` (crew orchestration), `crew.py` (the crew), `logging_setup.py`, `facts.py`, `scope.py`, `batching.py`, `report.py`.
 After bumping the library version, run `uv sync` from the repo root to pick it up.
 
 ## Genealogy stack (Gramps Web)
@@ -74,8 +74,9 @@ Run everything **from the repo root** (single project, single `.venv`).
 # Install/sync dependencies
 uv sync
 
-# Run the crew via its console script
-crewai run
+# The LLM audit crew (Détective → Chroniqueur), dry-run by default:
+uv run genecrew crew-audit --scope all --limit 25 --dry-run   # ~23k tokens/personne — borne le coût avec --limit
+crewai run                                        # = bounded dry-run crew-audit (dev convenience)
 uv run run_crew                                   # equivalent direct entry point
 # `uv run genecrew <cmd>` is the GeneCrew CLI (argparse), NOT the crew itself:
 uv run genecrew stats                             # tree stats (Phase 0)
@@ -113,6 +114,8 @@ Tests live in `genecrew/tests/` — run `uv run python -m pytest genecrew/tests/
 - **Dates**: compare via the integer `sortval` (Julian day; `0` = unknown/unsortable). Undated events come back as `dateval=[0,0,0,False]`, `year=0`, `sortval=0` (not empty). Text-only dates have `modifier==6`.
 - **Gender int**: `0=F, 1=M, 2=U`.
 - **Form vs fact**: casing = *form* → direct write allowed, guarded by a case-only invariant that refuses any non-casing change. A *fact* stays a proposal for human review — **except gender**, now written at high confidence by `gender-apply` (ratio ≥ 0.98 on the INSEE+OFS table, reversible; ADR 0009 relaxes ADR 0008). Other facts (dates, relationships, name spelling) still need a source → proposal.
-- **Write safety switch**: writes are gated by the per-command `--dry-run` flag OR the global `GENECREW_DRY_RUN` env var. The env can only *force* simulation; the **default when the var is absent is to simulate** (safe — via `effective_dry_run` in `crewai_custom_tools` 0.11.1). Set `GENECREW_DRY_RUN=false` in `.env` to write for real. The report's `Mode:` line reflects the **effective** dry-run (env included), so it never claims writes that didn't happen.
+- **Write safety switch**: writes are gated by the per-command `--dry-run` flag OR the global `GENECREW_DRY_RUN` env var. The env can only *force* simulation; the **default when the var is absent is to simulate** (safe — via `effective_dry_run` in `crewai_custom_tools` 0.12.0). Set `GENECREW_DRY_RUN=false` in `.env` to write for real. The report's `Mode:` line reflects the **effective** dry-run (env included), so it never claims writes that didn't happen.
 - Full-tree `audit`/`names` runs are slow (minutes: per-family N+1 fetch + O(n²) duplicate check); iterate with `--limit`.
+- **Crew write isolation & cost**: only the `chroniqueur` agent has write tools (append-only note/tag); the `detective` cannot write. A `crew-audit` run costs ~23k LLM tokens/person (heavy read correlation) — always bound full-tree runs with `--limit`.
+- **Durable logs**: every `genecrew <cmd>` appends to `output/logs/<date>_genecrew.log` (START/DONE/FAILED + the `genecrew`/`crewai_custom_tools` namespaces); `crew-audit` also writes a structured agent/tool trace to `output/crew_audit/<date>_crew_audit_<scope>.log`, alongside its `.md`/`.yaml` report.
 - **GPS des lieux**: coordonnées **WGS84** décimales ; GeoJSON = `[lon, lat]` (ne pas inverser) ; swisstopo : lire `lat`/`lon`, **jamais `x`/`y`** (grille suisse LV95). Le géocodage passe par des résolveurs `geo/` routés par pays (`crewai_custom_tools`).
