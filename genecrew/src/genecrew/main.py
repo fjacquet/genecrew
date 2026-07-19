@@ -277,6 +277,17 @@ def deces_cmd(args) -> None:
     print(f"Propositions : {proposals}")
 
 
+def lieu_import_cmd(args) -> None:
+    """Import one place from a free-form address (fuzzy engine); print the summary."""
+    from crewai_custom_tools.tools.genealogy.gramps.client import get_client
+
+    from genecrew.lieu_import import format_lieu_import, run_lieu_import
+
+    out = run_lieu_import(get_client(), args.place, min_score=args.min_score,
+                          dry_run=args.dry_run)
+    print(format_lieu_import(out))
+
+
 def crew_audit_cmd(args) -> None:
     """Run the two-agent audit crew over a scope; print the report path."""
     from pathlib import Path
@@ -375,6 +386,13 @@ def main() -> None:
     lm_p.add_argument("--dry-run", action="store_true", help="simuler sans fusionner")
     lm_p.add_argument("--date", default=None, help="date du rapport (défaut : aujourd'hui)")
 
+    li_p = sub.add_parser("lieu-import",
+                          help="Importer un lieu depuis une adresse libre (moteur fuzzy)")
+    li_p.add_argument("place", help='adresse, ex. "Bourges, Cher, France"')
+    li_p.add_argument("--min-score", type=float, default=0.90,
+                      help="seuil de score pour créer (défaut 0.90)")
+    li_p.add_argument("--dry-run", action="store_true", help="simuler sans créer")
+
     dc_p = sub.add_parser("deces",
                           help="Enrichissement décès INSEE/MatchID, déterministe (lecture seule)")
     dc_p.add_argument("--scope", default="all", help="all | person:ID")
@@ -416,6 +434,7 @@ def main() -> None:
         "lieux-merge": lambda: lieux_merge_cmd(args),
         "crew-audit": lambda: crew_audit_cmd(args),
         "deces": lambda: deces_cmd(args),
+        "lieu-import": lambda: lieu_import_cmd(args),
     }
     try:
         dispatch[args.command]()
