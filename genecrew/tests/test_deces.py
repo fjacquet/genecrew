@@ -40,6 +40,8 @@ def _event(kind, year, day=0, month=0, cited=False):
 
 ODETTE_MATCH = {
     "id": "PpcgyN6TffIa",
+    "source": "2021",
+    "sourceLine": 610579,
     "name": {"first": ["Odette", "Henriette"], "last": "Rippert"},
     "birth": {"date": "19220929", "location": {"city": "Constantine"}},
     "death": {"date": "20211219", "certificateId": "1511",
@@ -78,7 +80,10 @@ def test_missing_death_proposes_completion():
     assert prop.type == "date" and prop.confiance == 2
     assert "2021-12-19" in prop.action and "Bourges" in prop.action
     assert prop.preuve_url == "https://deces.matchid.io/id/PpcgyN6TffIa"
+    # référence d'archive complète, rejouable sans MatchID
     assert "acte 1511" in prop.preuve_detail
+    assert "fichier INSEE 2021" in prop.preuve_detail
+    assert "ligne 610579" in prop.preuve_detail
 
 
 def test_unsourced_concordant_death_proposes_source():
@@ -97,6 +102,69 @@ def test_divergent_death_flags_contradiction():
     prop = build_deces_proposition(p, ODETTE_MATCH, 1.0, exact_birth=True)
     assert prop.type == "date" and prop.priorite == "haute" and prop.confiance == 1
     assert "2019-01-01" in prop.action and "2021-12-19" in prop.action
+
+
+# --- anti-homonymes (retour terrain: Paul/Monique/Michel VIVANTS proposés décédés) ---
+
+PAUL_HOMONYME = {                                  # même nom + même ANNÉE, autre personne
+    "id": "xxHOMONYME",
+    "name": {"first": ["Paul"], "last": "Jacquet"},
+    "birth": {"date": "19450312"},
+    "death": {"date": "19920907", "location": {"city": "Varces"}},
+}
+
+
+def test_year_only_match_never_proposes_a_death(tmp_path, monkeypatch):
+    # Paul est VIVANT: arbre = année seule (1945), l'INSEE a un homonyme né en 1945.
+    paul = _person("I0161", "h161", "Paul, Marcel", "Jacquet",
+                   birth=_event("Birth", 1945))               # année seule
+    monkeypatch.setattr(deces, "iter_people_batches", lambda *a, **k: iter([[paul]]))
+    monkeypatch.setattr(deces, "search_deces", lambda *a, **k: [PAUL_HOMONYME])
+    _, proposals = run_deces(client=None, scope="all", output_dir=tmp_path,
+                             date="2026-07-19")
+    assert yaml.safe_load(proposals.read_text())["propositions"] == []
+
+
+def test_divergent_death_with_year_only_birth_is_dropped_not_contradiction(tmp_path, monkeypatch):
+    # Roger: arbre décès 1961, homonyme INSEE mort 1987 — naissance année seule ->
+    # c'est un homonyme, pas une contradiction de l'arbre.
+    roger = _person("I0165", "h165", "Roger", "Jacquet",
+                    birth=_event("Birth", 1920), death=_event("Death", 1961, 29, 9))
+    insee = {"name": {"first": ["Roger"], "last": "Jacquet"},
+             "birth": {"date": "19200504"}, "death": {"date": "19870908"}}
+    monkeypatch.setattr(deces, "iter_people_batches", lambda *a, **k: iter([[roger]]))
+    monkeypatch.setattr(deces, "search_deces", lambda *a, **k: [insee])
+    _, proposals = run_deces(client=None, scope="all", output_dir=tmp_path,
+                             date="2026-07-19")
+    assert yaml.safe_load(proposals.read_text())["propositions"] == []
+
+
+def test_exact_death_date_rescues_source_mode(tmp_path, monkeypatch):
+    # Odette: naissance arbre 1922-10-02 vs INSEE 1922-09-29 (année seule -> 0.85),
+    # MAIS décès complet identique (2021-12-19) -> repêchée en mode source, confiance 2.
+    odette = _person("I0300", "h300", "Odette", "Rippert",
+                     birth=_event("Birth", 1922, 2, 10),
+                     death=_event("Death", 2021, 19, 12))
+    monkeypatch.setattr(deces, "iter_people_batches", lambda *a, **k: iter([[odette]]))
+    monkeypatch.setattr(deces, "search_deces", lambda *a, **k: [ODETTE_MATCH])
+    _, proposals = run_deces(client=None, scope="all", output_dir=tmp_path,
+                             date="2026-07-19")
+    props = yaml.safe_load(proposals.read_text())["propositions"]
+    assert len(props) == 1
+    assert props[0]["type"] == "source" and props[0]["confiance"] == 2
+
+
+def test_two_close_candidates_are_ambiguous_and_skipped(tmp_path, monkeypatch):
+    p = _person("I1", "h1", "Jean", "Jacquet", birth=_event("Birth", 1930, 1, 1))
+    twin_a = {"name": {"first": ["Jean"], "last": "Jacquet"},
+              "birth": {"date": "19300101"}, "death": {"date": "19990101"}}
+    twin_b = {"name": {"first": ["Jean"], "last": "Jacquet"},
+              "birth": {"date": "19300101"}, "death": {"date": "20050101"}}
+    monkeypatch.setattr(deces, "iter_people_batches", lambda *a, **k: iter([[p]]))
+    monkeypatch.setattr(deces, "search_deces", lambda *a, **k: [twin_a, twin_b])
+    _, proposals = run_deces(client=None, scope="all", output_dir=tmp_path,
+                             date="2026-07-19")
+    assert yaml.safe_load(proposals.read_text())["propositions"] == []
 
 
 # --- backoff quota MatchID ---

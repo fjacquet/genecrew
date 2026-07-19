@@ -16,7 +16,7 @@ import yaml
 
 from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient
 from crewai_custom_tools.tools.genealogy.gramps.facts import FactsFetcher
-from crewai_custom_tools.tools.genealogy.matchid import best_deces_match, search_deces
+from crewai_custom_tools.tools.genealogy.matchid import score_deces_match, search_deces
 from crewai_custom_tools.tools.genealogy.models.domain import EventFact, PersonFacts
 
 from genecrew.batching import iter_people_batches
@@ -26,6 +26,8 @@ from genecrew.propositions import PropositionAudit
 MIN_BIRTH_YEAR = 1850  # né avant → mort avant 1970 quasi certain, hors fichier
 THROTTLE_S = 2.0       # espacement de base entre requêtes MatchID ; 0 dans les tests
 BACKOFF_S = (15, 30, 30)  # attentes sur 422/429 — mesuré: seau ~5 req, recharge ~30 s
+AMBIGUITY_MARGIN = 0.05   # 2 candidats trop proches -> on s'abstient (homonymes)
+RESCUE_MIN_SCORE = 0.80   # plancher du repêchage "décès exact concorde" (mode source)
 
 
 def first_given(given: str) -> str:
@@ -103,9 +105,15 @@ def build_deces_proposition(person: PersonFacts, match: dict, score: float,
     if isinstance(lieu, list):                      # MatchID renvoie parfois une liste
         lieu = " / ".join(lieu)
     acte = (match.get("death") or {}).get("certificateId", "")
+    # Référence d'archive complète : millésime du fichier INSEE + ligne + n° d'acte —
+    # c'est ce qui rend la citation rejouable indépendamment de MatchID.
+    fichier = match.get("source", "")
+    ligne = match.get("sourceLine", "")
     detail = (f"Fichier des décès INSEE : {insee_iso}"
               + (f" à {lieu}" if lieu else "")
               + (f", acte {acte}" if acte else "")
+              + (f" — fichier INSEE {fichier}" if fichier else "")
+              + (f", ligne {ligne}" if ligne else "")
               + f" (score {score:.3f}).")
     confiance = 2 if exact_birth else 1
 
@@ -120,13 +128,15 @@ def build_deces_proposition(person: PersonFacts, match: dict, score: float,
 
     tree_iso = event_iso(person.death)
     if _dates_concordent(tree_iso, insee_iso):
+        # Décès concordant au jour près = le vrai discriminateur d'homonymie.
+        exact_death = len(tree_iso) == 10 and tree_iso == insee_iso
         return PropositionAudit(
             type="source", gramps_id=person.gramps_id, handle=person.handle,
             personne=person.name, cible=f"décès de {person.gramps_id} ({tree_iso}, sans source)",
             action="Ajouter la source INSEE (fichier des décès) en citation de l'événement "
                    "décès existant — les dates concordent.",
             preuve_url=_match_url(match), preuve_detail=detail,
-            priorite="basse", confiance=confiance)
+            priorite="basse", confiance=2 if (exact_death or confiance == 2) else 1)
 
     return PropositionAudit(
         type="date", gramps_id=person.gramps_id, handle=person.handle,
@@ -191,11 +201,23 @@ def run_deces(client: GrampsClient, scope: str, output_dir: Path, *, date: str,
                 get_logger().warning("deces: échec MatchID pour %s", person.gramps_id,
                                      exc_info=True)
                 continue
-            best = best_deces_match(person.surname, person.given, birth_iso, matches)
-            if best is None:
+            scored = sorted(
+                ((m, score_deces_match(person.surname, person.given, birth_iso, m))
+                 for m in matches),
+                key=lambda pair: pair[1], reverse=True)
+            scored = [(m, s) for m, s in scored if s > 0.0]
+            if not scored:
                 continue
-            match, score = best
-            if score < min_score:
+            # Garde d'ambiguïté : deux candidats trop proches = homonymes, on s'abstient.
+            if len(scored) >= 2 and scored[0][1] - scored[1][1] < AMBIGUITY_MARGIN:
+                continue
+            match, score = scored[0]
+            # L'année seule plafonne à 0.85 (< seuil) : elle ne propose JAMAIS seule.
+            # Repêchage uniquement quand le décès complet de l'arbre concorde à la
+            # journée près avec l'INSEE — c'est alors la date de décès qui discrimine.
+            tree_death = event_iso(person.death) if person.death else ""
+            exact_death = (len(tree_death) == 10 and tree_death == _match_deces_iso(match))
+            if score < min_score and not (exact_death and score >= RESCUE_MIN_SCORE):
                 continue
             props.append(build_deces_proposition(
                 person, match, score, exact_birth=(len(birth_iso) == 10 and score >= 1.0)))
