@@ -100,6 +100,8 @@ def build_deces_proposition(person: PersonFacts, match: dict, score: float,
     """One scored MatchID hit → the typed proposition. Pure."""
     insee_iso = _match_deces_iso(match)
     lieu = ((match.get("death") or {}).get("location") or {}).get("city", "")
+    if isinstance(lieu, list):                      # MatchID renvoie parfois une liste
+        lieu = " / ".join(lieu)
     acte = (match.get("death") or {}).get("certificateId", "")
     detail = (f"Fichier des décès INSEE : {insee_iso}"
               + (f" à {lieu}" if lieu else "")
