@@ -24,7 +24,8 @@ from genecrew.logging_setup import get_logger
 from genecrew.propositions import PropositionAudit
 
 MIN_BIRTH_YEAR = 1850  # né avant → mort avant 1970 quasi certain, hors fichier
-THROTTLE_S = 0.3       # politesse API MatchID (gratuite) ; 0 dans les tests
+THROTTLE_S = 2.0       # espacement de base entre requêtes MatchID ; 0 dans les tests
+BACKOFF_S = (15, 30, 30)  # attentes sur 422/429 — mesuré: seau ~5 req, recharge ~30 s
 
 
 def first_given(given: str) -> str:
@@ -65,6 +66,24 @@ def _match_deces_iso(match: dict) -> str:
 def _match_url(match: dict) -> str:
     mid = match.get("id") or ""
     return f"https://deces.matchid.io/id/{mid}" if mid else "https://deces.matchid.io"
+
+
+def _search_with_backoff(surname: str, first_name: str, birth_year: str) -> list[dict]:
+    """search_deces with retry on rate-limit answers (MatchID replies 422 when the
+    ~5-request bucket is empty; it refills in ~30 s)."""
+    for i, wait in enumerate((*BACKOFF_S, None)):
+        try:
+            return search_deces(surname, first_name=first_name,
+                                birth_date=birth_year, limit=10)
+        except Exception as exc:
+            status = getattr(getattr(exc, "response", None), "status_code", None)
+            if status in (422, 429) and wait is not None:
+                get_logger().info("deces: quota MatchID (HTTP %s), retry dans %ss",
+                                  status, wait)
+                time.sleep(wait)
+                continue
+            raise
+    raise RuntimeError("unreachable")
 
 
 def _dates_concordent(tree: str, insee_iso: str) -> bool:
@@ -162,8 +181,8 @@ def run_deces(client: GrampsClient, scope: str, output_dir: Path, *, date: str,
             try:
                 if THROTTLE_S:
                     time.sleep(THROTTLE_S)
-                matches = search_deces(person.surname, first_name=first_given(person.given),
-                                       birth_date=birth_iso[:4], limit=10)
+                matches = _search_with_backoff(
+                    person.surname, first_given(person.given), birth_iso[:4])
                 queried += 1
             except Exception:
                 errors += 1

@@ -99,6 +99,38 @@ def test_divergent_death_flags_contradiction():
     assert "2019-01-01" in prop.action and "2021-12-19" in prop.action
 
 
+# --- backoff quota MatchID ---
+
+class _Quota(Exception):
+    def __init__(self, status):
+        self.response = type("R", (), {"status_code": status})()
+
+
+def test_backoff_retries_on_quota_then_succeeds(monkeypatch):
+    monkeypatch.setattr(deces, "BACKOFF_S", (0, 0, 0))
+    calls = {"n": 0}
+
+    def fake(last_name, **kw):
+        calls["n"] += 1
+        if calls["n"] < 3:
+            raise _Quota(422)                                  # seau vide 2 fois
+        return [ODETTE_MATCH]
+    monkeypatch.setattr(deces, "search_deces", fake)
+    out = deces._search_with_backoff("Rippert", "Odette", "1922")
+    assert out == [ODETTE_MATCH] and calls["n"] == 3
+
+
+def test_backoff_raises_immediately_on_other_errors(monkeypatch):
+    monkeypatch.setattr(deces, "BACKOFF_S", (0, 0, 0))
+
+    def fake(last_name, **kw):
+        raise _Quota(500)                                      # pas un quota
+    monkeypatch.setattr(deces, "search_deces", fake)
+    import pytest as _pytest
+    with _pytest.raises(_Quota):
+        deces._search_with_backoff("Rippert", "Odette", "1922")
+
+
 # --- orchestration (offline) ---
 
 def test_run_deces_queries_candidates_scores_and_writes_yaml(tmp_path, monkeypatch):
