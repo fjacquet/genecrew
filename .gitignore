@@ -25,3 +25,4 @@ samples/
 *.gramps
 *.code-workspace
 .vscode/
+data/
