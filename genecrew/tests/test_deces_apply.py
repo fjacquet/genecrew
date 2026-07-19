@@ -55,6 +55,8 @@ def test_source_title_routed_per_register():
     assert source_title_for(PROP["preuve_detail"]) == (SOURCE_TITLE, "INSEE")
     t, a = source_title_for("Mémoire des hommes (Guerre 1914-1918) : décès 1915-09-28…")
     assert t == "Mémoire des hommes — Guerre 1914-1918" and a == "Ministère des Armées"
+    t, a = source_title_for("Presse Gallica : L'Écho d'Oran du 7 juin 1955, p. 10.")
+    assert t.startswith("Gallica") and "nationale" in a
 
 
 def test_apply_militaires_prop_creates_mdh_source(tmp_path, mocker):

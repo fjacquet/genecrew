@@ -41,11 +41,14 @@ def citation_page(preuve_detail: str, preuve_url: str) -> str:
 def source_title_for(preuve_detail: str) -> tuple[str, str]:
     """(title, author) of the Gramps source a proposition should cite. Pure.
 
-    One source per register: INSEE, or one per Mémoire des hommes base.
+    One source per register: INSEE, a Mémoire des hommes base, or the Gallica press.
     """
     m = _MDH_RE.search(preuve_detail or "")
     if m:
         return f"Mémoire des hommes — {m.group(1).strip()}", "Ministère des Armées"
+    if "gallica" in (preuve_detail or "").lower():
+        return ("Gallica (BnF) — presse numérisée",
+                "Bibliothèque nationale de France")
     return SOURCE_TITLE, "INSEE"
 
 
