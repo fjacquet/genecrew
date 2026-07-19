@@ -295,6 +295,22 @@ def militaires_cmd(args) -> None:
     print(f"Propositions : {proposals}")
 
 
+def lieux_wiki_cmd(args) -> None:
+    """Verified Wikipedia links + images on GPS-bearing places; print the report path."""
+    from pathlib import Path
+
+    from crewai_custom_tools.tools.genealogy.gramps.client import get_client
+
+    from genecrew.lieux_wiki import run_lieux_wiki
+
+    client = get_client()
+    output_dir = Path(os.environ.get("GENECREW_OUTPUT_DIR", "output"))
+    date = args.date or __import__("datetime").date.today().isoformat()
+    report = run_lieux_wiki(client, output_dir, date=date, limit=args.limit,
+                            images=not args.sans_images, dry_run=args.dry_run)
+    print(f"Rapport : {report}")
+
+
 def deces_apply_cmd(args) -> None:
     """Apply reviewed death propositions (INSEE citations); print the report path."""
     from pathlib import Path
@@ -440,6 +456,15 @@ def main() -> None:
                       help="seuil du score déterministe (défaut 0.90)")
     mi_p.add_argument("--date", default=None, help="date du rapport (défaut : aujourd'hui)")
 
+    lw_p = sub.add_parser("lieux-wiki",
+                          help="Lien Wikipédia vérifié (nom+GPS) + image d'article "
+                               "sur les lieux géoréférencés (append-only)")
+    lw_p.add_argument("--limit", type=int, default=None, help="limiter à N lieux")
+    lw_p.add_argument("--sans-images", action="store_true",
+                      help="ne poser que les liens, pas les images")
+    lw_p.add_argument("--dry-run", action="store_true", help="simuler sans écrire")
+    lw_p.add_argument("--date", default=None, help="date du rapport (défaut : aujourd'hui)")
+
     da_p = sub.add_parser("deces-apply",
                           help="Applique les propositions décès relues : citations INSEE "
                                "sur les événements décès existants (ADR 0011)")
@@ -500,6 +525,7 @@ def main() -> None:
         "deces-apply": lambda: deces_apply_cmd(args),
         "militaires": lambda: militaires_cmd(args),
         "militaires-apply": lambda: deces_apply_cmd(args),  # même moteur, source par base
+        "lieux-wiki": lambda: lieux_wiki_cmd(args),
     }
     try:
         dispatch[args.command]()
