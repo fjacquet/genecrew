@@ -84,6 +84,9 @@ uv run genecrew names --dry-run                   # name-casing standardizer (fi
 uv run genecrew gender --scope all --limit 200    # inférence de genre, lecture seule (propositions)
 uv run genecrew gender-apply --dry-run            # écrit les corrections de genre (fait, ADR 0009)
 uv run genecrew apply-all --dry-run               # casse puis genre en un passage
+uv run genecrew lieux --scope all                 # propositions de lieux (lecture seule)
+uv run genecrew lieux-apply --dry-run             # écrit hiérarchie + GPS au-dessus du score
+uv run genecrew lieux-merge --merges <fusions.yaml>  # exécute les fusions relues (jamais auto)
 
 # Train / replay / test the crew
 uv run train <n_iterations> <filename>
@@ -112,3 +115,4 @@ Tests live in `genecrew/tests/` — run `uv run python -m pytest genecrew/tests/
 - **Form vs fact**: casing = *form* → direct write allowed, guarded by a case-only invariant that refuses any non-casing change. A *fact* stays a proposal for human review — **except gender**, now written at high confidence by `gender-apply` (ratio ≥ 0.98 on the INSEE+OFS table, reversible; ADR 0009 relaxes ADR 0008). Other facts (dates, relationships, name spelling) still need a source → proposal.
 - **Write safety switch**: writes are gated by the per-command `--dry-run` flag OR the global `GENECREW_DRY_RUN` env var. The env can only *force* simulation; the **default when the var is absent is to simulate** (safe — via `effective_dry_run` in `crewai_custom_tools` 0.11.1). Set `GENECREW_DRY_RUN=false` in `.env` to write for real. The report's `Mode:` line reflects the **effective** dry-run (env included), so it never claims writes that didn't happen.
 - Full-tree `audit`/`names` runs are slow (minutes: per-family N+1 fetch + O(n²) duplicate check); iterate with `--limit`.
+- **GPS des lieux**: coordonnées **WGS84** décimales ; GeoJSON = `[lon, lat]` (ne pas inverser) ; swisstopo : lire `lat`/`lon`, **jamais `x`/`y`** (grille suisse LV95). Le géocodage passe par des résolveurs `geo/` routés par pays (`crewai_custom_tools`).

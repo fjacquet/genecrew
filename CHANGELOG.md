@@ -21,6 +21,7 @@ Non publié / non versionné (`0.1.0`) : entrées **datées par livraison**. La 
 
 ### Added
 
+- **Standardisateur de lieux** — trois commandes. `lieux` (lecture seule) parse les lieux importés à plat, les résout via une **chaîne de résolveurs routée par pays** (FR = code INSEE → `geo.api.gouv.fr` ; CH = swisstopo ; monde = Nominatim/OSM), et émet des propositions (rapport Markdown + YAML). `lieux-apply` **écrit** la hiérarchie (`Pays > Région > Département > Commune`, parents créés une fois — idempotent) + les coordonnées WGS84 au-dessus d'un score (`--min-score`, défaut 0.90), et **propose** les fusions de doublons sans les exécuter. `lieux-merge` exécute ces fusions depuis un YAML **relu par un humain** (jamais automatique). Nom moderne canonique en principal + nom d'époque daté en variante ; transitions temporelles (changements de souveraineté) pilotées par données. La logique généalogie vit dans `crewai_custom_tools` 0.12.0. Voir ADR 0010.
 - `docs/BACKLOG.md` — idées d'amélioration différées (progression/logs des runs longs, borner
   `gender` en `Literal`, liens `base_url`, types `Literal` sur `Proposition`, retry 429…).
 
