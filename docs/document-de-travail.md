@@ -131,7 +131,7 @@ Les deux dépôts sont frères sous `/Users/fjacquet/Projects/`. Dans le `pyproj
 dependencies = ["crewai>=1.15.2", "crewai-custom-tools"]
 
 [tool.uv.sources]
-crewai-custom-tools = { path = "../../crewai_custom_tools", editable = true }
+crewai-custom-tools = { path = "../crewai_custom_tools", editable = true }
 ```
 
 > **Note structure** : le scaffold `crewai create crew` a produit une structure imbriquée
