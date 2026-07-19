@@ -27,10 +27,12 @@
 ### Task 1: Modèles de lieux (domain.py)
 
 **Files:**
+
 - Modify: `crewai_custom_tools/src/crewai_custom_tools/tools/genealogy/models/domain.py` (append)
 - Test: `crewai_custom_tools/tests/test_genealogy_places_models.py` (create)
 
 **Interfaces:**
+
 - Produces: `ParsedPlace`, `PlaceLevel`, `DatedChain`, `DatedName`, `ResolvedPlace`, `PlaceProposition`, `PlaceMergeProposition` (Pydantic v2 `BaseModel`).
 
 - [ ] **Step 1: Write the failing test**
@@ -175,10 +177,12 @@ git commit -m "feat(genealogy): place domain models (ParsedPlace, ResolvedPlace,
 ### Task 2: Parser positionnel + normalisation pays (standardize/places.py)
 
 **Files:**
+
 - Create: `crewai_custom_tools/src/crewai_custom_tools/tools/genealogy/standardize/places.py`
 - Test: `crewai_custom_tools/tests/test_genealogy_places_parse.py`
 
 **Interfaces:**
+
 - Consumes: `ParsedPlace` (Task 1).
 - Produces: `parse_pname(raw: str) -> ParsedPlace` ; `normalize_country(raw: str) -> str` (label canonique, "" si vide/inconnu).
 
@@ -322,11 +326,13 @@ git commit -m "feat(genealogy): pure pname parser + country normalization"
 ### Task 3: Score et garde-fou d'ambiguïté (geo/score.py)
 
 **Files:**
+
 - Create: `crewai_custom_tools/src/crewai_custom_tools/tools/genealogy/geo/__init__.py` (empty)
 - Create: `crewai_custom_tools/src/crewai_custom_tools/tools/genealogy/geo/score.py`
 - Test: `crewai_custom_tools/tests/test_genealogy_places_score.py`
 
 **Interfaces:**
+
 - Produces: `similarity(a: str, b: str) -> float` ; `fuzzy_score(provider_conf: float, asked: str, returned: str) -> float` ; `is_ambiguous(candidates: list[float], margin: float = 0.10) -> bool` ; constant `AMBIGUITY_MARGIN = 0.10`.
 
 - [ ] **Step 1: Write the failing test**
@@ -416,10 +422,12 @@ git commit -m "feat(genealogy): pure place score + ambiguity guard"
 ### Task 4: Résolveur France (geo/france.py)
 
 **Files:**
+
 - Create: `crewai_custom_tools/src/crewai_custom_tools/tools/genealogy/geo/france.py`
 - Test: `crewai_custom_tools/tests/test_genealogy_geo_france.py`
 
 **Interfaces:**
+
 - Consumes: `ParsedPlace`, `ResolvedPlace`, `PlaceLevel`, `DatedChain`, `DatedName`.
 - Produces: pure `map_commune(payload: dict, parsed: ParsedPlace) -> ResolvedPlace` (authoritative, INSEE code path) ; `_http_get(path: str, params: dict) -> dict` (monkeypatchable) ; `resolve_fr(parsed: ParsedPlace) -> ResolvedPlace | None`.
 - Note: only the authoritative INSEE path is implemented here (score 1.0). The Géoplateforme fuzzy FR path is folded into the worldwide fuzzy fallback (Task 6/Task 7) for P1–P4 to avoid a second FR provider; `resolve_fr` returns `None` when there is no usable INSEE code, delegating to the fallback via the registry (Task 7).
@@ -535,10 +543,12 @@ git commit -m "feat(genealogy): France INSEE authoritative resolver"
 ### Task 5: Résolveur Suisse (geo/suisse.py)
 
 **Files:**
+
 - Create: `crewai_custom_tools/src/crewai_custom_tools/tools/genealogy/geo/suisse.py`
 - Test: `crewai_custom_tools/tests/test_genealogy_geo_suisse.py`
 
 **Interfaces:**
+
 - Produces: pure `map_swiss(search_payload: dict, parsed: ParsedPlace) -> ResolvedPlace | None` (swisstopo GeoAdmin SearchServer → GPS + name) ; `_http_get(url: str, params: dict) -> dict` ; `resolve_ch(parsed: ParsedPlace) -> ResolvedPlace | None`.
 - GPS gotcha: read `attrs.lat`/`attrs.lon` (WGS84), **never** `attrs.x`/`attrs.y` (LV95).
 
@@ -646,10 +656,12 @@ git commit -m "feat(genealogy): Switzerland swisstopo resolver (WGS84 lat/lon)"
 ### Task 6: Résolveur mondial Nominatim (geo/nominatim.py)
 
 **Files:**
+
 - Create: `crewai_custom_tools/src/crewai_custom_tools/tools/genealogy/geo/nominatim.py`
 - Test: `crewai_custom_tools/tests/test_genealogy_geo_nominatim.py`
 
 **Interfaces:**
+
 - Produces: pure `map_nominatim(results: list[dict], parsed: ParsedPlace) -> ResolvedPlace | None` ; `_http_get(params: dict) -> list` ; `resolve_world(parsed: ParsedPlace) -> ResolvedPlace | None`.
 - Nominatim result carries `lat`, `lon` (strings, WGS84) and `importance` (0..1) as provider confidence.
 
@@ -757,10 +769,12 @@ git commit -m "feat(genealogy): worldwide Nominatim fallback resolver"
 ### Task 7: Registre de routage + décision d'action (geo/registry.py)
 
 **Files:**
+
 - Create: `crewai_custom_tools/src/crewai_custom_tools/tools/genealogy/geo/registry.py`
 - Test: `crewai_custom_tools/tests/test_genealogy_geo_registry.py`
 
 **Interfaces:**
+
 - Consumes: `resolve_fr` (Task 4), `resolve_ch` (Task 5), `resolve_world` (Task 6), `ParsedPlace`, `ResolvedPlace`.
 - Produces: `resolve_place(parsed: ParsedPlace) -> ResolvedPlace | None` (route par pays, repli mondial) ; `decide_action(resolved: ResolvedPlace | None, min_score: float) -> str` ; `confiance_of(resolved: ResolvedPlace | None) -> str`.
 
@@ -876,10 +890,12 @@ git commit -m "feat(genealogy): country-routed resolver registry + action decisi
 ### Task 8: Itérateur de lieux Gramps (genecrew batching.py)
 
 **Files:**
+
 - Modify: `genecrew/src/genecrew/batching.py` (append `iter_places`)
 - Test: `genecrew/tests/test_places_batching.py`
 
 **Interfaces:**
+
 - Consumes: `GrampsClient` (has `.get_json`).
 - Produces: `iter_places(client, scope, batch_size, limit) -> Iterator[list[dict]]` — yields batches of raw Gramps place JSON dicts (each has `handle`, `gramps_id`, `name`, `placeref_list`, `place_type`, `lat`, `long`).
 
@@ -955,10 +971,12 @@ git commit -m "feat(places): paginated raw place iterator"
 ### Task 9: Orchestration lecture seule + rapport (genecrew places.py)
 
 **Files:**
+
 - Create: `genecrew/src/genecrew/places.py`
 - Test: `genecrew/tests/test_places.py`
 
 **Interfaces:**
+
 - Consumes: `iter_places` (Task 8) ; `parse_pname` (Task 2) ; `registry.resolve_place`, `registry.decide_action`, `registry.confiance_of` (Task 7) ; `PlaceProposition`.
 - Produces: `run_places(client, scope, output_dir, *, date, batch_size=25, limit=None, min_score=0.90) -> tuple[Path, Path]` (rapport MD + YAML) ; `render_places_report(scope, date, props, base_url="http://localhost") -> str` (pur) ; `build_proposition(place: dict, min_score: float) -> PlaceProposition` (pur-ish : appelle resolve_place).
 
@@ -1132,10 +1150,12 @@ git commit -m "feat(places): read-only run_places + Markdown/YAML report"
 ### Task 10: CLI `lieux` (genecrew main.py)
 
 **Files:**
+
 - Modify: `genecrew/src/genecrew/main.py` (add `lieux_cmd` + subparser + dispatch)
 - Test: `genecrew/tests/test_cli_lieux.py`
 
 **Interfaces:**
+
 - Consumes: `run_places` (Task 9).
 - Produces: CLI subcommand `genecrew lieux --scope --limit --batch-size --min-score --date`.
 
@@ -1218,10 +1238,12 @@ git commit -m "feat(places): genecrew lieux CLI subcommand (read-only)"
 ### Task 11: Outils d'écriture de lieux (cct write_tools.py)
 
 **Files:**
+
 - Modify: `crewai_custom_tools/src/crewai_custom_tools/tools/genealogy/gramps/write_tools.py` (append two tools)
 - Test: `crewai_custom_tools/tests/test_genealogy_place_write_tools.py`
 
 **Interfaces:**
+
 - Consumes: `effective_dry_run`, `get_client`, `ok`, `err`, `@api_tool`.
 - Produces: `GrampsCreatePlaceTool` (`_run(name, place_type, parent_handle=None, date_qualifier=None, lat=None, long=None, code=None, dry_run=False) -> str`; returns `data.handle` — a real POST handle, or a synthetic `f"DRYRUN:{name}"` in dry-run) ; `GrampsUpdatePlaceTool` (`_run(handle, name, place_type, lat=None, long=None, code=None, placeref_list=None, alt_names=None, provenance=None, dry_run=False) -> str`; GET→modify→PUT, no-op when already conforming).
 
@@ -1428,10 +1450,12 @@ git commit -m "feat(genealogy): GrampsCreatePlaceTool + GrampsUpdatePlaceTool (g
 ### Task 12: Orchestration d'écriture + fusions proposées (genecrew places_apply.py)
 
 **Files:**
+
 - Create: `genecrew/src/genecrew/places_apply.py`
 - Test: `genecrew/tests/test_places_apply.py`
 
 **Interfaces:**
+
 - Consumes: `iter_places` (Task 8) ; `build_proposition` (Task 9) ; `GrampsCreatePlaceTool`, `GrampsUpdatePlaceTool` (Task 11) ; `effective_dry_run` ; `PlaceMergeProposition`.
 - Produces: `run_places_apply(client, scope, output_dir, *, date, min_score=0.90, batch_size=25, limit=None, dry_run=False) -> Path` (writes `action="ecrire"`, proposes merges, leaves the rest) ; `render_apply_report(scope, date, applied, proposals, merges, errors, dry_run, base_url="http://localhost") -> str` (pur).
 - Parent index: `dict[str, str]` path→handle, seeded from existing places, filled as parents are created; each unique canonical path is created once.
@@ -1669,10 +1693,12 @@ git commit -m "feat(places): run_places_apply — idempotent hierarchy write + p
 ### Task 13: CLI `lieux-apply` (genecrew main.py)
 
 **Files:**
+
 - Modify: `genecrew/src/genecrew/main.py` (add `lieux_apply_cmd` + subparser + dispatch)
 - Test: `genecrew/tests/test_cli_lieux_apply.py`
 
 **Interfaces:**
+
 - Consumes: `run_places_apply` (Task 12).
 - Produces: CLI subcommand `genecrew lieux-apply --scope --limit --batch-size --min-score --dry-run --date`.
 
@@ -1756,12 +1782,14 @@ git commit -m "feat(places): genecrew lieux-apply CLI subcommand (write)"
 ### Task 14: Capacité de transitions temporelles (geo/transitions.py + dataset)
 
 **Files:**
+
 - Create: `crewai_custom_tools/src/crewai_custom_tools/tools/genealogy/geo/transitions.py`
 - Create: `crewai_custom_tools/src/crewai_custom_tools/tools/genealogy/data/transitions.csv`
 - Modify: `crewai_custom_tools/src/crewai_custom_tools/tools/genealogy/geo/registry.py` (wire `apply_transition` into `resolve_place`)
 - Test: `crewai_custom_tools/tests/test_genealogy_geo_transitions.py`
 
 **Interfaces:**
+
 - Consumes: `ParsedPlace`, `ResolvedPlace`, `DatedChain`, `DatedName`, `PlaceLevel`.
 - Produces: `Transition(BaseModel)` ; `load_transitions() -> list[Transition]` (empty-safe) ; `apply_transition(resolved, parsed, transitions) -> ResolvedPlace | None` (pure).
 - **Générique** : aucune connaissance codée d'un pays. Le comportement daté vient **du dataset** ; dataset vide → chaîne unique non datée (identique à P1–P4).
@@ -1927,10 +1955,12 @@ git commit -m "feat(genealogy): data-driven temporal transitions (dated chains)"
 ### Task 15: Dates Gramps réelles sur les placerefs (write tools)
 
 **Files:**
+
 - Modify: `crewai_custom_tools/src/crewai_custom_tools/tools/genealogy/gramps/write_tools.py`
 - Test: `crewai_custom_tools/tests/test_genealogy_place_dates.py`
 
 **Interfaces:**
+
 - Produces: `date_qualifier_to_gramps_date(qualifier: str | None) -> dict | None` (pure) ; both place write tools normalize a placeref `_date_qualifier` string into a Gramps `date` object.
 - Gramps Date : `{"_class": "Date", "modifier": 1|2, "dateval": [d, m, y, False]}` (modifier 1=before, 2=after).
 
@@ -2060,10 +2090,12 @@ git commit -m "feat(genealogy): real Gramps Date on dated placerefs"
 ### Task 16: Outil de fusion de lieux (GrampsMergePlacesTool)
 
 **Files:**
+
 - Modify: `crewai_custom_tools/src/crewai_custom_tools/tools/genealogy/gramps/write_tools.py` (append)
 - Test: `crewai_custom_tools/tests/test_genealogy_place_merge_tool.py`
 
 **Interfaces:**
+
 - Produces: `GrampsMergePlacesTool` (`_run(keep_handle, merge_handle, dry_run=False) -> str`; `POST /places/{keep}/merge/{merge}`; gated dry-run; no-op nothing but returns the pair).
 
 - [ ] **Step 1: Write the failing test**
@@ -2164,10 +2196,12 @@ git commit -m "feat(genealogy): GrampsMergePlacesTool (gated, human-triggered)"
 ### Task 17: `run_places_apply` émet un YAML de fusions
 
 **Files:**
+
 - Modify: `genecrew/src/genecrew/places_apply.py` (write a `*_fusions_*.yaml` alongside the report)
 - Test: `genecrew/tests/test_places_apply_fusions.py`
 
 **Interfaces:**
+
 - Produces: `run_places_apply` additionally writes `output_dir/lieux/{date}_fusions_lieux_{scope}.yaml` containing the `PlaceMergeProposition` list (may be empty). Return value unchanged (report `Path`).
 
 - [ ] **Step 1: Write the failing test**
@@ -2267,11 +2301,13 @@ git commit -m "feat(places): emit reviewed-merge proposals as YAML"
 ### Task 18: `run_places_merge` + CLI `lieux-merge` (fusions sous revue)
 
 **Files:**
+
 - Create: `genecrew/src/genecrew/places_merge.py`
 - Modify: `genecrew/src/genecrew/main.py` (add `lieux_merge_cmd` + subparser + dispatch)
 - Test: `genecrew/tests/test_places_merge.py`
 
 **Interfaces:**
+
 - Consumes: `GrampsMergePlacesTool` (Task 16) ; the fusions YAML (Task 17).
 - Produces: `run_places_merge(client, merges_yaml, output_dir, *, date, dry_run=False) -> Path` (execute the merges listed in a **human-reviewed** YAML) ; CLI `genecrew lieux-merge --merges <path.yaml> --dry-run --date`.
 - **Never auto** : merges run only from an explicit YAML the human passes.
