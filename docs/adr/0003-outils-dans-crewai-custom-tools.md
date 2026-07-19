@@ -1,7 +1,7 @@
 # 0003 — Les outils vivent dans `crewai_custom_tools`, genecrew est un simple consommateur
 
 | | |
-|---|---|
+| --- | --- |
 | **Statut** | Accepté |
 | **Date** | 2026-07-17 |
 | **Source** | `docs/document-de-travail.md`, §3.2–3.4 |

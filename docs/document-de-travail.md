@@ -1,7 +1,7 @@
 # GeneCrew — Document de travail : équipe d'agents IA pour la généalogie
 
 | | |
-|---|---|
+| --- | --- |
 | **Version** | 1.0 |
 | **Date** | 2026-07-17 |
 | **Statut** | Validé pour implémentation |
@@ -43,7 +43,7 @@ déterministes gratuites.
 Chaque principe est normatif et a une conséquence concrète dans ce document.
 
 | Principe | Conséquence concrète |
-|---|---|
+| --- | --- |
 | **KISS** | 4 crews séquentiels simples ; orchestration en Python pur ; CLI argparse ; pas de base de données parallèle ; pas de CrewAI Flows en v1. |
 | **DRY** | Toute logique d'accès API vit dans `crewai_custom_tools` (réutilisable au-delà de genecrew) ; un seul client Gramps ; un seul `agents.yaml` ; l'état qualité vit dans Gramps (tags), jamais dupliqué. |
 | **Style fonctionnel** | Règles de cohérence, résolution de périmètre, découpage en lots, construction de payloads = fonctions pures (entrées → sorties, sans effet de bord). Les effets (HTTP, fichiers) sont isolés dans le client et les outils. |
@@ -207,7 +207,7 @@ uv run --with datamodel-code-generator datamodel-codegen \
 Tous dans `crewai_custom_tools/src/crewai_custom_tools/tools/genealogy/models/` :
 
 | Fichier | Contenu | Origine |
-|---|---|---|
+| --- | --- | --- |
 | `gramps_generated.py` | objets Gramps Web (Person, Family, Event, Place, Source, Citation, Note, Tag…) | généré depuis `openapi.json` |
 | `matchid_generated.py` | requête/réponse MatchID décès | généré depuis `deces-matchid.swagger.json` |
 | `geoplateforme_generated.py` | géocodage Géoplateforme | généré depuis `geoplateforme-geocodage.openapi.yaml` |
@@ -215,6 +215,7 @@ Tous dans `crewai_custom_tools/src/crewai_custom_tools/tools/genealogy/models/` 
 | `domain.py` | modèles métier écrits à la main : `Proposition`, `Anomalie`, `CandidatDoublon`, `Piste`, `Checkpoint` | manuel |
 
 Règles :
+
 - Les fichiers `*_generated.py` portent un en-tête « généré — ne pas éditer » et se
   régénèrent par la commande documentée ci-dessus (les specs font foi dans
   `genecrew/docs/swagger/` ; dépôts frères, chemin relatif `../genecrew/docs/swagger/`).
@@ -362,7 +363,7 @@ Chroniqueur), piloté par l'orchestrateur.
 - **Règles déterministes R1–R10** (fonctions pures, à coder telles quelles) :
 
 | # | Règle |
-|---|---|
+| --- | --- |
 | R1 | naissance postérieure au décès |
 | R2 | âge au décès > 105 ans |
 | R3 | mère < 13 ou > 55 ans à la naissance d'un enfant ; père < 13 ou > 80 |
@@ -449,14 +450,14 @@ seule vérification, DRY).
 ### 7.0 Fondation (pas un outil CrewAI)
 
 | Module | Rôle | Priorité |
-|---|---|---|
+| --- | --- | --- |
 | `genealogy/gramps/client.py` | client httpx + JWT auto-refresh, fonctions typées par endpoint ; consommé par l'orchestrateur (sans LLM) et par les outils | **P1** |
 | `genealogy/models/` | modèles Pydantic générés des specs + `domain.py` (détail § 4.2.1) | P1 |
 
 ### 7.1 Outils Gramps
 
 | Outil | Endpoint | Priorité | Agent(s) |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | `GrampsSearchTool` | `GET /search/` | P1 | tous |
 | `GrampsGetObjectTool` (type + handle/gramps_id + extend) | `GET /{type}/{handle}` | P1 | tous |
 | `GrampsListPeopleTool` (pagination, tri) | `GET /people/` | P1 | Détective |
@@ -473,14 +474,14 @@ seule vérification, DRY).
 ### 7.2 Outils d'analyse (purs, hors-ligne, gratuits)
 
 | Outil | Contenu | Priorité | Agent |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | `GenealogyConsistencyTool` | règles R1–R9 | P1 | Détective |
 | `DuplicateFinderTool` | R10 (stdlib `difflib`) | P1 | Détective |
 
 ### 7.3 Outils API externes
 
 | Outil | API | Auth | Priorité | Agent(s) |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | `GeoGouvCommuneTool` | geo.api.gouv.fr (spec : `api-geo.definition.yml`) | sans clé | P1 | Standardisateur |
 | `InseeDecesSearchTool` | deces.matchid.io (spec : `deces-matchid.swagger.json`) | sans clé (~100 appels, token gratuit au-delà) | P2 | Détective, Historien |
 | `GeoplateformeGeocodeTool` | data.geopf.fr/geocodage (spec : `geoplateforme-geocodage.openapi.yaml`) — **remplace api-adresse, décommissionnée janv. 2026** | sans clé, 50 req/s | P2 | Standardisateur |
@@ -510,7 +511,7 @@ transaction (ex. source + citation + note d'un même dossier).
 ### 8.1 Tags (état du pipeline, stocké dans Gramps — pas de base parallèle)
 
 | Tag | Signification | Posé par | Levé par |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | `ia-anomalie` | incohérence détectée (R1–R8) | audit | humain (ou audit suivant si résolue) |
 | `ia-a-verifier` | donnée non sourcée ou proposition en attente | audit, standardisation | humain |
 | `ia-piste` | piste de recherche disponible en note | pistes | humain |
@@ -562,7 +563,7 @@ Règle transverse : **aucune phase ne démarre tant que la précédente n'a pas 
 de sortie sur l'arbre réel.**
 
 | Phase | Livrable | Critère de sortie |
-|---|---|---|
+| --- | --- | --- |
 | **0 — Plomberie** | `genealogy/gramps/` lecture seule + client JWT + modèles générés + dépendance genecrew→bibliothèque + CLI `genecrew stats` | `uv run genecrew stats` affiche les statistiques identiques au tableau de bord Gramps Web |
 | **1 — Audit lecture seule** | crew audit + R1–R10 + rapport MD/PDF + checkpoints, `DRY_RUN=true` | rapport sur une branche de ~25 personnes ; anomalies confrontées aux problèmes connus ; faux positifs acceptables ; coût/lot mesuré |
 | **2 — Écritures encadrées** | note/tag/attach + compte `genecrew-ia` Editor + `DRY_RUN=false` | tags et notes visibles dans Gramps Web ; l'historique des transactions ne montre que des POST notes/tags et des PUT append-only |
@@ -597,7 +598,7 @@ Le projet suit la même discipline documentaire que `crewai_custom_tools` (PRD, 
 ADR). Tout vit dans `genecrew/docs/`.
 
 | Document | Contenu | Quand |
-|---|---|---|
+| --- | --- | --- |
 | `docs/document-de-travail.md` | ce document — la spécification de référence | maintenu à chaque changement de conception |
 | `docs/PRD.md` | le « pourquoi/quoi » produit : mission, utilisateurs, objectifs, non-objectifs (dérivé du § 1) | avant Phase 0 |
 | `docs/USER_GUIDE.md` | comment lancer chaque workflow, lire les rapports, traiter les propositions, gérer `DRY_RUN` | complété **à chaque phase** — une phase n'est pas terminée si son mode d'emploi n'y est pas |
@@ -621,7 +622,7 @@ une conversation ou un commit.
 ### A. Endpoints Gramps Web utilisés
 
 | Méthode | Endpoint | Usage |
-|---|---|---|
+| --- | --- | --- |
 | POST | `/token/` | authentification JWT |
 | GET | `/trees/{id}`, `/facts/` | statistiques |
 | GET | `/search/` | recherche plein texte |
@@ -638,18 +639,22 @@ une conversation ou un commit.
 ### B. Exemples de payloads
 
 Date exacte (14 juillet 1893) :
+
 ```json
 {"dateval": [14, 7, 1893, false], "quality": 0, "modifier": 0}
 ```
+
 « Vers 1850 » : `{"dateval": [0, 0, 1850, false], "quality": 1, "modifier": 3}`
 Intervalle 1850–1855 : `{"dateval": [0,0,1850,false,0,0,1855,false], "quality": 0, "modifier": 4}`
 
 Note d'audit :
+
 ```json
 {"type": "General", "text": "[genecrew:audit:2026-07-17:detective]\n**R2** — âge au décès de 143 ans…"}
 ```
 
 Citation (confiance plafonnée) :
+
 ```json
 {"source_handle": "b39fe…", "page": "vue 56, acte n° 12", "confidence": 2}
 ```
@@ -669,7 +674,7 @@ Citation (confiance plafonnée) :
 ### D. Glossaire
 
 | Terme | Définition |
-|---|---|
+| --- | --- |
 | **handle** | identifiant technique interne Gramps (opaque, stable) |
 | **gramps_id** | identifiant lisible (I0042, F0007, E0123…), affiché dans l'UI |
 | **source** | le document (registre paroissial, recensement…) |
@@ -681,7 +686,7 @@ Citation (confiance plafonnée) :
 ### E. Variables d'environnement
 
 | Variable | Défaut | Rôle |
-|---|---|---|
+| --- | --- | --- |
 | `MODEL` | (existant) | modèle LiteLLM par défaut |
 | `GENECREW_MODEL_DETECTIVE` / `_STANDARDISATEUR` / `_HISTORIEN` / `_CHRONIQUEUR` / `_ARCHIVISTE` | — | surcharge par agent (Archiviste : vision requis) |
 | `GRAMPS_API_URL` | `http://localhost:80/api` | base API Gramps Web |

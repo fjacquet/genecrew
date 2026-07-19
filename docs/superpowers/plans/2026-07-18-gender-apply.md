@@ -24,23 +24,28 @@
 ## Task 1 : `GrampsUpdateGenderTool` (cct)
 
 **Files:**
+
 - Modify: `src/crewai_custom_tools/tools/genealogy/gramps/write_tools.py`
 - Test: `tests/test_genealogy_write_tools.py`
 
 **Interfaces:**
+
 - Consumes: `get_client`, `api_tool`, `ok`, `BaseTool`, `BaseModel`, `Field`, `os` (déjà importés dans `write_tools.py`).
 - Produces: `GrampsUpdateGenderTool` avec `_run(self, handle: str, gender: int, dry_run: bool = False) -> str` renvoyant l'enveloppe `ok({"handle","gramps_id","old","new","dry_run","noop"})`.
 
 - [ ] **Step 1: Écrire les tests qui échouent**
 
 Dans `tests/test_genealogy_write_tools.py`, ajouter l'import en tête (à côté de l'import existant de `GrampsUpdateNameTool`) :
+
 ```python
 from crewai_custom_tools.tools.genealogy.gramps.write_tools import (
     GrampsUpdateGenderTool,
     GrampsUpdateNameTool,
 )
 ```
+
 (remplace la ligne `from ... import GrampsUpdateNameTool`). Puis ajouter à la fin du fichier (le fichier a déjà `_mock`, `PERSON` avec `gender: 1`, la fixture autouse `_no_global_dry_run`, `json`, `httpx`) :
+
 ```python
 def test_update_gender_writes(mocker):
     puts = []
@@ -114,6 +119,7 @@ Expected: FAIL (`ImportError: cannot import name 'GrampsUpdateGenderTool'`).
 - [ ] **Step 3: Implémenter l'outil**
 
 Ajouter à la fin de `src/crewai_custom_tools/tools/genealogy/gramps/write_tools.py` :
+
 ```python
 class GrampsUpdateGenderInput(BaseModel):
     """Input schema for GrampsUpdateGenderTool."""
@@ -172,14 +178,17 @@ git commit -m "feat(genealogy): GrampsUpdateGenderTool (write genre, no-op, doub
 ## Task 2 : Export + bump 0.11.0 (cct)
 
 **Files:**
+
 - Modify: `src/crewai_custom_tools/__init__.py`, `pyproject.toml`, `tests/test_scaffold.py`
 
 **Interfaces:**
+
 - Produces: `GrampsUpdateGenderTool` exporté depuis `crewai_custom_tools` ; version `0.11.0`.
 
 - [ ] **Step 1: Mettre à jour l'assertion de version (test d'abord)**
 
 Modifier `tests/test_scaffold.py` :
+
 ```python
 import crewai_custom_tools
 
@@ -196,14 +205,17 @@ Expected: FAIL (`assert '0.10.0' == '0.11.0'`).
 - [ ] **Step 3: Bump + export**
 
 Dans `src/crewai_custom_tools/__init__.py` :
+
 - remplacer `__version__ = "0.10.0"` par `__version__ = "0.11.0"` ;
 - remplacer la ligne d'import `from crewai_custom_tools.tools.genealogy.gramps.write_tools import GrampsUpdateNameTool` par :
+
   ```python
   from crewai_custom_tools.tools.genealogy.gramps.write_tools import (
       GrampsUpdateGenderTool,
       GrampsUpdateNameTool,
   )
   ```
+
 - dans la liste `__all__`, ajouter `"GrampsUpdateGenderTool",` juste à côté de `"GrampsUpdateNameTool",`.
 
 Dans `pyproject.toml`, remplacer `version = "0.10.0"` par `version = "0.11.0"`.
@@ -231,10 +243,12 @@ git commit -m "feat(genealogy): export GrampsUpdateGenderTool; bump 0.11.0"
 ## Task 3 : Orchestration `run_gender_apply` (genecrew)
 
 **Files:**
+
 - Create: `genecrew/src/genecrew/gender_apply.py`
 - Test: `genecrew/tests/test_gender_apply.py`
 
 **Interfaces:**
+
 - Consumes: `infer_sex`, `load_prenoms_table`, `GrampsUpdateGenderTool` (cct) ; `iter_people_batches`, `FactsFetcher` (genecrew).
 - Produces:
   - `render_apply_report(scope, date, applied, below, errors, dry_run, base_url="http://localhost") -> str` où `applied` = liste de `(gramps_id, personne, typ, old_int, new_int, ratio, preuve)`, `below` = `(gramps_id, personne, given, sex, ratio)`, `errors` = `(gramps_id, message)`.
@@ -243,6 +257,7 @@ git commit -m "feat(genealogy): export GrampsUpdateGenderTool; bump 0.11.0"
 - [ ] **Step 1: Écrire les tests qui échouent**
 
 Créer `genecrew/tests/test_gender_apply.py` :
+
 ```python
 """Tests de l'application des corrections de genre (write gated)."""
 
@@ -337,6 +352,7 @@ Expected: FAIL (`ModuleNotFoundError: genecrew.gender_apply`).
 - [ ] **Step 3: Implémenter `gender_apply.py`**
 
 Créer `genecrew/src/genecrew/gender_apply.py` :
+
 ```python
 """Apply gender corrections to Gramps (write) from live re-inference.
 
@@ -464,16 +480,19 @@ git commit -m "feat(gender): run_gender_apply — écriture de genre gated (inco
 ## Task 4 : Sous-commande CLI `gender-apply` (genecrew)
 
 **Files:**
+
 - Modify: `genecrew/src/genecrew/main.py`
 - Test: `genecrew/tests/test_cli_gender_apply.py`
 
 **Interfaces:**
+
 - Consumes: `run_gender_apply` (Task 3).
 - Produces: sous-commande `gender-apply` avec `--scope` (défaut `all`), `--min-ratio` (float, défaut `0.98`), `--limit`, `--dry-run`, `--date`.
 
 - [ ] **Step 1: Écrire le test qui échoue**
 
 Créer `genecrew/tests/test_cli_gender_apply.py` :
+
 ```python
 import subprocess
 import sys
@@ -496,6 +515,7 @@ Expected: FAIL (`gender-apply` non reconnue → returncode 2).
 - [ ] **Step 3: Câbler la sous-commande**
 
 Dans `genecrew/src/genecrew/main.py`, ajouter la fonction après `gender_cmd` :
+
 ```python
 def gender_apply_cmd(args) -> None:
     """Apply high-confidence gender corrections (write); print the report path."""
@@ -517,6 +537,7 @@ def gender_apply_cmd(args) -> None:
 ```
 
 Dans `main()`, après le bloc du subparser `gender_p` (et avant `args = parser.parse_args()`) :
+
 ```python
     apply_p = sub.add_parser("gender-apply",
                              help="Applique (écrit) les corrections de genre à haute confiance")
@@ -529,6 +550,7 @@ Dans `main()`, après le bloc du subparser `gender_p` (et avant `args = parser.p
 ```
 
 Dans le dispatch, après `elif args.command == "gender":` … ajouter :
+
 ```python
     elif args.command == "gender-apply":
         gender_apply_cmd(args)
@@ -552,12 +574,14 @@ git commit -m "feat(gender): sous-commande CLI genecrew gender-apply"
 ## Task 5 : ADR 0009, guide, sync du lockfile (genecrew)
 
 **Files:**
+
 - Create: `docs/adr/0009-ecritures-genre-haute-confiance.md`
 - Modify: `docs/USER_GUIDE.md`, `CLAUDE.md`, `uv.lock`
 
 - [ ] **Step 1: ADR 0009**
 
 Créer `docs/adr/0009-ecritures-genre-haute-confiance.md` :
+
 ```markdown
 # 0009 — Écritures de genre bornées à haute confiance
 
@@ -593,6 +617,7 @@ l'historique des transactions Gramps. `GrampsUpdateGenderTool` est un `BaseTool`
 - [ ] **Step 2: Section USER_GUIDE**
 
 Ajouter à `docs/USER_GUIDE.md` (après la section « Inférence de genre ») :
+
 ```markdown
 ## Appliquer les corrections de genre (écriture)
 
@@ -609,6 +634,7 @@ cd genecrew && uv run genecrew gender-apply --scope all
 
 Rapport dans `output/inference/*_genres_appliques_*.md` : genres écrits, cas sous le seuil, erreurs.
 Le global `GENECREW_DRY_RUN=true` (défaut du `.env`) force la simulation quel que soit le flag.
+
 ```
 
 - [ ] **Step 3: CLAUDE.md (commande)**

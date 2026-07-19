@@ -1,7 +1,7 @@
 # 0002 — Accès Gramps via REST direct (httpx), gramps-mcp en référence uniquement
 
 | | |
-|---|---|
+| --- | --- |
 | **Statut** | Accepté |
 | **Date** | 2026-07-17 |
 | **Source** | `docs/document-de-travail.md`, §3.2 |

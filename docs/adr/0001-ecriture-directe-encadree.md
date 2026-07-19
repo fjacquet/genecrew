@@ -1,7 +1,7 @@
 # 0001 — Écriture directe encadrée
 
 | | |
-|---|---|
+| --- | --- |
 | **Statut** | Accepté |
 | **Date** | 2026-07-17 |
 | **Source** | `docs/document-de-travail.md`, §2.1 |

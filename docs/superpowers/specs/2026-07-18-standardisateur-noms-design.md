@@ -1,7 +1,7 @@
 # Standardisateur de noms — Design
 
 | | |
-|---|---|
+| --- | --- |
 | **Date** | 2026-07-18 |
 | **Statut** | Validé — prêt pour le plan d'implémentation |
 | **Périmètre** | Premier sous-système du Standardisateur (les lieux feront une spec séparée) |
@@ -48,6 +48,7 @@ Suit le patron du projet : logique pure dans `crewai_custom_tools`, orchestratio
 `genecrew`.
 
 ### 3.1 crewai_custom_tools — logique pure (`tools/genealogy/standardize/names.py`)
+
 - `normalize_case(name: str) -> str` — casse titre française (§5).
 - `needs_normalization(name: str) -> bool` — vrai **uniquement** si `name` est entièrement en
   capitales ou entièrement en minuscules (parties alphabétiques) ; faux pour une casse déjà
@@ -57,6 +58,7 @@ Suit le patron du projet : logique pure dans `crewai_custom_tools`, orchestratio
   la liste de nettoyage).
 
 ### 3.2 crewai_custom_tools — outil d'écriture (`tools/genealogy/gramps/write_tools.py`)
+
 - `GrampsUpdateNameTool` (`BaseTool`) : GET personne (par handle) → recase `primary_name.first_name`
   et chaque `primary_name.surname_list[].surname` → PUT. **Refuse** (renvoie `err(...)`) tout
   champ dont le changement viole `is_case_only_change`. Respecte `GENECREW_DRY_RUN` : en
@@ -66,6 +68,7 @@ Suit le patron du projet : logique pure dans `crewai_custom_tools`, orchestratio
   Gramps dédié `genecrew-ia` (rôle Editor) et le mode `GENECREW_DRY_RUN`.
 
 ### 3.3 genecrew — orchestration + CLI (`names.py` + sous-commande)
+
 - `genecrew names --scope all|person:ID [--limit N] [--batch-size 25] [--dry-run]`.
 - Réutilise l'infra d'audit : `FactsFetcher.list_people_facts` (lecture en lot), `scope.resolve_handles`.
 - Pour chaque personne : calcule les corrections de casse candidates (patronymes + prénom),
@@ -91,7 +94,7 @@ Suit le patron du projet : logique pure dans `crewai_custom_tools`, orchestratio
 `normalize_case` applique une casse titre adaptée au français, testée par table :
 
 | Cas | Entrée | Sortie |
-|---|---|---|
+| --- | --- | --- |
 | Simple | `JACQUET` | `Jacquet` |
 | Particule interne | `BERNARD DE SAINT-AFFRIQUE` | `Bernard de Saint-Affrique` |
 | Apostrophe | `D'ABBADIE D'ARRAST` | `d'Abbadie d'Arrast` |
@@ -100,6 +103,7 @@ Suit le patron du projet : logique pure dans `crewai_custom_tools`, orchestratio
 | Déjà mixte | `van Beethoven` | *(inchangé — `needs_normalization` = faux)* |
 
 Règles :
+
 - Découper sur les espaces et les traits d'union ; l'apostrophe est traitée à part (la
   particule élidée `d'` colle au mot suivant, ex. `d'Abbadie`).
 - **Particules toujours en minuscule**, quelle que soit leur position (y compris en tête —

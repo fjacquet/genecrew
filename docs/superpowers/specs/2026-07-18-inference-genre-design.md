@@ -76,6 +76,7 @@ Les fichiers bruts (plusieurs Mo) **ne sont pas embarqués**. Seule la table agr
 
 **Clé canonique** `_normkey(prenom)` (partagée build + runtime, donc **une seule
 implémentation** importée des deux côtés) :
+
 1. `strip()` + passage en MAJUSCULES ;
 2. suppression des diacritiques (NFD → filtrage des marques combinantes) : `JOSÉ → JOSE` ;
 3. normalisation des apostrophes/tirets en variantes ASCII canoniques (`’→'`, tirets Unicode → `-`).
@@ -186,6 +187,7 @@ prenoms_sexe.csv --load_prenoms_table--> infer_sex(given) -> GenderInference
 ## 7. Tests
 
 ### 7.1 Fonctions pures (`crewai_custom_tools`)
+
 - `_normkey` : accents, casse, apostrophe/tiret Unicode.
 - `infer_sex` (table de cas, avec une petite table de test en dur) :
   - masculin net (`Pierre`), féminin net (`Suzanne`) → proposition ;
@@ -197,6 +199,7 @@ prenoms_sexe.csv --load_prenoms_table--> infer_sex(given) -> GenderInference
   - prénom vide / non couvert → abstention.
 
 ### 7.2 Orchestration (`genecrew`)
+
 - e2e avec client httpx `MockTransport` : jeu de personnes (inconnu tranchable, inconnu unisexe,
   contradiction, genre correct) → vérifie le contenu des propositions et de la liste indécidables.
 - **Garantie lecture seule** : le handler du mock **lève `AssertionError` sur tout PUT/POST** ;
@@ -207,6 +210,7 @@ prenoms_sexe.csv --load_prenoms_table--> infer_sex(given) -> GenderInference
 ## 8. Fichiers touchés
 
 **`crewai_custom_tools`**
+
 - `src/crewai_custom_tools/tools/genealogy/data/prenoms_sexe.csv` (nouveau, versionné)
 - `src/crewai_custom_tools/tools/genealogy/data/README.md` (nouveau, provenance)
 - `scripts/build_prenoms_sexe.py` (nouveau, build one-off)
@@ -217,12 +221,14 @@ prenoms_sexe.csv --load_prenoms_table--> infer_sex(given) -> GenderInference
 - `pyproject.toml` : inclusion du fichier de données dans le wheel ; bump de version.
 
 **`genecrew`**
+
 - `genecrew/src/genecrew/gender.py` (nouveau : `run_gender` + rendus purs)
 - `genecrew/src/genecrew/main.py` (sous-commande `gender`)
 - `genecrew/tests/test_gender.py` (nouveau)
 - `uv.lock` après bump de la lib.
 
 **Docs**
+
 - `docs/adr/0008-inference-genre-proposition.md` (ADR : le genre est un fait → proposition ;
   premier modèle `Proposition`).
 - `docs/USER_GUIDE.md` : section « Inférence de genre ».

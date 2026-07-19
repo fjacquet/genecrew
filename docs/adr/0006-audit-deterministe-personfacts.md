@@ -1,7 +1,7 @@
 # 0006 — Audit déterministe : modèle PersonFacts/FamilyFacts et comparaison de dates par sortval
 
 | | |
-|---|---|
+| --- | --- |
 | **Statut** | Accepté |
 | **Date** | 2026-07-17 |
 | **Source** | `docs/document-de-travail.md`, §6.1 (Workflow 1 — Audit qualité) et §8.1 (tags) |
@@ -40,7 +40,7 @@ manipule en permanence des dates partielles, approximatives ou inconnues (une na
 - **Règles R1–R10** (document-de-travail.md, §6.1) :
 
   | # | Règle |
-  |---|---|
+  | --- | --- |
   | R1 | naissance postérieure au décès |
   | R2 | âge au décès > 105 ans |
   | R3 | mère < 13 ou > 55 ans à la naissance d'un enfant ; père < 13 ou > 80 |

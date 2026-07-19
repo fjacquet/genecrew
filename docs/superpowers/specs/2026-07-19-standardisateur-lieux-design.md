@@ -22,7 +22,7 @@ Borné dans le scope (YAGNI) : standardiser des lieux Gramps, pas une plateforme
 ### Classes de problèmes traitées
 
 | Classe | Résolution | Score |
-|---|---|---|
+| --- | --- | --- |
 | Pays à référentiel autoritaire (code → 1 lieu) | résolveur par code (INSEE `geo.api.gouv.fr`, OFS) | **1.0** |
 | Pays sans référentiel | géocodage par nom (résolveur mondial) | **< 1.0** (confiance × similarité) |
 | Lieux à transition temporelle (nom/souveraineté datés) | capacité data-driven + dataset de transitions | selon la chaîne |
@@ -32,7 +32,7 @@ Borné dans le scope (YAGNI) : standardiser des lieux Gramps, pas une plateforme
 1. **Périmètre = pipeline complet jusqu'à l'écriture**, implémenté en phases (déterministe → flou →
    écriture → transitions → dédup), chaque phase à critère de sortie.
 2. **Modèle d'écriture = hiérarchie complète** : créer/réutiliser les lieux parents (`Pays > Région
-   > Département > Commune`), `placeref` enfant→parent, enrichir la feuille (nom + type + GPS).
+   > Département > Commune`),`placeref` enfant→parent, enrichir la feuille (nom + type + GPS).
 3. **Source de référence = API live + cache** (`geo.api.gouv.fr`, OFS/swisstopo, Nominatim/
    Géoplateforme), mise en cache par le cache SHA-256 de `crewai_custom_tools`.
 4. **Sûreté d'écriture = auto sur score** : autoritaire (1.0) écrit ; flou ≥ `min_score` écrit ;
@@ -146,7 +146,7 @@ Registre `{pays_iso → résolveur}` + résolveur de repli mondial. Chaque réso
 `@api_tool` (timeout/retry/rate-limit/cache/ok-err), mappe le JSON fournisseur → `ResolvedPlace`.
 
 | Résolveur | Source | Entrée | Sortie clé | Gotchas |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | `france.py` | `geo.api.gouv.fr/communes/{code}` (autoritaire) + Géoplateforme (flou) | code INSEE / nom | `centre`=`[lon,lat]` WGS84, dép, région, fusions | ordre `[lon,lat]` |
 | `suisse.py` | registre **OFS** (identité/hiérarchie) + **swisstopo** GeoAdmin (GPS) | n° OFS / nom | `attrs.lat`/`attrs.lon` WGS84 | lire `lat/lon`, **jamais `x/y`** (grille LV95) |
 | `nominatim.py` | Nominatim/OSM (repli mondial) | nom + pays | `lat`/`lon` WGS84, `importance` | 1 req/s, User-Agent, ODbL attribution, cache obligatoire |
@@ -162,6 +162,7 @@ Registre `{pays_iso → résolveur}` + résolveur de repli mondial. Chaque réso
   forcé en `proposition`, même si le top score est haut.
 
 Mapping (identique dans `lieux` et `lieux-apply`) :
+
 ```
 score == 1.0                     → "ecrire"       (haute)
 score >= min_score  (non ambigu) → "ecrire"       (moyenne)
@@ -181,14 +182,17 @@ Endpoints Gramps : `GET /api/places/` (charger), `POST /api/places/` (créer par
 `PUT /api/places/{handle}` (enrichir feuille), `POST /api/places/{a}/merge/{b}` (dédup, proposée).
 
 **Index de parents**, construit au démarrage du run, clé = **chemin complet** :
+
 ```
 "France" → h_a ; "France>Centre-Val de Loire" → h_b ; "France>…>Cher" → h_c
 ```
+
 Reconstruit depuis les lieux existants (`name.value` + `place_type` + `placeref_list`). Les feuilles
 plates (`type Unknown`, 0 placeref) ne matchent aucune clé de parent → jamais confondues. Les
 parents créés lors d'un run **précédent** sont retrouvés → **idempotence entre runs**.
 
 **Écriture d'une feuille (`action="ecrire"`), parents haut→bas d'abord :**
+
 ```
 pour chaque DatedChain de resolved.chains :
   parent = None
@@ -256,7 +260,7 @@ autoritaire CH, flou mondial, transition temporelle, décalé/dégradé, feuille
 non exécutée) ; `--help` des deux commandes.
 
 | Phase | Livrable | Critère de sortie |
-|---|---|---|
+| --- | --- | --- |
 | **P1** Parse + normalise | `standardize/places.py` (pur) | tests par classe verts, 0 réseau |
 | **P2** Résolveurs + score | `geo/{france,suisse,nominatim}.py` + `registry.py` + `score.py` | chaque résolveur → `ResolvedPlace` (HTTP mocké) ; score correct |
 | **P3** `lieux` (lecture) | `genecrew/places.py` + CLI + rapport MD/YAML | plan correct sur fixtures, **aucune écriture** |

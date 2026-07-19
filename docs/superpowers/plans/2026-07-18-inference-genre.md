@@ -28,6 +28,7 @@ Le CSV embarqué `prenoms_sexe.csv` est produit à partir des fichiers officiels
 1. Télécharger le fichier national INSEE « Fichier des prénoms » (CSV `;`, colonnes `sexe;preusuel;annais;nombre`) depuis <https://www.insee.fr/fr/statistiques/8595130> ou <https://www.data.gouv.fr/datasets/fichier-des-prenoms-depuis-1900>.
 2. Depuis <https://www.bfs.admin.ch/bfs/fr/home/statistiques/population/naissances-deces/prenoms-nouveaux-nes.html> (OFS/BFS), extraire deux CSV simples `;` à colonnes `prenom;nombre` : `ofs_masculin.csv` et `ofs_feminin.csv`.
 3. Lancer le script de la Tâche 3 :
+
    ```bash
    cd /Users/fjacquet/Projects/crewai_custom_tools
    uv run python scripts/build_prenoms_sexe.py \
@@ -44,6 +45,7 @@ Tant que ce CSV n'existe pas, `genecrew gender` échoue **franchement** (fichier
 ## Structure des fichiers
 
 **`crewai_custom_tools`**
+
 - `src/crewai_custom_tools/tools/genealogy/models/domain.py` — **modifier** : ajouter `Proposition`.
 - `src/crewai_custom_tools/tools/genealogy/analysis/gender.py` — **créer** : `normkey`, `_first_forename`, `_counts_for`, `GenderInference`, `load_prenoms_table`, `infer_sex`.
 - `src/crewai_custom_tools/tools/genealogy/data/README.md` — **créer** : provenance + commande de régénération.
@@ -54,6 +56,7 @@ Tant que ce CSV n'existe pas, `genecrew gender` échoue **franchement** (fichier
 - `tests/test_build_prenoms_sexe.py` — **créer** : build sur fixtures.
 
 **`genecrew`**
+
 - `genecrew/src/genecrew/gender.py` — **créer** : `render_gender_report`, `render_propositions_yaml`, `_build_proposition`, `run_gender`.
 - `genecrew/src/genecrew/main.py` — **modifier** : sous-commande `gender` + `gender_cmd`.
 - `genecrew/tests/test_gender.py` — **créer** : rendus + e2e lecture seule.
@@ -61,6 +64,7 @@ Tant que ce CSV n'existe pas, `genecrew gender` échoue **franchement** (fichier
 - `uv.lock` — **modifier** via `uv sync` (bump 0.10.0).
 
 **Docs**
+
 - `docs/adr/0008-inference-genre-proposition.md` — **créer**.
 - `docs/USER_GUIDE.md`, `CLAUDE.md` (genecrew) — **modifier** : section/commande `gender`.
 
@@ -69,15 +73,18 @@ Tant que ce CSV n'existe pas, `genecrew gender` échoue **franchement** (fichier
 ## Task 1 : Modèle `Proposition` (cct)
 
 **Files:**
+
 - Modify: `src/crewai_custom_tools/tools/genealogy/models/domain.py`
 - Test: `tests/test_genealogy_gender.py`
 
 **Interfaces:**
+
 - Produces: `Proposition(BaseModel)` avec champs `type, gramps_id, handle, personne, champ, valeur_actuelle, valeur_proposee, preuve, confiance, priorite` (tous `str`, `champ` défaut `"gender"`).
 
 - [ ] **Step 1: Écrire le test qui échoue**
 
 Créer `tests/test_genealogy_gender.py` :
+
 ```python
 """Tests hors-ligne de l'inférence de genre et du modèle Proposition."""
 
@@ -104,6 +111,7 @@ Expected: FAIL (`ImportError: cannot import name 'Proposition'`).
 - [ ] **Step 3: Implémenter le modèle**
 
 Ajouter à la fin de `models/domain.py` :
+
 ```python
 class Proposition(BaseModel):
     """One proposal for human review — a FACT change is never written directly."""
@@ -138,10 +146,12 @@ git commit -m "feat(genealogy): modèle Proposition (premier émetteur de propos
 ## Task 2 : Normalisation + inférence pure (cct)
 
 **Files:**
+
 - Create: `src/crewai_custom_tools/tools/genealogy/analysis/gender.py`
 - Test: `tests/test_genealogy_gender.py` (étend Task 1)
 
 **Interfaces:**
+
 - Consumes: rien (stdlib + pydantic).
 - Produces :
   - `normkey(name: str) -> str` — MAJUSCULES, accents retirés, apostrophes/tirets canoniques.
@@ -153,6 +163,7 @@ git commit -m "feat(genealogy): modèle Proposition (premier émetteur de propos
 - [ ] **Step 1: Écrire les tests qui échouent**
 
 Ajouter à `tests/test_genealogy_gender.py` :
+
 ```python
 import csv
 
@@ -226,6 +237,7 @@ Expected: FAIL (`ModuleNotFoundError: …analysis.gender`).
 - [ ] **Step 3: Implémenter `gender.py`**
 
 Créer `src/crewai_custom_tools/tools/genealogy/analysis/gender.py` :
+
 ```python
 """Gender inference from a first name (pure, offline).
 
@@ -334,16 +346,19 @@ git commit -m "feat(genealogy): inférence de sexe pure (normkey, infer_sex, seu
 ## Task 3 : Script de build `build_prenoms_sexe.py` (cct)
 
 **Files:**
+
 - Create: `scripts/build_prenoms_sexe.py`
 - Test: `tests/test_build_prenoms_sexe.py`
 
 **Interfaces:**
+
 - Consumes: `normkey` (Task 2).
 - Produces: `build(insee, ofs_f, ofs_m, out) -> Path` — écrit un CSV `prenom,n_f,n_m` trié par clé ; exclut `_PRENOMS_RARES` ; INSEE `sexe==1`→`n_m`, `sexe==2`→`n_f` ; OFS-f→`n_f`, OFS-m→`n_m`.
 
 - [ ] **Step 1: Écrire le test qui échoue**
 
 Créer `tests/test_build_prenoms_sexe.py` :
+
 ```python
 """Test hors-ligne du build de la table prénoms (fixtures)."""
 
@@ -392,6 +407,7 @@ Expected: FAIL (`ModuleNotFoundError: build_prenoms_sexe`).
 - [ ] **Step 3: Implémenter le script + rendre `scripts/` importable**
 
 Créer `scripts/build_prenoms_sexe.py` :
+
 ```python
 """Build the bundled prenoms_sexe.csv from INSEE + OFS source files (offline).
 
@@ -479,6 +495,7 @@ if __name__ == "__main__":
 ```
 
 Modifier `pyproject.toml`, section `[tool.pytest.ini_options]`, pour que `scripts/` soit importable par les tests :
+
 ```toml
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
@@ -503,15 +520,18 @@ git commit -m "feat(genealogy): script de build de la table prénoms→sexe (INS
 ## Task 4 : Provenance des données, packaging & bump de version (cct)
 
 **Files:**
+
 - Create: `src/crewai_custom_tools/tools/genealogy/data/README.md`
 - Modify: `pyproject.toml`, `src/crewai_custom_tools/__init__.py`, `tests/test_scaffold.py`
 
 **Interfaces:**
+
 - Produces: version `0.10.0` (lockstep pyproject/`__version__`/test) ; inclusion du CSV dans le wheel.
 
 - [ ] **Step 1: Mettre à jour l'assertion de version (test d'abord)**
 
 Modifier `tests/test_scaffold.py` :
+
 ```python
 import crewai_custom_tools
 
@@ -530,6 +550,7 @@ Expected: FAIL (`assert '0.9.0' == '0.10.0'`).
 Dans `src/crewai_custom_tools/__init__.py`, remplacer `__version__ = "0.9.0"` par `__version__ = "0.10.0"`.
 
 Dans `pyproject.toml`, remplacer `version = "0.9.0"` par `version = "0.10.0"`, et compléter la cible wheel pour garantir l'embarquement du CSV :
+
 ```toml
 [tool.hatch.build.targets.wheel]
 packages = ["src/crewai_custom_tools"]
@@ -537,6 +558,7 @@ artifacts = ["src/crewai_custom_tools/tools/genealogy/data/*.csv"]
 ```
 
 Créer `src/crewai_custom_tools/tools/genealogy/data/README.md` :
+
 ```markdown
 # Table prénoms → sexe (INSEE + OFS)
 
@@ -562,6 +584,7 @@ uv run python scripts/build_prenoms_sexe.py \
 ```
 
 Les fichiers bruts ne sont pas versionnés ; seul `prenoms_sexe.csv` l'est.
+
 ```
 
 - [ ] **Step 4: Lancer — il passe**
@@ -591,10 +614,12 @@ git commit -m "chore(genealogy): provenance données + wheel data + bump 0.10.0"
 ## Task 5 : Rendus purs Markdown/YAML (genecrew)
 
 **Files:**
+
 - Create: `genecrew/src/genecrew/gender.py`
 - Test: `genecrew/tests/test_gender.py`
 
 **Interfaces:**
+
 - Consumes: `Proposition` (Task 1).
 - Produces :
   - `render_gender_report(scope, date, propositions, indecidables, people_count, base_url="http://localhost") -> str` — `propositions: list[Proposition]`, `indecidables: list[tuple[str,str,str]]` = `(gramps_id, prenom, raison)`.
@@ -604,6 +629,7 @@ git commit -m "chore(genealogy): provenance données + wheel data + bump 0.10.0"
 - [ ] **Step 1: Écrire les tests qui échouent**
 
 Créer `genecrew/tests/test_gender.py` :
+
 ```python
 """Tests de l'inférence de genre : rendus purs + orchestration lecture seule."""
 
@@ -652,6 +678,7 @@ Expected: FAIL (`ModuleNotFoundError: genecrew.gender`).
 - [ ] **Step 3: Implémenter les rendus (fichier partiel)**
 
 Créer `genecrew/src/genecrew/gender.py` (les fonctions d'orchestration arrivent en Task 6) :
+
 ```python
 """Gender-inference orchestration: read people, infer sex, emit Propositions.
 
@@ -743,10 +770,12 @@ git commit -m "feat(gender): rendus purs rapport Markdown + propositions YAML"
 ## Task 6 : Orchestration `run_gender` lecture seule (genecrew)
 
 **Files:**
+
 - Modify: `genecrew/src/genecrew/gender.py`
 - Test: `genecrew/tests/test_gender.py` (étend Task 5)
 
 **Interfaces:**
+
 - Consumes: `infer_sex`, `load_prenoms_table` (Task 2), `iter_people_batches`, `FactsFetcher`, `Proposition`, rendus (Task 5).
 - Produces :
   - `_build_proposition(person, inf) -> Proposition`.
@@ -755,6 +784,7 @@ git commit -m "feat(gender): rendus purs rapport Markdown + propositions YAML"
 - [ ] **Step 1: Écrire le test e2e qui échoue**
 
 Ajouter ces imports en tête de `genecrew/tests/test_gender.py` (après les imports existants) :
+
 ```python
 import httpx
 
@@ -764,6 +794,7 @@ from genecrew.gender import run_gender
 ```
 
 Puis ajouter le test e2e à la fin du fichier :
+
 ```python
 CONFIG = GrampsConfig(api_url="http://g.test/api", username="u", password="p")
 
@@ -815,6 +846,7 @@ Expected: FAIL (`ImportError`/`AttributeError` : `run_gender` incomplet — pas 
 - [ ] **Step 3: Implémenter `_build_proposition` + `run_gender`**
 
 Ajouter à la fin de `genecrew/src/genecrew/gender.py` :
+
 ```python
 def _build_proposition(person, inf) -> Proposition:
     preuve = (f"prénom « {inf.key} » : {inf.ratio * 100:.1f}% "
@@ -884,16 +916,19 @@ git commit -m "feat(gender): orchestration run_gender lecture seule (inconnus + 
 ## Task 7 : Sous-commande CLI `genecrew gender` (genecrew)
 
 **Files:**
+
 - Modify: `genecrew/src/genecrew/main.py`
 - Test: `genecrew/tests/test_cli_gender.py`
 
 **Interfaces:**
+
 - Consumes: `run_gender` (Task 6).
 - Produces: sous-commande `gender` avec `--scope` (défaut `all`), `--limit`, `--date`. Pas de `--dry-run` (lecture seule).
 
 - [ ] **Step 1: Écrire le test qui échoue**
 
 Créer `genecrew/tests/test_cli_gender.py` :
+
 ```python
 import subprocess
 import sys
@@ -917,6 +952,7 @@ Expected: FAIL (`gender` n'est pas une sous-commande valide → returncode ≠ 0
 - [ ] **Step 3: Câbler la sous-commande**
 
 Dans `genecrew/src/genecrew/main.py`, ajouter la fonction `gender_cmd` après `names_cmd` :
+
 ```python
 def gender_cmd(args) -> None:
     """Infer gender from first name (read-only); print the report + proposals paths."""
@@ -938,6 +974,7 @@ def gender_cmd(args) -> None:
 ```
 
 Dans `main()`, après le bloc `names_p` et avant `args = parser.parse_args()` :
+
 ```python
     gender_p = sub.add_parser("gender",
                               help="Inférence de genre à partir du prénom (lecture seule)")
@@ -947,6 +984,7 @@ Dans `main()`, après le bloc `names_p` et avant `args = parser.parse_args()` :
 ```
 
 Dans le dispatch, après le `elif args.command == "names":` :
+
 ```python
     elif args.command == "gender":
         gender_cmd(args)
@@ -970,6 +1008,7 @@ git commit -m "feat(gender): sous-commande CLI genecrew gender (lecture seule)"
 ## Task 8 : ADR, guide utilisateur, sync du lockfile (genecrew)
 
 **Files:**
+
 - Create: `docs/adr/0008-inference-genre-proposition.md`
 - Modify: `docs/USER_GUIDE.md`, `CLAUDE.md`, `uv.lock`
 
@@ -978,6 +1017,7 @@ git commit -m "feat(gender): sous-commande CLI genecrew gender (lecture seule)"
 - [ ] **Step 1: ADR 0008**
 
 Créer `docs/adr/0008-inference-genre-proposition.md` :
+
 ```markdown
 # 0008 — Inférence de genre : proposition, pas écriture
 
@@ -1006,6 +1046,7 @@ Périmètre : genres inconnus (proposition F/M) **et** contradictions genre/pré
 - [ ] **Step 2: Section USER_GUIDE**
 
 Ajouter à `docs/USER_GUIDE.md` une section « Inférence de genre » :
+
 ```markdown
 ## Inférence de genre (lecture seule)
 
@@ -1022,6 +1063,7 @@ fichier de propositions YAML (`*_propositions_genre_*.yaml`, pour un futur
 « apply »). Prérequis : la table `prenoms_sexe.csv` doit avoir été générée
 (voir `crewai_custom_tools/.../data/README.md`) ; sinon la commande échoue en
 signalant le fichier absent.
+
 ```
 
 - [ ] **Step 3: CLAUDE.md (commande)**

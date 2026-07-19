@@ -1,7 +1,7 @@
 # 0004 — Spec-first : specs vendorées + modèles Pydantic générés
 
 | | |
-|---|---|
+| --- | --- |
 | **Statut** | Accepté |
 | **Date** | 2026-07-17 |
 | **Source** | `docs/document-de-travail.md`, §4.2 et §4.2.1 (principe « Spec-first », §2) |
@@ -36,7 +36,7 @@ Emplacement des modèles (§4.2.1) :
 > Tous dans `crewai_custom_tools/src/crewai_custom_tools/tools/genealogy/models/` :
 >
 > | Fichier | Contenu | Origine |
-> |---|---|---|
+> | --- | --- | --- |
 > | `gramps_generated.py` | objets Gramps Web (Person, Family, Event, Place, Source, Citation, Note, Tag…) | généré depuis `openapi.json` |
 > | `matchid_generated.py` | requête/réponse MatchID décès | généré depuis `deces-matchid.swagger.json` |
 > | `geoplateforme_generated.py` | géocodage Géoplateforme | généré depuis `geoplateforme-geocodage.openapi.yaml` |
@@ -44,6 +44,7 @@ Emplacement des modèles (§4.2.1) :
 > | `domain.py` | modèles métier écrits à la main : `Proposition`, `Anomalie`, `CandidatDoublon`, `Piste`, `Checkpoint` | manuel |
 >
 > Règles :
+>
 > - Les fichiers `*_generated.py` portent un en-tête « généré — ne pas éditer » et se
 >   régénèrent par la commande documentée ci-dessus (les specs font foi dans
 >   `genecrew/docs/swagger/` ; dépôts frères, chemin relatif `../genecrew/docs/swagger/`).

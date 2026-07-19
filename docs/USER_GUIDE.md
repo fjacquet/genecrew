@@ -59,7 +59,7 @@ ce fichier — il est exclu par `genecrew/.gitignore`). Clés attendues, telles 
 `.env.example` :
 
 | Clé | Rôle |
-|---|---|
+| --- | --- |
 | `MODEL` | modèle LiteLLM par défaut |
 | `GRAMPS_API_URL` | URL de base de l'API Gramps Web |
 | `GRAMPS_USERNAME` | compte Gramps Web (lecture seule suffit en Phase 0) |
@@ -123,7 +123,7 @@ uv run genecrew audit --scope all --limit 200
 Options de la sous-commande `audit` :
 
 | Option | Rôle |
-|---|---|
+| --- | --- |
 | `--scope` | périmètre à auditer : `all` (toutes les personnes, paginées) ou `person:ID` (une seule personne). `branch:ID` (ascendants/descendants) est différé à la Phase 1b. |
 | `--limit N` | limite l'échantillon à N personnes (utile pour un run rapide ou un test terrain). |
 | `--batch-size N` | taille des lots traités (défaut : `GENECREW_BATCH_SIZE`, voir Phase 0). |
@@ -194,7 +194,7 @@ uv run genecrew names --scope all --limit 200 --dry-run
 Options de la sous-commande `names` :
 
 | Option | Rôle |
-|---|---|
+| --- | --- |
 | `--scope` | périmètre : `all` (toutes les personnes, paginées) ou `person:ID` (une seule personne). |
 | `--limit N` | limite l'échantillon à N personnes. |
 | `--batch-size N` | taille des lots traités (défaut : `GENECREW_BATCH_SIZE`, voir Phase 0). |

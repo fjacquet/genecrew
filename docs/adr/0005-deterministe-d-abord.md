@@ -1,7 +1,7 @@
 # 0005 — Déterministe d'abord : règles pures avant LLM, orchestration Python hors CrewAI
 
 | | |
-|---|---|
+| --- | --- |
 | **Statut** | Accepté |
 | **Date** | 2026-07-17 |
 | **Source** | `docs/document-de-travail.md`, §2 (principe « Déterministe d'abord ») et §6.5 |

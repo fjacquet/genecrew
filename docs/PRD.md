@@ -1,7 +1,7 @@
 # GeneCrew — PRD (Product Requirements Document)
 
 | | |
-|---|---|
+| --- | --- |
 | **Source** | dérivé de `docs/document-de-travail.md`, §1 |
 | **Statut** | Validé pour implémentation |
 | **Périmètre** | France & Suisse (romande en priorité) |

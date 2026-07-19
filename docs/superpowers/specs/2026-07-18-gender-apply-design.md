@@ -138,11 +138,13 @@ résiduelle (rares/étrangers, faible volume).
 ## 6. Tests
 
 ### 6.1 `GrampsUpdateGenderTool` (cct, mock httpx)
+
 - écrit le genre via PUT (`gender` int correct dans le payload) ;
 - `dry_run=True` → **aucun** PUT ; `GENECREW_DRY_RUN=true` force la simulation même si `dry_run=False` ;
 - no-op si `gender == old` (aucun PUT, `noop=True`).
 
 ### 6.2 `run_gender_apply` (genecrew, mock httpx, table injectée)
+
 - personne `U` + prénom ≥ 0.98 → PUT du bon genre ;
 - contradiction (`M` + prénom `F` ≥ 0.98) → PUT ;
 - prénom entre 0.95 et 0.98 → **pas** de PUT (listé « sous le seuil ») ;
@@ -153,18 +155,21 @@ résiduelle (rares/étrangers, faible volume).
 ## 7. Fichiers touchés
 
 **`crewai_custom_tools`**
+
 - `src/crewai_custom_tools/tools/genealogy/gramps/write_tools.py` (+`GrampsUpdateGenderTool`)
 - `src/crewai_custom_tools/__init__.py` (`__all__` + bump `0.10.0` → `0.11.0`)
 - `pyproject.toml`, `tests/test_scaffold.py` (bump lockstep)
 - `tests/test_genealogy_write_tools.py` (tests du nouvel outil)
 
 **`genecrew`**
+
 - `genecrew/src/genecrew/gender_apply.py` (nouveau : `run_gender_apply` + rendu pur)
 - `genecrew/src/genecrew/main.py` (sous-commande `gender-apply`)
 - `genecrew/tests/test_gender_apply.py`, `genecrew/tests/test_cli_gender_apply.py`
 - `uv.lock` (sync 0.11.0)
 
 **Docs**
+
 - `docs/adr/0009-ecritures-genre-haute-confiance.md`
 - `docs/USER_GUIDE.md` (section « Appliquer les corrections de genre »)
 

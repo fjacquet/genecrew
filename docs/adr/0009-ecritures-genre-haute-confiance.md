@@ -1,7 +1,7 @@
 # 0009 — Écritures de genre bornées à haute confiance
 
 | | |
-|---|---|
+| --- | --- |
 | **Statut** | Accepté |
 | **Date** | 2026-07-18 |
 | **Source** | `docs/superpowers/specs/2026-07-18-gender-apply-design.md` |

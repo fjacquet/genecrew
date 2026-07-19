@@ -23,11 +23,13 @@
 ### Task 1 : Fonctions pures de casse
 
 **Files:**
+
 - Create: `src/crewai_custom_tools/tools/genealogy/standardize/__init__.py`
 - Create: `src/crewai_custom_tools/tools/genealogy/standardize/names.py`
 - Test: `tests/test_genealogy_names.py`
 
 **Interfaces:**
+
 - Produces (consommé par T2 et genecrew) : `normalize_case(name: str) -> str`, `needs_normalization(name: str) -> bool`, `is_case_only_change(old: str, new: str) -> bool`, `is_incomplete_name(name: str) -> bool`.
 
 - [ ] **Step 1 : Écrire les tests qui échouent**
@@ -94,6 +96,7 @@ def test_is_incomplete_name(name, expected):
 cd /Users/fjacquet/Projects/crewai_custom_tools
 uv run python -m pytest tests/test_genealogy_names.py -v
 ```
+
 Attendu : ÉCHEC — `ModuleNotFoundError` sur `standardize.names`.
 
 - [ ] **Step 3 : Implémenter**
@@ -171,6 +174,7 @@ def is_incomplete_name(name: str) -> bool:
 ```bash
 uv run python -m pytest tests/test_genealogy_names.py -v
 ```
+
 Attendu : tous PASS (8 + 6 + 1 + 3 cas paramétrés).
 
 - [ ] **Step 5 : Commit**
@@ -185,10 +189,12 @@ git commit -m "feat(genealogy): pure French-aware name casing helpers"
 ### Task 2 : Outil d'écriture `GrampsUpdateNameTool`
 
 **Files:**
+
 - Create: `src/crewai_custom_tools/tools/genealogy/gramps/write_tools.py`
 - Test: `tests/test_genealogy_write_tools.py`
 
 **Interfaces:**
+
 - Consumes : `get_client()` (Phase 0), les fonctions de T1.
 - Produces (exporté en T3, consommé par genecrew) : `GrampsUpdateNameTool` (`BaseTool`). `_run(handle: str, dry_run: bool = False) -> str` renvoie l'enveloppe `ok()/err()`. En succès : `ok({"handle", "gramps_id", "dry_run", "changes": [{"field","old","new"}, ...]})`. Refuse (via l'invariant) tout champ non purement de casse.
 
@@ -287,6 +293,7 @@ def test_update_name_no_change_when_already_mixed(mocker):
 ```bash
 uv run python -m pytest tests/test_genealogy_write_tools.py -v
 ```
+
 Attendu : ÉCHEC — module `write_tools` absent.
 
 - [ ] **Step 3 : Implémenter**
@@ -380,6 +387,7 @@ class GrampsUpdateNameTool(BaseTool):
 ```bash
 uv run python -m pytest tests/test_genealogy_write_tools.py -v
 ```
+
 Attendu : 3 PASS.
 
 - [ ] **Step 5 : Commit**
@@ -394,11 +402,13 @@ git commit -m "feat(genealogy): GrampsUpdateNameTool (case-only name write, dry_
 ### Task 3 : Export + bump de version 0.9.0
 
 **Files:**
+
 - Modify: `src/crewai_custom_tools/__init__.py` (import + `__all__` + `__version__`)
 - Modify: `pyproject.toml` (version)
 - Modify: `tests/test_scaffold.py` (version attendue)
 
 **Interfaces:**
+
 - Produces : `from crewai_custom_tools import GrampsUpdateNameTool` fonctionne. Les fonctions pures de `standardize.names` restent importées par chemin de module (pas dans `__all__`).
 
 - [ ] **Step 1 : Ajouter l'export**
@@ -415,6 +425,7 @@ le nom `GrampsUpdateNameTool` dans `__all__` (ordre alphabétique du groupe).
 uv run python -c "from crewai_custom_tools import GrampsUpdateNameTool; import crewai_custom_tools as c; print(c.__version__)"
 uv run python -m pytest -q
 ```
+
 Attendu : `0.9.0` ; toute la suite passe.
 
 - [ ] **Step 4 : Commit**
@@ -431,11 +442,13 @@ git commit -m "feat(genealogy): export GrampsUpdateNameTool; bump to 0.9.0"
 > À partir d'ici : dépôt `/Users/fjacquet/Projects/genecrew`, branche `feat/name-standardizer`.
 
 **Files:**
+
 - Create: `genecrew/src/genecrew/batching.py`
 - Modify: `genecrew/src/genecrew/audit.py` (utiliser le module partagé)
 - Test: `genecrew/tests/test_batching.py`
 
 **Interfaces:**
+
 - Produces (consommé par `audit.py` et `names.py`) : `iter_people_batches(client, fetcher, scope, batch_size, limit) -> Iterator[list[PersonFacts]]` — extrait tel quel de l'actuel `_people_batches` d'`audit.py`.
 
 **Contexte** : `audit.py` contient une fonction privée `_people_batches(client, fetcher, scope, batch_size, limit)` qui produit les lots de `PersonFacts` (bulk pour `all`, single pour `person:`). Le standardisateur en a besoin aussi → on l'extrait (DRY).
@@ -472,10 +485,12 @@ def test_iter_all_scope_bulk():
 ```
 
 - [ ] **Step 2 : Vérifier l'échec** :
+
 ```bash
 cd /Users/fjacquet/Projects/genecrew
 uv run python -m pytest genecrew/tests/test_batching.py -v
 ```
+
 Attendu : ÉCHEC — module `batching` absent.
 
 - [ ] **Step 3 : Créer `genecrew/src/genecrew/batching.py`** — déplacer le corps de `_people_batches` d'`audit.py` :
@@ -525,12 +540,15 @@ de `audit.py` les imports devenus inutiles (`parse_scope`, `resolve_handles` s'i
 plus qu'à `_people_batches` — vérifier).
 
 - [ ] **Step 4 : Vérifier** :
+
 ```bash
 uv run python -m pytest genecrew/tests/test_batching.py genecrew/tests/test_audit.py -v
 ```
+
 Attendu : le nouveau test PASS **et** les tests d'audit existants PASS (comportement inchangé).
 
 - [ ] **Step 5 : Commit**
+
 ```bash
 git add genecrew/src/genecrew/batching.py genecrew/src/genecrew/audit.py genecrew/tests/test_batching.py
 git commit -m "refactor(audit): extract shared iter_people_batches"
@@ -541,10 +559,12 @@ git commit -m "refactor(audit): extract shared iter_people_batches"
 ### Task 5 : genecrew — orchestration `names.py`
 
 **Files:**
+
 - Create: `genecrew/src/genecrew/names.py`
 - Test: `genecrew/tests/test_names.py`
 
 **Interfaces:**
+
 - Consumes : `iter_people_batches` (T4), `FactsFetcher`, `GrampsUpdateNameTool`, les fonctions pures de T1.
 - Produces : `render_names_report(scope, date, results, incomplete, dry_run) -> str` (pur) ; `run_names(client, scope, output_dir, *, date, batch_size=25, limit=None, dry_run=False) -> tuple[Path, Path]` (écrit rapport + liste, rend les deux chemins).
 
@@ -582,9 +602,11 @@ def test_report_dry_run_marked():
 ```
 
 - [ ] **Step 2 : Vérifier l'échec** :
+
 ```bash
 uv run python -m pytest genecrew/tests/test_names.py -v
 ```
+
 Attendu : ÉCHEC — module `names` absent.
 
 - [ ] **Step 3 : Implémenter** — `genecrew/src/genecrew/names.py` :
@@ -691,12 +713,15 @@ def run_names(client: GrampsClient, scope: str, output_dir: Path, *,
 ```
 
 - [ ] **Step 4 : Vérifier** :
+
 ```bash
 uv run python -m pytest genecrew/tests/test_names.py -v
 ```
+
 Attendu : 2 PASS.
 
 - [ ] **Step 5 : Commit**
+
 ```bash
 git add genecrew/src/genecrew/names.py genecrew/tests/test_names.py
 git commit -m "feat(names): orchestration + reports for name-casing standardization"
@@ -707,10 +732,12 @@ git commit -m "feat(names): orchestration + reports for name-casing standardizat
 ### Task 6 : genecrew — sous-commande CLI `genecrew names`
 
 **Files:**
+
 - Modify: `genecrew/src/genecrew/main.py`
 - Test: `genecrew/tests/test_cli_names.py`
 
 **Interfaces:**
+
 - Consumes : `run_names` (T5).
 - Produces : `uv run genecrew names --scope all|person:ID [--limit N] [--batch-size 25] [--dry-run] [--date …]`.
 
@@ -731,9 +758,11 @@ def test_names_help_lists_options():
 ```
 
 - [ ] **Step 2 : Vérifier l'échec** :
+
 ```bash
 uv run python -m pytest genecrew/tests/test_cli_names.py -v
 ```
+
 Attendu : ÉCHEC (sous-commande `names` inconnue).
 
 - [ ] **Step 3 : Implémenter** — dans `genecrew/src/genecrew/main.py`, ajouter `names_cmd` :
@@ -775,13 +804,16 @@ Puis, dans `main()`, après le sous-parseur `audit`, ajouter :
 et dans le dispatch : `elif args.command == "names": names_cmd(args)`.
 
 - [ ] **Step 4 : Vérifier** :
+
 ```bash
 uv run python -m pytest genecrew/tests/test_cli_names.py -v
 uv run genecrew names --help
 ```
+
 Attendu : test PASS ; l'aide liste `--scope/--limit/--batch-size/--dry-run/--date`.
 
 - [ ] **Step 5 : Commit**
+
 ```bash
 git add genecrew/src/genecrew/main.py genecrew/tests/test_cli_names.py
 git commit -m "feat(names): CLI sous-commande genecrew names"
@@ -792,6 +824,7 @@ git commit -m "feat(names): CLI sous-commande genecrew names"
 ### Task 7 : Validation terrain + documentation
 
 **Files:**
+
 - Modify: `docs/adr/0001-ecriture-directe-encadree.md` (raffinement forme vs fait)
 - Create: `docs/adr/0007-standardisation-casse-invariant.md`
 - Modify: `docs/USER_GUIDE.md` (section « Standardisation — noms »)
@@ -805,6 +838,7 @@ cd /Users/fjacquet/Projects/genecrew
 uv sync -q   # prend crewai_custom_tools 0.9.0
 uv run genecrew names --scope all --limit 200 --dry-run
 ```
+
 Attendu : `output/standardize/AAAA-MM-JJ_noms_all.md` listant des recapitalisations plausibles
 (patronymes capitales → casse propre ; casses mixtes ignorées), et `..._noms_a_verifier_all.md`
 listant les noms « ? »/chiffres. Aucune écriture. Examiner le rapport.
@@ -814,6 +848,7 @@ listant les noms « ? »/chiffres. Aucune écriture. Examiner le rapport.
 ```bash
 uv run genecrew names --scope all --limit 200
 ```
+
 **Critère de sortie** : les corrections sont visibles dans Gramps Web (patronymes recapitalisés)
 et dans l'historique des transactions (`GET /api/transactions/history/`), chacune ne modifiant
 que la casse. Si le compte renvoie 403 en écriture, l'utilisateur bascule sur un compte Gramps
@@ -826,6 +861,7 @@ n'a été touchée.
 uv run python -m pytest genecrew/tests/ -q
 (cd /Users/fjacquet/Projects/crewai_custom_tools && uv run python -m pytest -q)
 ```
+
 Attendu : tout passe.
 
 - [ ] **Step 4 : Documentation**
@@ -841,6 +877,7 @@ Attendu : tout passe.
   via l'historique Gramps.
 
 - [ ] **Step 5 : Commit**
+
 ```bash
 git add docs/adr/0001-ecriture-directe-encadree.md docs/adr/0007-standardisation-casse-invariant.md docs/USER_GUIDE.md
 git commit -m "docs: ADR 0007 casse par invariant + raffinement ADR 0001 + USER_GUIDE noms"

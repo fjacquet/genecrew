@@ -1,7 +1,7 @@
 # 0007 — Standardisation de la casse des noms par écriture directe encadrée par invariant
 
 | | |
-|---|---|
+| --- | --- |
 | **Statut** | Accepté |
 | **Date** | 2026-07-18 |
 | **Source** | `docs/superpowers/specs/2026-07-18-standardisateur-noms-design.md` |
