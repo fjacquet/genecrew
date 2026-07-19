@@ -420,6 +420,15 @@ def main() -> None:
     lm_p.add_argument("--dry-run", action="store_true", help="simuler sans fusionner")
     lm_p.add_argument("--date", default=None, help="date du rapport (défaut : aujourd'hui)")
 
+    ma_p = sub.add_parser("militaires-apply",
+                          help="Applique les propositions militaires relues : citations "
+                               "Mémoire des hommes (une source par base) — même moteur "
+                               "que deces-apply (ADR 0011)")
+    ma_p.add_argument("--propositions", required=True,
+                      help="chemin du YAML de propositions RELU par un humain")
+    ma_p.add_argument("--dry-run", action="store_true", help="simuler sans écrire")
+    ma_p.add_argument("--date", default=None, help="date du rapport (défaut : aujourd'hui)")
+
     mi_p = sub.add_parser("militaires",
                           help="Enrichissement décès militaires (Mémoire des hommes, "
                                "gazetteer local hors-ligne, lecture seule)")
@@ -490,6 +499,7 @@ def main() -> None:
         "lieu-import": lambda: lieu_import_cmd(args),
         "deces-apply": lambda: deces_apply_cmd(args),
         "militaires": lambda: militaires_cmd(args),
+        "militaires-apply": lambda: deces_apply_cmd(args),  # même moteur, source par base
     }
     try:
         dispatch[args.command]()

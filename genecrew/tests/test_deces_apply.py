@@ -8,7 +8,9 @@ import yaml
 from crewai_custom_tools.tools.genealogy.gramps import write_tools
 from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient, GrampsConfig
 
-from genecrew.deces_apply import SOURCE_TITLE, citation_page, run_deces_apply
+from genecrew.deces_apply import (
+    SOURCE_TITLE, citation_page, run_deces_apply, source_title_for,
+)
 
 CONFIG = GrampsConfig(api_url="http://g.test/api", username="u", password="p")
 
@@ -47,6 +49,27 @@ PERSON = {"handle": "H300", "gramps_id": "I0300", "death_ref_index": 1,
           "event_ref_list": [{"ref": "EV_B"}, {"ref": "EV_D"}]}
 EVENT = {"_class": "Event", "handle": "EV_D", "gramps_id": "E0607",
          "type": "Death", "citation_list": []}
+
+
+def test_source_title_routed_per_register():
+    assert source_title_for(PROP["preuve_detail"]) == (SOURCE_TITLE, "INSEE")
+    t, a = source_title_for("Mémoire des hommes (Guerre 1914-1918) : décès 1915-09-28…")
+    assert t == "Mémoire des hommes — Guerre 1914-1918" and a == "Ministère des Armées"
+
+
+def test_apply_militaires_prop_creates_mdh_source(tmp_path, mocker):
+    mdh_prop = {**PROP, "preuve_detail":
+                "Mémoire des hommes (Guerre 1914-1918) : décès 1915-09-28 à Neuville "
+                "(score 1.000).",
+                "preuve_url": "https://www.memoiredeshommes.sga.defense.gouv.fr/ark/x"}
+    state = {"source_posts": [], "citation_posts": [], "event_puts": []}
+    client = _client(_full_handler(state))
+    mocker.patch.object(write_tools, "get_client", return_value=client)
+    run_deces_apply(client, _yaml(tmp_path, [mdh_prop]), tmp_path,
+                    date="2026-07-19", dry_run=False)
+    assert state["source_posts"][0]["title"] == "Mémoire des hommes — Guerre 1914-1918"
+    assert state["source_posts"][0]["author"] == "Ministère des Armées"
+    assert "ark/x" in state["citation_posts"][0]["page"]
 
 
 def test_citation_page_strips_score_keeps_reference():

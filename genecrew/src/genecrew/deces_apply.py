@@ -1,4 +1,7 @@
-"""Application des propositions décès : citations INSEE sur les événements existants.
+"""Application des propositions décès : citations de registres sur les événements existants.
+
+Une source Gramps par registre (INSEE, ou chaque base Mémoire des hommes), déduite de
+chaque proposition (`source_title_for`).
 
 `genecrew deces-apply --propositions <yaml relu>` — patron `lieux-merge` : jamais auto,
 la commande consomme le YAML que l'humain a relu. v1 : type `source` et confiance 2
@@ -26,12 +29,24 @@ from genecrew.propositions import PropositionsLot
 
 SOURCE_TITLE = "INSEE — Fichier des personnes décédées"
 _SCORE_RE = re.compile(r"\s*\(score [^)]*\)\.?\s*$")
+_MDH_RE = re.compile(r"Mémoire des hommes \(([^)]+)\)")
 
 
 def citation_page(preuve_detail: str, preuve_url: str) -> str:
     """Citation locator: the archive reference without the score, plus the URL. Pure."""
     cleaned = _SCORE_RE.sub("", preuve_detail or "").strip()
     return " — ".join(filter(None, [cleaned, preuve_url])).strip()
+
+
+def source_title_for(preuve_detail: str) -> tuple[str, str]:
+    """(title, author) of the Gramps source a proposition should cite. Pure.
+
+    One source per register: INSEE, or one per Mémoire des hommes base.
+    """
+    m = _MDH_RE.search(preuve_detail or "")
+    if m:
+        return f"Mémoire des hommes — {m.group(1).strip()}", "Ministère des Armées"
+    return SOURCE_TITLE, "INSEE"
 
 
 def _death_event_handle(person: dict) -> str | None:
@@ -83,15 +98,22 @@ def run_deces_apply(client: GrampsClient, propositions_yaml: Path, output_dir, *
     todo = [p for p in lot.propositions if p.type == "source" and p.confiance == 2]
     ignored = len(lot.propositions) - len(todo)
 
-    source_payload = json.loads(GrampsEnsureSourceTool()._run(
-        title=SOURCE_TITLE, author="INSEE", dry_run=dry_run))
-    if not source_payload["success"]:
-        raise RuntimeError(f"source INSEE : {source_payload['error']}")
-    source_handle = source_payload["data"]["handle"]
+    source_handles: dict[str, str] = {}             # titre -> handle (une source/registre)
+
+    def _ensure_source(title: str, author: str) -> str:
+        if title not in source_handles:
+            payload = json.loads(GrampsEnsureSourceTool()._run(
+                title=title, author=author, dry_run=dry_run))
+            if not payload["success"]:
+                raise RuntimeError(f"source '{title}' : {payload['error']}")
+            source_handles[title] = payload["data"]["handle"]
+        return source_handles[title]
 
     applied, skipped, errors = [], [], []
     creator, attacher = GrampsCreateCitationTool(), GrampsAttachCitationTool()
     for prop in todo:
+        title, author = source_title_for(prop.preuve_detail)
+        source_handle = _ensure_source(title, author)
         try:
             person = client.get_object("people", prop.handle)
         except Exception:
@@ -123,6 +145,6 @@ def run_deces_apply(client: GrampsClient, propositions_yaml: Path, output_dir, *
     report = render_apply_report(date, applied, skipped, errors, ignored, dry_run)
     out = Path(output_dir) / "deces"
     out.mkdir(parents=True, exist_ok=True)
-    report_path = out / f"{date}_deces_apply.md"
+    report_path = out / f"{date}_apply_{Path(propositions_yaml).stem}.md"
     report_path.write_text(report, encoding="utf-8")
     return report_path
