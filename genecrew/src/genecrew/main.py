@@ -277,6 +277,24 @@ def deces_cmd(args) -> None:
     print(f"Propositions : {proposals}")
 
 
+def militaires_cmd(args) -> None:
+    """Military-death enrichment against the local MdH gazetteer; print report paths."""
+    from pathlib import Path
+
+    from crewai_custom_tools.tools.genealogy.gramps.client import get_client
+
+    from genecrew.militaires import run_militaires
+
+    client = get_client()
+    output_dir = Path(os.environ.get("GENECREW_OUTPUT_DIR", "output"))
+    date = args.date or __import__("datetime").date.today().isoformat()
+    report, proposals = run_militaires(client, args.scope, output_dir, date=date,
+                                       min_score=args.min_score,
+                                       batch_size=args.batch_size, limit=args.limit)
+    print(f"Rapport : {report}")
+    print(f"Propositions : {proposals}")
+
+
 def deces_apply_cmd(args) -> None:
     """Apply reviewed death propositions (INSEE citations); print the report path."""
     from pathlib import Path
@@ -402,6 +420,17 @@ def main() -> None:
     lm_p.add_argument("--dry-run", action="store_true", help="simuler sans fusionner")
     lm_p.add_argument("--date", default=None, help="date du rapport (défaut : aujourd'hui)")
 
+    mi_p = sub.add_parser("militaires",
+                          help="Enrichissement décès militaires (Mémoire des hommes, "
+                               "gazetteer local hors-ligne, lecture seule)")
+    mi_p.add_argument("--scope", default="all", help="all | person:ID")
+    mi_p.add_argument("--limit", type=int, default=None, help="limiter à N personnes")
+    mi_p.add_argument("--batch-size", type=int,
+                      default=int(os.environ.get("GENECREW_BATCH_SIZE", "25")))
+    mi_p.add_argument("--min-score", type=float, default=0.90,
+                      help="seuil du score déterministe (défaut 0.90)")
+    mi_p.add_argument("--date", default=None, help="date du rapport (défaut : aujourd'hui)")
+
     da_p = sub.add_parser("deces-apply",
                           help="Applique les propositions décès relues : citations INSEE "
                                "sur les événements décès existants (ADR 0011)")
@@ -460,6 +489,7 @@ def main() -> None:
         "deces": lambda: deces_cmd(args),
         "lieu-import": lambda: lieu_import_cmd(args),
         "deces-apply": lambda: deces_apply_cmd(args),
+        "militaires": lambda: militaires_cmd(args),
     }
     try:
         dispatch[args.command]()
