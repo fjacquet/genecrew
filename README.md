@@ -1,57 +1,74 @@
-# Genecrew Crew
+# GeneCrew
 
-Welcome to the Genecrew Crew project, powered by [crewAI](https://crewai.com). This template is designed to help you set up a multi-agent AI system with ease, leveraging the powerful and flexible framework provided by crewAI. Our goal is to enable your agents to collaborate effectively on complex tasks, maximizing their collective intelligence and capabilities.
+![Python](https://img.shields.io/badge/python-3.11%20–%203.12-3776AB?logo=python&logoColor=white)
+![CrewAI](https://img.shields.io/badge/built%20with-CrewAI-FF5A50)
+![uv](https://img.shields.io/badge/packaging-uv-DE5FE9?logo=uv&logoColor=white)
+![Gramps Web](https://img.shields.io/badge/backend-Gramps%20Web%20API-4B8BBE)
+![statut](https://img.shields.io/badge/statut-en%20développement-orange)
+
+Équipe d'agents (et d'outils déterministes) pour la **généalogie**, travaillant sur un arbre
+**Gramps Web**. Quatre buts : **nettoyer** les données, **standardiser** (noms, genres ; à venir :
+lieux/dates), **trouver des pistes** de recherche, et ne conserver que des **données fiables et
+vérifiées**. La généalogie est une discipline de preuve — *« c'est un devoir de mémoire »*.
+
+> **Principe directeur : déterministe d'abord.** Les corrections mécaniques et vérifiables (casse,
+> genre à haute confiance) sont faites par des **outils déterministes** — reproductibles, testables,
+> sûrs sur la donnée cœur. Le LLM (crew CrewAI) est réservé aux tâches de **jugement et de langage**
+> (interpréter les anomalies, chercher des pistes, rédiger) — chantier ultérieur.
+
+## Architecture
+
+- **`genecrew`** (ce dépôt) — CLI argparse + orchestration Python. Le paquet CrewAI garde son layout
+  standard sous `genecrew/src/genecrew/` ; les métadonnées sont à la racine.
+- **[`crewai_custom_tools`](../crewai_custom_tools)** (dépôt frère, dépendance éditable) — toute la
+  **logique généalogie** : client Gramps (httpx + JWT), modèles, règles d'audit R1–R10 + D1–D3,
+  inférence de genre (table INSEE+OFS), outils d'écriture (casse, genre).
+- **Gramps Web** — le backend de données, en **REST direct** (pas via un serveur MCP). Non provisionné
+  ici (voir le projet frère `gramps-mcp`).
 
 ## Installation
 
-Ensure you have Python >=3.10 <3.13 installed on your system. This project uses [UV](https://docs.astral.sh/uv/) for dependency management and package handling, offering a seamless setup and execution experience.
-
-First, if you haven't already, install uv:
-
-```bash
-pip install uv
-```
-
-Next, navigate to your project directory and install the dependencies:
-
-(Optional) Lock the dependencies and install them by using the CLI command:
+Prérequis : [`uv`](https://docs.astral.sh/uv/), le dépôt frère `crewai_custom_tools` cloné à côté,
+une instance Gramps Web accessible, et un `.env` (copier `.env.example`).
 
 ```bash
-crewai install
+uv sync                       # installe le projet + la lib éditable
+cp .env.example .env          # puis renseigner GRAMPS_* et GENECREW_*
 ```
 
-### Customizing
+Voir **[`docs/USER_GUIDE.md`](docs/USER_GUIDE.md)** pour la mise en route complète (démarrage de
+Gramps Web via `gramps-mcp`, `GRAMPS_API_URL`, etc.).
 
-**Add your `OPENAI_API_KEY` into the `.env` file**
+## Utilisation
 
-- Modify `src/genecrew/config/agents.yaml` to define your agents
-- Modify `src/genecrew/config/tasks.yaml` to define your tasks
-- Modify `src/genecrew/crew.py` to add your own logic, tools and specific args
-- Modify `src/genecrew/main.py` to add custom inputs for your agents and tasks
-
-## Running the Project
-
-To kickstart your crew of AI agents and begin task execution, run this from the root folder of your project:
+Tout se lance **depuis la racine** :
 
 ```bash
-crewai run
+uv run genecrew stats                             # tableau de bord de l'arbre (Phase 0)
+uv run genecrew audit --scope all --limit 200     # audit déterministe, lecture seule (R1–R10, D1–D3)
+uv run genecrew names --dry-run                   # standardiser la casse des noms (écriture encadrée)
+uv run genecrew gender --scope all --limit 200    # inférer le genre — propositions, lecture seule
+uv run genecrew gender-apply --dry-run            # écrire les corrections de genre à haute confiance
+uv run genecrew apply-all --dry-run               # casse puis genre, en un passage
 ```
 
-This command initializes the genecrew Crew, assembling the agents and assigning them tasks as defined in your configuration.
+**Sécurité des écritures** : toute écriture est encadrée par le flag `--dry-run` **et** l'interrupteur
+global `GENECREW_DRY_RUN` (dans `.env`) — tant qu'il vaut `true`, tout est **simulé**. Principe
+**forme vs fait** : la casse est une *forme* (écriture directe, invariant casse-seulement) ; un *fait*
+(genre, dates…) n'est écrit qu'à haute confiance et de façon réversible (historique Gramps).
 
-This example, unmodified, will run the create a `report.md` file with the output of a research on LLMs in the root folder.
+## Documentation
 
-## Understanding Your Crew
+- [`docs/USER_GUIDE.md`](docs/USER_GUIDE.md) — guide d'utilisation, phase par phase.
+- [`docs/document-de-travail.md`](docs/document-de-travail.md) — spécification / document de travail.
+- [`docs/adr/`](docs/adr/) — décisions d'architecture (ADR 0001–0009).
+- [`CHANGELOG.md`](CHANGELOG.md) — journal des livraisons · [`docs/BACKLOG.md`](docs/BACKLOG.md) — idées différées.
 
-The genecrew Crew is composed of multiple AI agents, each with unique roles, goals, and tools. These agents collaborate on a series of tasks, defined in `config/tasks.yaml`, leveraging their collective skills to achieve complex objectives. The `config/agents.yaml` file outlines the capabilities and configurations of each agent in your crew.
+## Tests
 
-## Support
+```bash
+uv run python -m pytest genecrew/tests/ -q        # suite genecrew (mockée, hors-ligne)
+uv run ruff check .
+```
 
-For support, questions, or feedback regarding the Genecrew Crew or crewAI.
-
-- Visit our [documentation](https://docs.crewai.com)
-- Reach out to us through our [GitHub repository](https://github.com/joaomdmoura/crewai)
-- [Join our Discord](https://discord.com/invite/X4JWnZnxPb)
-- [Chat with our docs](https://chatg.pt/DWjSBZn)
-
-Let's create wonders together with the power and simplicity of crewAI.
+La bibliothèque `crewai_custom_tools` a sa propre suite (100 % hors-ligne).
