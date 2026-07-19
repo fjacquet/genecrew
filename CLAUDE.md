@@ -103,7 +103,7 @@ Tests live in `genecrew/tests/` — run `uv run python -m pytest genecrew/tests/
 
 ## Environment / secrets
 
-- `.env` (repo root) holds `MODEL` (LiteLLM, currently Gemini), the `GRAMPS_*` connection vars, and `GENECREW_*` pipeline settings — see `.env.example`. Never print or commit its contents.
+- `.env` (repo root) holds `MODEL` (LiteLLM via **OpenRouter** — `openrouter/z-ai/glm-5.2`; needs `OPENROUTER_API_KEY`), the `GRAMPS_*` connection vars, and `GENECREW_*` pipeline settings — see `.env.example`. Never print or commit its contents.
 - The root `.gitignore` excludes `.env`, `__pycache__/`, `.DS_Store`, and standard Python build/venv artifacts.
 
 ## Gotchas
