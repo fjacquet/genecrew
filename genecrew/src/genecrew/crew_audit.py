@@ -18,7 +18,8 @@ from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient
 from crewai_custom_tools.tools.genealogy.gramps.write_tools import effective_dry_run
 
 from genecrew.audit import collect_audit_findings
-from genecrew.crew import Genecrew
+from genecrew.crew import Genecrew, PropositionsLot
+from genecrew.logging_setup import get_logger
 
 
 @dataclass(frozen=True)
@@ -67,6 +68,25 @@ def _chunk(items: list, size: int) -> list[list]:
     return [items[i:i + size] for i in range(0, len(items), size)]
 
 
+def extract_propositions(crew_output) -> tuple[list, bool]:
+    """Pull the Standardisateur's structured PropositionsLot out of a CrewOutput.
+
+    Returns (propositions, structured_ok). Graceful: if the LLM failed to produce the
+    structured output, returns ([], False) — the caller logs and the report flags it.
+    """
+    for task_output in getattr(crew_output, "tasks_output", None) or []:
+        lot = getattr(task_output, "pydantic", None)
+        if isinstance(lot, PropositionsLot):
+            return list(lot.propositions), True
+        json_dict = getattr(task_output, "json_dict", None)
+        if isinstance(json_dict, dict) and "propositions" in json_dict:
+            try:
+                return list(PropositionsLot(**json_dict).propositions), True
+            except Exception:                       # malformed → graceful fallback
+                return [], False
+    return [], False
+
+
 def _usage_tokens(crew_output) -> int:
     """Best-effort total token count from a CrewOutput (0 if unavailable)."""
     usage = getattr(crew_output, "token_usage", None)
@@ -82,7 +102,7 @@ def _usage_tokens(crew_output) -> int:
 
 def render_crew_report(
     scope: str, date: str, batch_results: list[dict], *,
-    dry_run: bool, n_persons: int, n_anomalies: int,
+    dry_run: bool, n_persons: int, n_anomalies: int, n_propositions: int = 0,
 ) -> str:
     """Render the interpreted-audit Markdown report. Pure."""
     mode = "simulation (dry-run)" if dry_run else "écriture réelle"
@@ -94,6 +114,7 @@ def render_crew_report(
         f"- Mode : {mode}",
         f"- Personnes signalées : {n_persons}",
         f"- Anomalies déterministes : {n_anomalies}",
+        f"- Propositions actionnables : {n_propositions}",
         f"- Lots traités : {len(batch_results)}",
         f"- Coût total (tokens) : {total_tokens}",
         "",
@@ -104,6 +125,10 @@ def render_crew_report(
     for b in batch_results:
         lines.append(f"## Lot {b['index']} — {b['n_persons']} personne(s), {b['tokens']} tokens")
         lines.append("")
+        if not b.get("structured", True):
+            lines.append("> ⚠️ Sortie structurée du Standardisateur absente sur ce lot "
+                         "(propositions non extraites).")
+            lines.append("")
         lines.append(b["raw"] or "_(sortie vide)_")
         lines.append("")
     return "\n".join(lines) + "\n"
@@ -135,6 +160,7 @@ def run_crew_audit(
     persons = group_anomalies_by_person(anomalies, all_people)
 
     batch_results: list[dict] = []
+    all_propositions: list = []
     for idx, batch in enumerate(_chunk(persons, batch_size), 1):
         crew = crew_factory().crew()
         crew.output_log_file = str(crew_log_path)
@@ -142,23 +168,39 @@ def run_crew_audit(
             "anomalies_block": render_anomalies_block(batch),
             "date": date,
         })
+        propositions, structured = extract_propositions(crew_output)
+        if not structured:
+            get_logger().warning(
+                "crew-audit lot %d : sortie structurée du Standardisateur absente", idx)
+        all_propositions.extend(propositions)
         batch_results.append({
             "index": idx,
             "n_persons": len(batch),
             "raw": getattr(crew_output, "raw", str(crew_output)),
             "tokens": _usage_tokens(crew_output),
+            "structured": structured,
         })
 
     report = render_crew_report(
         scope, date, batch_results,
-        dry_run=simulate, n_persons=len(persons), n_anomalies=len(anomalies))
+        dry_run=simulate, n_persons=len(persons), n_anomalies=len(anomalies),
+        n_propositions=len(all_propositions))
 
     report_path = report_dir / f"{date}_crew_audit_{slug}.md"
     report_path.write_text(report, encoding="utf-8")
 
+    # Propositions actionnables (relues par un humain) — toujours écrit, même vide.
+    propositions_path = report_dir / f"{date}_propositions_audit_{slug}.yaml"
+    propositions_path.write_text(
+        yaml.safe_dump(
+            {"propositions": [p.model_dump() for p in all_propositions]},
+            allow_unicode=True, sort_keys=False),
+        encoding="utf-8")
+
     summary = {
         "scope": scope, "date": date, "dry_run": simulate,
         "personnes_signalees": len(persons), "anomalies": len(anomalies),
+        "propositions": len(all_propositions),
         "lots": [{"index": b["index"], "personnes": b["n_persons"], "tokens": b["tokens"]}
                  for b in batch_results],
         "tokens_total": sum(b["tokens"] for b in batch_results),

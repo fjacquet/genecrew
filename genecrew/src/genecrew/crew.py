@@ -1,10 +1,13 @@
-"""The GeneCrew audit crew: two LLM agents over the deterministic findings.
+"""The GeneCrew audit crew: four LLM agents over the deterministic findings.
 
-Détective-Corrélateur — reads Gramps + Wikipedia, judges the anomalies, holds NO
-write tool. Chroniqueur-Greffier — the only writer, holds ONLY the append-only note/
-tag tools. Write isolation is structural (tool wiring), not a prompt promise.
+Chain (Process.sequential): Détective (judges the anomalies) → Historien (hunts external
+proof: INSEE deaths, Gallica, Wikidata, Wikipedia) → Standardisateur (turns verdict+proof
+into precise, structured propositions — output_pydantic, never free-text parsing) →
+Chroniqueur (the ONLY writer: append-only note/tag tools). Write isolation is structural
+(tool wiring), not a prompt promise.
 
-LLM: read from the `MODEL` env (OpenRouter/LiteLLM, e.g. openrouter/z-ai/glm-5.2).
+LLM: `build_llm(role)` reads MODEL_<ROLE> (e.g. MODEL_HISTORIEN) with fallback on MODEL
+(OpenRouter/LiteLLM, e.g. openrouter/z-ai/glm-5.2).
 """
 
 from __future__ import annotations
@@ -14,7 +17,13 @@ import os
 from crewai import LLM, Agent, Crew, Process, Task
 from crewai.agents.agent_builder.base_agent import BaseAgent
 from crewai.project import CrewBase, agent, crew, task
+from pydantic import BaseModel, Field
 
+from crewai_custom_tools.tools.genealogy.analysis.tools import (
+    GenealogyCheckPersonTool,
+    GenealogyFindDuplicatesTool,
+)
+from crewai_custom_tools.tools.genealogy.geo.tools import GenealogyResolvePlaceTool
 from crewai_custom_tools.tools.genealogy.gramps.read_tools import (
     GrampsGetObjectTool,
     GrampsSearchTool,
@@ -25,6 +34,9 @@ from crewai_custom_tools.tools.genealogy.gramps.write_tools import (
     GrampsCreateNoteTool,
     GrampsEnsureTagTool,
 )
+from crewai_custom_tools.tools.genealogy.matchid import InseeDecesSearchTool
+from crewai_custom_tools.tools.web.gallica import GallicaSearchTool
+from crewai_custom_tools.tools.web.wikidata import WikidataSparqlTool
 from crewai_custom_tools.tools.web.wikipedia import (
     WikipediaArticleTool,
     WikipediaSearchTool,
@@ -33,14 +45,38 @@ from crewai_custom_tools.tools.web.wikipedia import (
 DEFAULT_MODEL = "openrouter/z-ai/glm-5.2"
 
 
-def build_llm() -> LLM:
-    """Build the crew LLM from the MODEL env (OpenRouter via LiteLLM)."""
-    return LLM(model=os.environ.get("MODEL", DEFAULT_MODEL))
+def build_llm(role: str | None = None) -> LLM:
+    """Build an agent LLM: MODEL_<ROLE> env override, fallback on MODEL."""
+    default = os.environ.get("MODEL", DEFAULT_MODEL)
+    if role:
+        return LLM(model=os.environ.get(f"MODEL_{role.upper()}", default))
+    return LLM(model=default)
+
+
+class PropositionAudit(BaseModel):
+    """One precise, human-applicable correction proposal (confidence capped at 2/4)."""
+
+    type: str = Field(description="date | lieu | relation | nom | source | doublon | autre")
+    gramps_id: str
+    handle: str
+    personne: str
+    cible: str = Field(description="Objet Gramps visé (ex. 'événement E0607 de I0010').")
+    action: str = Field(description="Le changement exact à appliquer, en une phrase.")
+    preuve_url: str = Field(default="", description="URL/référence de la preuve, si preuve.")
+    preuve_detail: str = Field(default="", description="Ce que la preuve établit.")
+    priorite: str = Field(description="haute | moyenne | basse")
+    confiance: int = Field(ge=1, le=2, description="1 plausible, 2 preuve concordante.")
+
+
+class PropositionsLot(BaseModel):
+    """Structured output of the Standardisateur for one batch."""
+
+    propositions: list[PropositionAudit] = Field(default_factory=list)
 
 
 @CrewBase
 class Genecrew:
-    """GeneCrew audit crew: Détective (read + Wikipedia, no write) → Chroniqueur (write only)."""
+    """Audit chain: Détective → Historien → Standardisateur → Chroniqueur (only writer)."""
 
     agents: list[BaseAgent]
     tasks: list[Task]
@@ -60,7 +96,39 @@ class Genecrew:
                 WikipediaSearchTool(),
                 WikipediaArticleTool(),
             ],
-            llm=build_llm(),
+            llm=build_llm("detective"),
+            verbose=True,
+        )
+
+    @agent
+    def historien(self) -> Agent:
+        """Hunts external proof (free archives APIs); no write tool."""
+        return Agent(
+            config=self.agents_config["historien"],  # type: ignore[index]
+            tools=[
+                InseeDecesSearchTool(),
+                GallicaSearchTool(),
+                WikidataSparqlTool(),
+                WikipediaSearchTool(),
+                WikipediaArticleTool(),
+                GrampsGetObjectTool(),
+            ],
+            llm=build_llm("historien"),
+            verbose=True,
+        )
+
+    @agent
+    def standardisateur(self) -> Agent:
+        """Formulates precise propositions; analysis tools only, no write tool."""
+        return Agent(
+            config=self.agents_config["standardisateur"],  # type: ignore[index]
+            tools=[
+                GenealogyCheckPersonTool(),
+                GenealogyFindDuplicatesTool(),
+                GenealogyResolvePlaceTool(),
+                GrampsGetObjectTool(),
+            ],
+            llm=build_llm("standardisateur"),
             verbose=True,
         )
 
@@ -74,7 +142,7 @@ class Genecrew:
                 GrampsCreateNoteTool(),
                 GrampsAttachTool(),
             ],
-            llm=build_llm(),
+            llm=build_llm("chroniqueur"),
             verbose=True,
         )
 
@@ -83,12 +151,23 @@ class Genecrew:
         return Task(config=self.tasks_config["interpreter_anomalies"])  # type: ignore[index]
 
     @task
+    def rechercher_preuves(self) -> Task:
+        return Task(config=self.tasks_config["rechercher_preuves"])  # type: ignore[index]
+
+    @task
+    def formuler_propositions(self) -> Task:
+        return Task(
+            config=self.tasks_config["formuler_propositions"],  # type: ignore[index]
+            output_pydantic=PropositionsLot,
+        )
+
+    @task
     def rediger_annotations(self) -> Task:
         return Task(config=self.tasks_config["rediger_annotations"])  # type: ignore[index]
 
     @crew
     def crew(self) -> Crew:
-        """Creates the GeneCrew audit crew (sequential: Détective then Chroniqueur)."""
+        """Creates the audit chain (sequential, 4 agents)."""
         return Crew(
             agents=self.agents,  # created by the @agent decorators
             tasks=self.tasks,  # created by the @task decorators

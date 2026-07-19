@@ -77,13 +77,37 @@ def test_report_handles_no_anomalies():
 
 # --- run_crew_audit orchestration (offline) ---
 
+from genecrew.crew import PropositionAudit, PropositionsLot  # noqa: E402
+
+
 class _FakeUsage:
     total_tokens = 42
+
+
+class _FakeTaskOutput:
+    def __init__(self, pydantic=None):
+        self.pydantic = pydantic
+        self.json_dict = None
+
+
+_PROPOSITION = PropositionAudit(
+    type="date", gramps_id="I0300", handle="h300", personne="Odette Rippert",
+    cible="événement décès de I0300", action="corriger la date en 2021-12-19",
+    preuve_url="https://deces.matchid.io/id/PpcgyN6TffIa",
+    preuve_detail="fichier INSEE, acte 1511", priorite="haute", confiance=2)
 
 
 class _FakeOutput:
     raw = "verdict simulé"
     token_usage = _FakeUsage()
+
+    def __init__(self):
+        self.tasks_output = [
+            _FakeTaskOutput(),                                     # détective
+            _FakeTaskOutput(),                                     # historien
+            _FakeTaskOutput(PropositionsLot(propositions=[_PROPOSITION])),
+            _FakeTaskOutput(),                                     # chroniqueur
+        ]
 
 
 class _FakeCrew:
@@ -130,6 +154,50 @@ def test_run_crew_audit_batches_writes_report_and_pins_dry_run(tmp_path, monkeyp
     summary = yaml.safe_load((report.parent / report.name.replace(".md", ".yaml")).read_text())
     assert summary["personnes_signalees"] == 3 and summary["anomalies"] == 3
     assert summary["tokens_total"] == 84 and summary["dry_run"] is True
+    assert summary["propositions"] == 2                       # 1 par lot × 2 lots
+
+    # YAML des propositions actionnables écrit à côté du rapport (relu par l'humain)
+    props = yaml.safe_load(
+        (report.parent / "2026-07-19_propositions_audit_all.yaml").read_text())
+    assert len(props["propositions"]) == 2
+    p = props["propositions"][0]
+    assert p["gramps_id"] == "I0300" and p["confiance"] == 2
+    assert p["action"] == "corriger la date en 2021-12-19"
+    assert "Propositions actionnables : 2" in md
+
+
+class _UnstructuredOutput:
+    raw = "texte libre sans structure"
+    token_usage = _FakeUsage()
+    tasks_output = [_FakeTaskOutput(), _FakeTaskOutput()]      # aucun PropositionsLot
+
+
+class _UnstructuredCrew:
+    output_log_file = None
+
+    def kickoff(self, inputs):
+        return _UnstructuredOutput()
+
+
+class _UnstructuredFactory:
+    def crew(self):
+        return _UnstructuredCrew()
+
+
+def test_run_crew_audit_survives_missing_structured_output(tmp_path, monkeypatch):
+    monkeypatch.delenv("GENECREW_DRY_RUN", raising=False)
+    monkeypatch.setattr(crew_audit, "collect_audit_findings",
+                        lambda *a, **k: ([_anom("R1", "haute", "I1", "h1", "x")],
+                                         [], [_person("I1", "h1", "A B")]))
+    report = run_crew_audit(client=None, scope="all", output_dir=tmp_path,
+                            date="2026-07-19", dry_run=True,
+                            crew_factory=_UnstructuredFactory)
+    md = report.read_text(encoding="utf-8")
+    assert "Propositions actionnables : 0" in md
+    assert "Sortie structurée du Standardisateur absente" in md
+    props = yaml.safe_load(
+        (report.parent / "2026-07-19_propositions_audit_all.yaml").read_text())
+    assert props["propositions"] == []                         # YAML écrit, vide
 
 
 def test_run_crew_audit_real_write_mode_leaves_switch_untouched(tmp_path, monkeypatch):

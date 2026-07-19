@@ -21,6 +21,47 @@ interpreter_anomalies:
     et le texte complet de la note.
   agent: detective
 
+rechercher_preuves:
+  description: >
+    À partir des verdicts du Détective, cherche des PREUVES externes — uniquement pour
+    les cas où une source accessible peut trancher : verdicts "anomalie" et personnes
+    signalées sans source dont les faits sont postérieurs à 1970 ou publiquement notoires.
+    Outils : insee_deces_search (décès français depuis 1970 — le réflexe pour confirmer
+    un décès du XXe siècle), gallica_search (presse et fonds numérisés BnF), wikidata_sparql,
+    Wikipédia, lecture Gramps pour recouper. Discipline stricte : au plus 4 requêtes par
+    personne ; ne cherche PAS pour les personnes anciennes sans état civil numérisé — dis
+    simplement "aucune source accessible".
+    Pour chaque personne, rends : gramps_id, handle et nom recopiés tels quels, puis soit
+    la ou les preuves trouvées (source, URL ou identifiant, ce qu'elle établit exactement,
+    degré de correspondance fort/moyen/faible sur nom+dates+lieux), soit "aucune preuve".
+    Une piste n'est jamais un fait : rapporte ce que dit la source, sans extrapoler.
+  expected_output: >
+    Une liste, une entrée par personne signalée : gramps_id, handle, nom, et les preuves
+    trouvées (source, référence/URL, ce qu'elle établit, degré de correspondance) ou la
+    mention explicite "aucune preuve" / "aucune source accessible".
+  agent: historien
+
+formuler_propositions:
+  description: >
+    À partir des verdicts du Détective et des preuves de l'Historien, formule les
+    propositions de correction PRÉCISES — seulement quand une action concrète se justifie.
+    Une proposition doit être applicable en une minute par un humain dans Gramps Web :
+    objet visé (identifiant Gramps), action exacte, preuve à l'appui, priorité, confiance.
+    Vérifie tes formulations si besoin avec genealogy_check_person (re-vérifier une
+    personne), genealogy_resolve_place (normaliser un lieu cité) ou gramps_get_object
+    (lire l'objet exact). Règles impératives :
+      - gramps_id, handle et personne recopiés tels quels depuis les verdicts ;
+      - type parmi : date, lieu, relation, nom, source, doublon, autre ;
+      - confiance = 1 (plausible) ou 2 (preuve concordante) — JAMAIS plus : seul
+        l'humain monte au-dessus ;
+      - pas d'action évidente → pas de proposition (pas de remplissage) ;
+      - priorite : haute | moyenne | basse.
+  expected_output: >
+    La liste structurée des propositions (champs : type, gramps_id, handle, personne,
+    cible, action, preuve_url, preuve_detail, priorite, confiance). Liste vide si aucune
+    action concrète ne se justifie.
+  agent: standardisateur
+
 rediger_annotations:
   description: >
     À partir des verdicts du Détective, consigne chaque personne signalée dans Gramps,
