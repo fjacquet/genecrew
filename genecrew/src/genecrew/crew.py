@@ -17,7 +17,6 @@ import os
 from crewai import LLM, Agent, Crew, Process, Task
 from crewai.agents.agent_builder.base_agent import BaseAgent
 from crewai.project import CrewBase, agent, crew, task
-from pydantic import BaseModel, Field
 
 from crewai_custom_tools.tools.genealogy.analysis.tools import (
     GenealogyCheckPersonTool,
@@ -41,6 +40,8 @@ from crewai_custom_tools.tools.web.wikipedia import (
     WikipediaArticleTool,
     WikipediaSearchTool,
 )
+
+from genecrew.propositions import PropositionAudit, PropositionsLot  # noqa: F401 — re-export
 
 DEFAULT_MODEL = "openrouter/z-ai/glm-5.2"
 
@@ -67,27 +68,6 @@ def build_llm(role: str | None = None) -> LLM:
     # every tool schema, which Mistral's API rejects (400 "Invalid structured output
     # syntax"). The LiteLLM path builds plain tool schemas that every provider accepts.
     return LLM(model=model, is_litellm=True, **kwargs)
-
-
-class PropositionAudit(BaseModel):
-    """One precise, human-applicable correction proposal (confidence capped at 2/4)."""
-
-    type: str = Field(description="date | lieu | relation | nom | source | doublon | autre")
-    gramps_id: str
-    handle: str
-    personne: str
-    cible: str = Field(description="Objet Gramps visé (ex. 'événement E0607 de I0010').")
-    action: str = Field(description="Le changement exact à appliquer, en une phrase.")
-    preuve_url: str = Field(default="", description="URL/référence de la preuve, si preuve.")
-    preuve_detail: str = Field(default="", description="Ce que la preuve établit.")
-    priorite: str = Field(description="haute | moyenne | basse")
-    confiance: int = Field(ge=1, le=2, description="1 plausible, 2 preuve concordante.")
-
-
-class PropositionsLot(BaseModel):
-    """Structured output of the Standardisateur for one batch."""
-
-    propositions: list[PropositionAudit] = Field(default_factory=list)
 
 
 @CrewBase

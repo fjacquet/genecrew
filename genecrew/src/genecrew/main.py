@@ -257,6 +257,24 @@ def lieux_merge_cmd(args) -> None:
     print(f"Rapport : {report}")
 
 
+def deces_cmd(args) -> None:
+    """Deterministic INSEE/MatchID death enrichment (read-only); print report paths."""
+    from pathlib import Path
+
+    from crewai_custom_tools.tools.genealogy.gramps.client import get_client
+
+    from genecrew.deces import run_deces
+
+    client = get_client()
+    output_dir = Path(os.environ.get("GENECREW_OUTPUT_DIR", "output"))
+    date = args.date or __import__("datetime").date.today().isoformat()
+    report, proposals = run_deces(client, args.scope, output_dir, date=date,
+                                  min_score=args.min_score, batch_size=args.batch_size,
+                                  limit=args.limit)
+    print(f"Rapport : {report}")
+    print(f"Propositions : {proposals}")
+
+
 def crew_audit_cmd(args) -> None:
     """Run the two-agent audit crew over a scope; print the report path."""
     from pathlib import Path
@@ -355,6 +373,16 @@ def main() -> None:
     lm_p.add_argument("--dry-run", action="store_true", help="simuler sans fusionner")
     lm_p.add_argument("--date", default=None, help="date du rapport (défaut : aujourd'hui)")
 
+    dc_p = sub.add_parser("deces",
+                          help="Enrichissement décès INSEE/MatchID, déterministe (lecture seule)")
+    dc_p.add_argument("--scope", default="all", help="all | person:ID")
+    dc_p.add_argument("--limit", type=int, default=None, help="limiter à N personnes")
+    dc_p.add_argument("--batch-size", type=int,
+                      default=int(os.environ.get("GENECREW_BATCH_SIZE", "25")))
+    dc_p.add_argument("--min-score", type=float, default=0.90,
+                      help="seuil du score déterministe (défaut 0.90)")
+    dc_p.add_argument("--date", default=None, help="date du rapport (défaut : aujourd'hui)")
+
     ca_p = sub.add_parser("crew-audit",
                           help="Audit interprété par la crew LLM (Détective → Chroniqueur)")
     ca_p.add_argument("--scope", default="all", help="all | person:ID")
@@ -385,6 +413,7 @@ def main() -> None:
         "lieux-apply": lambda: lieux_apply_cmd(args),
         "lieux-merge": lambda: lieux_merge_cmd(args),
         "crew-audit": lambda: crew_audit_cmd(args),
+        "deces": lambda: deces_cmd(args),
     }
     try:
         dispatch[args.command]()
