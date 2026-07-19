@@ -16,7 +16,7 @@ from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient
 from crewai_custom_tools.tools.genealogy.models.domain import Proposition
 
 from genecrew.batching import iter_people_batches
-from genecrew.facts import FactsFetcher
+from crewai_custom_tools.tools.genealogy.gramps.facts import FactsFetcher
 
 _PRIORITE_ORDER = {"haute": 0, "moyenne": 1}
 

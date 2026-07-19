@@ -9,7 +9,7 @@ from crewai_custom_tools.tools.genealogy.analysis.rules import check_family, che
 from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient
 
 from genecrew.batching import iter_people_batches
-from genecrew.facts import FactsFetcher
+from crewai_custom_tools.tools.genealogy.gramps.facts import FactsFetcher
 from genecrew.report import render_report
 
 

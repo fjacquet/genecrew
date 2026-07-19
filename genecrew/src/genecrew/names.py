@@ -21,7 +21,7 @@ from crewai_custom_tools.tools.genealogy.standardize.names import (
 )
 
 from genecrew.batching import iter_people_batches
-from genecrew.facts import FactsFetcher
+from crewai_custom_tools.tools.genealogy.gramps.facts import FactsFetcher
 
 
 def _link(gramps_id: str, base_url: str) -> str:

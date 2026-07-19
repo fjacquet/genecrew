@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient
 
-from genecrew.facts import FactsFetcher
+from crewai_custom_tools.tools.genealogy.gramps.facts import FactsFetcher
 from genecrew.scope import parse_scope, resolve_handles
 
 
