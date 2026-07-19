@@ -117,10 +117,10 @@ sera l'objet de la Phase 1b (ADR 0006, `docs/adr/0006-audit-deterministe-personf
 Depuis la racine du dépôt `genecrew` :
 
 ```bash
-uv run genecrew audit --scope all --limit 200
+uv run genecrew propose audit --scope all --limit 200
 ```
 
-Options de la sous-commande `audit` :
+Options de la sous-commande `propose audit` :
 
 | Option | Rôle |
 | --- | --- |
@@ -172,7 +172,7 @@ Livrable : premier sous-système du Standardisateur (`docs/document-de-travail.m
 normalisation de la **casse** des noms importés depuis GEDCOM. Voir la spec complète
 (`docs/superpowers/specs/2026-07-18-standardisateur-noms-design.md`) et la décision d'écriture
 (`docs/adr/0007-standardisation-casse-invariant.md`). C'est le **premier composant du dépôt qui
-écrit réellement dans Gramps** — jusqu'ici, `genecrew stats` et `genecrew audit` étaient tous
+écrit réellement dans Gramps** — jusqu'ici, `genecrew stats` et `genecrew propose audit` étaient tous
 deux en lecture seule.
 
 ### Prérequis
@@ -188,10 +188,10 @@ deux en lecture seule.
 Depuis la racine du dépôt `genecrew` :
 
 ```bash
-uv run genecrew names --scope all --limit 200 --dry-run
+uv run genecrew apply case --scope all --limit 200 --dry-run
 ```
 
-Options de la sous-commande `names` :
+Options de la sous-commande `apply case` :
 
 | Option | Rôle |
 | --- | --- |
@@ -269,7 +269,7 @@ contradictions genre/prénom, à partir d'un dictionnaire prénom→sexe INSEE
 propositions pour revue humaine.
 
 ```bash
-uv run genecrew gender --scope all --limit 200
+uv run genecrew propose gender --scope all --limit 200
 ```
 
 Produit dans `output/inference/` : un rapport Markdown (`*_genres_*.md`) et un
@@ -290,9 +290,9 @@ donnée cœur** (ADR 0009) — réversible via l'historique des transactions Gra
 
 ```bash
 # 1) Simuler d'abord (aucune écriture) et relire le rapport :
-uv run genecrew gender-apply --scope all --dry-run
+uv run genecrew apply gender --scope all --dry-run
 # 2) Écrire pour de vrai (nécessite GENECREW_DRY_RUN=false dans .env) :
-uv run genecrew gender-apply --scope all
+uv run genecrew apply gender --scope all
 ```
 
 Rapport dans `output/inference/*_genres_appliques_*.md` : genres écrits, cas sous le seuil, erreurs.
@@ -302,13 +302,13 @@ Le global `GENECREW_DRY_RUN=true` (défaut du `.env`) force la simulation quel q
 
 ## Tout appliquer d'un coup
 
-`apply-all` enchaîne les corrections automatiques en un passage : d'abord la **casse** des noms
+`apply all` enchaîne les corrections automatiques en un passage : d'abord la **casse** des noms
 (forme), puis les **genres** à haute confiance (fait, ADR 0009). Mêmes garde-fous que les
 commandes séparées (dry-run recommandé d'abord ; `GENECREW_DRY_RUN=true` force la simulation).
 
 ```bash
-uv run genecrew apply-all --scope all --dry-run   # simuler
-uv run genecrew apply-all --scope all             # écrire (si GENECREW_DRY_RUN=false)
+uv run genecrew apply all --scope all --dry-run   # simuler
+uv run genecrew apply all --scope all             # écrire (si GENECREW_DRY_RUN=false)
 ```
 
 Affiche les chemins des rapports (casse, noms à vérifier, genres appliqués) dans `output/`.
@@ -326,29 +326,29 @@ la règle, 0010 en relâche l'exception bornée aux lieux — dans l'esprit de l
 
 ```bash
 # 1) Lecture seule — propositions à relire :
-uv run genecrew lieux --scope all --min-score 0.90
+uv run genecrew propose places --scope all --min-score 0.90
 
 # 2) Écriture — hiérarchie + GPS au-dessus du score (lancer d'abord en --dry-run) :
-uv run genecrew lieux-apply --dry-run --min-score 0.90
-uv run genecrew lieux-apply --min-score 0.90            # si GENECREW_DRY_RUN=false
+uv run genecrew apply places --dry-run --min-score 0.90
+uv run genecrew apply places --min-score 0.90            # si GENECREW_DRY_RUN=false
 
 # 3) Fusions de feuilles — jamais automatique, exécutées seulement après revue humaine :
-uv run genecrew lieux-merge --merges <fusions.yaml> --dry-run
-uv run genecrew lieux-merge --merges <fusions.yaml>
+uv run genecrew merge places --yaml <fusions.yaml> --dry-run
+uv run genecrew merge places --yaml <fusions.yaml>
 ```
 
 Fichiers produits sous `output/lieux/` :
 
-- `genecrew lieux` : `<AAAA-MM-JJ>_lieux_all.md` (rapport, groupé par action) et
+- `genecrew propose places` : `<AAAA-MM-JJ>_lieux_all.md` (rapport, groupé par action) et
   `<AAAA-MM-JJ>_propositions_lieux_all.yaml` (propositions, pour revue) — **aucune écriture**.
-- `genecrew lieux-apply` : `<AAAA-MM-JJ>_lieux_appliques_all.md` (hiérarchie/GPS écrits ou
+- `genecrew apply places` : `<AAAA-MM-JJ>_lieux_appliques_all.md` (hiérarchie/GPS écrits ou
   simulés, cas sous le seuil, erreurs) et `<AAAA-MM-JJ>_fusions_lieux_all.yaml` — les **fusions
-  proposées** (lieux en doublon résolus vers le même canonique), à relire avant `lieux-merge`.
-- `genecrew lieux-merge` : `<AAAA-MM-JJ>_fusions_appliquees_<stem-du-yaml>.md` — le suffixe
+  proposées** (lieux en doublon résolus vers le même canonique), à relire avant `merge places`.
+- `genecrew merge places` : `<AAAA-MM-JJ>_fusions_appliquees_<stem-du-yaml>.md` — le suffixe
   reprend le nom du fichier de fusions passé en entrée, pour ne pas écraser le rapport d'un
   autre run le même jour.
 
-Le double interrupteur dry-run s'applique comme pour `names`/`gender-apply` : `--dry-run` (par
+Le double interrupteur dry-run s'applique comme pour `apply case`/`apply gender` : `--dry-run` (par
 appel) **et** `GENECREW_DRY_RUN` (global, `.env`) — si l'un des deux est actif, l'écriture est
 simulée ; le défaut (`GENECREW_DRY_RUN=true`) force donc la simulation tant qu'il n'est pas mis à
 `false`. Rappels d'invariants : les coordonnées GPS sont toujours en **WGS84** décimales

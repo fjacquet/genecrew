@@ -19,11 +19,12 @@ When making changes, work inside `genecrew/src/genecrew/` for crew logic.
 - `crew.py` — the real audit crew (`@CrewBase Genecrew`, `Process.sequential`, 4 agents): `detective` (judges) → `historien` (external proof: MatchID/Gallica/Wikidata) → `standardisateur` (precise propositions, strict JSON validated by `PropositionsLot`, confidence ≤ 2) → `chroniqueur` (the **only** writer, append-only note/tag tools). Write isolation is structural. LLM per role via `build_llm(role)` (`MODEL_<ROLE>` env, fallback `MODEL`), **always `is_litellm=True`** — CrewAI's native provider hardcodes `"strict": true` on tool schemas, which Mistral rejects.
 - `config/agents.yaml` — `detective`/`chroniqueur` personas (French, static).
 - `config/tasks/audit.yaml` — `interpreter_anomalies` (Détective) → `rediger_annotations` (Chroniqueur), templated with `{anomalies_block}` and `{date}`. (`crew.py` sets `tasks_config` to this path; the stock `config/tasks.yaml` was deleted.)
-- `main.py` — the argparse CLI dispatcher (all `genecrew <cmd>` subcommands) **and** the CrewAI console entry points (`run`/`train`/`test`/`replay`). `run` delegates to a bounded dry-run `crew-audit`. Sets up durable logging around every command.
+- `cli.py` — `build_parser()`, the CLI's verb grammar: `stats`, `propose {audit|places|deaths|military|gender}`, `apply {case|gender|places|citations|all}`, `merge places`, `enrich wiki`, `import place`, `crew audit`. Pure — reads the environment only for flag defaults. See `docs/adr/0012-cli-grammaire-verbes.md`.
+- `main.py` — the CLI dispatcher (`main()` calls `cli.build_parser()`, then routes on the `(command, target)` pair) **and** the CrewAI console entry points (`run`/`train`/`test`/`replay`). `run` delegates to a bounded dry-run `crew audit`. Sets up durable logging around every command.
 - `tools/custom_tool.py` — placeholder `BaseTool` subclass template for adding custom CrewAI tools.
 - `knowledge/user_preference.txt` — static knowledge file (currently placeholder content) available to the crew via CrewAI's knowledge sources.
 
-**Current state**: two layers ship together. (1) A deterministic argparse CLI in `main.py`: `stats` (Phase 0), `audit` (read-only R1–R10/D1–D3), `names` (casing), `gender`/`gender-apply` (ADR 0009), `apply-all`, and `lieux`/`lieux-apply`/`lieux-merge` (place standardizer). (2) The **real LLM crew** (`crew-audit`): the 2-agent Détective→Chroniqueur audit workflow that interprets the deterministic anomalies and writes **encadré** append-only note/tag annotations (marker `[genecrew:audit:<date>:detective]`), dry-run by default. Genealogy logic lives in the sibling `crewai_custom_tools`; genecrew holds orchestration/CLI only.
+**Current state**: two layers ship together. (1) A deterministic argparse CLI in `main.py`, exposed through the 7-verb grammar above: `stats` (Phase 0), `propose audit` (read-only R1–R10/D1–D3), `apply case` (casing), `propose gender`/`apply gender` (ADR 0009), `apply all`, and `propose places`/`apply places`/`merge places` (place standardizer). (2) The **real LLM crew** (`crew audit`): the 2-agent Détective→Chroniqueur audit workflow that interprets the deterministic anomalies and writes **encadré** append-only note/tag annotations (marker `[genecrew:audit:<date>:detective]`), dry-run by default. Genealogy logic lives in the sibling `crewai_custom_tools`; genecrew holds orchestration/CLI only.
 
 ## Where the genealogy code lives
 
@@ -75,19 +76,19 @@ Run everything **from the repo root** (single project, single `.venv`).
 uv sync
 
 # The LLM audit crew (Détective → Chroniqueur), dry-run by default:
-uv run genecrew crew-audit --scope all --limit 25 --dry-run   # ~23k tokens/personne — borne le coût avec --limit
-crewai run                                        # = bounded dry-run crew-audit (dev convenience)
+uv run genecrew crew audit --scope all --limit 25 --dry-run   # ~23k tokens/personne — borne le coût avec --limit
+crewai run                                        # = bounded dry-run crew audit (dev convenience)
 uv run run_crew                                   # equivalent direct entry point
-# `uv run genecrew <cmd>` is the GeneCrew CLI (argparse), NOT the crew itself:
+# `uv run genecrew <verbe> <cible>` is the GeneCrew CLI (argparse), NOT the crew itself:
 uv run genecrew stats                             # tree stats (Phase 0)
-uv run genecrew audit --scope all --limit 200     # deterministic audit, read-only (Phase 1a)
-uv run genecrew names --dry-run                   # name-casing standardizer (first writer)
-uv run genecrew gender --scope all --limit 200    # inférence de genre, lecture seule (propositions)
-uv run genecrew gender-apply --dry-run            # écrit les corrections de genre (fait, ADR 0009)
-uv run genecrew apply-all --dry-run               # casse puis genre en un passage
-uv run genecrew lieux --scope all                 # propositions de lieux (lecture seule)
-uv run genecrew lieux-apply --dry-run             # écrit hiérarchie + GPS au-dessus du score
-uv run genecrew lieux-merge --merges <fusions.yaml>  # exécute les fusions relues (jamais auto)
+uv run genecrew propose audit --scope all --limit 200     # deterministic audit, read-only (Phase 1a)
+uv run genecrew apply case --dry-run              # name-casing standardizer (first writer)
+uv run genecrew propose gender --scope all --limit 200    # inférence de genre, lecture seule (propositions)
+uv run genecrew apply gender --dry-run            # écrit les corrections de genre (fait, ADR 0009)
+uv run genecrew apply all --dry-run               # casse puis genre en un passage
+uv run genecrew propose places --scope all        # propositions de lieux (lecture seule)
+uv run genecrew apply places --dry-run            # écrit hiérarchie + GPS au-dessus du score
+uv run genecrew merge places --yaml <fusions.yaml>  # exécute les fusions relues (jamais auto)
 
 # Train / replay / test the crew
 uv run train <n_iterations> <filename>
@@ -109,13 +110,19 @@ Tests live in `genecrew/tests/` — run `uv run python -m pytest genecrew/tests/
 
 ## Gotchas
 
+- **Grammaire de la CLI** : sept verbes — `stats`, `propose`, `apply`, `merge`, `enrich`,
+  `import`, `crew` — qui suivent le cycle proposer → relire → appliquer. Ajouter une base
+  de données ajoute une feuille sous `propose`, jamais un verbe ; le YAML relu qui en sort
+  passe par `apply citations`, qui existe déjà. `stats` mis à part, les 15 autres anciens
+  noms plats (`lieux-apply`, `deces-apply`, …) ont été supprimés sans alias — voir la table
+  de correspondance dans `docs/adr/0012-cli-grammaire-verbes.md`.
 - **Bash `cd` persists within one compound command**: a single `cd repoA && git … && cd repoB && git …` runs BOTH gits in repoA. Do per-repo git operations in separate tool calls (default cwd is the repo root).
 - **Efficient people fetch**: `GET /api/people/?profile=all&extend=event_ref_list` returns human strings + citation counts (`profile`) AND raw dates with `sortval` (`extended.events`) in one call per page.
 - **Dates**: compare via the integer `sortval` (Julian day; `0` = unknown/unsortable). Undated events come back as `dateval=[0,0,0,False]`, `year=0`, `sortval=0` (not empty). Text-only dates have `modifier==6`.
 - **Gender int**: `0=F, 1=M, 2=U`.
-- **Form vs fact**: casing = *form* → direct write allowed, guarded by a case-only invariant that refuses any non-casing change. A *fact* stays a proposal for human review — **except gender**, now written at high confidence by `gender-apply` (ratio ≥ 0.98 on the INSEE+OFS table, reversible; ADR 0009 relaxes ADR 0008). Other facts (dates, relationships, name spelling) still need a source → proposal.
+- **Form vs fact**: casing = *form* → direct write allowed, guarded by a case-only invariant that refuses any non-casing change. A *fact* stays a proposal for human review — **except gender**, now written at high confidence by `apply gender` (ratio ≥ 0.98 on the INSEE+OFS table, reversible; ADR 0009 relaxes ADR 0008). Other facts (dates, relationships, name spelling) still need a source → proposal.
 - **Write safety switch**: writes are gated by the per-command `--dry-run` flag OR the global `GENECREW_DRY_RUN` env var. The env can only *force* simulation; the **default when the var is absent is to simulate** (safe — via `effective_dry_run` in `crewai_custom_tools` 0.12.0). Set `GENECREW_DRY_RUN=false` in `.env` to write for real. The report's `Mode:` line reflects the **effective** dry-run (env included), so it never claims writes that didn't happen.
-- Full-tree `audit`/`names` runs are slow (minutes: per-family N+1 fetch + O(n²) duplicate check); iterate with `--limit`.
-- **Crew write isolation & cost**: only the `chroniqueur` agent has write tools (append-only note/tag); the `detective` cannot write. A `crew-audit` run costs ~23k LLM tokens/person (heavy read correlation) — always bound full-tree runs with `--limit`.
-- **Durable logs**: every `genecrew <cmd>` appends to `output/logs/<date>_genecrew.log` (START/DONE/FAILED + the `genecrew`/`crewai_custom_tools` namespaces); `crew-audit` also writes a structured agent/tool trace to `output/crew_audit/<date>_crew_audit_<scope>.log.txt` (CrewAI only accepts `.txt`/`.json`), plus its `.md`/`.yaml` report and the human-review `<date>_propositions_audit_<scope>.yaml`.
+- Full-tree `propose audit`/`apply case` runs are slow (minutes: per-family N+1 fetch + O(n²) duplicate check); iterate with `--limit`.
+- **Crew write isolation & cost**: only the `chroniqueur` agent has write tools (append-only note/tag); the `detective` cannot write. A `crew audit` run costs ~23k LLM tokens/person (heavy read correlation) — always bound full-tree runs with `--limit`.
+- **Durable logs**: every `genecrew <verbe> <cible>` appends to `output/logs/<date>_genecrew.log` (START/DONE/FAILED + the `genecrew`/`crewai_custom_tools` namespaces); `crew audit` also writes a structured agent/tool trace to `output/crew_audit/<date>_crew_audit_<scope>.log.txt` (CrewAI only accepts `.txt`/`.json`), plus its `.md`/`.yaml` report and the human-review `<date>_propositions_audit_<scope>.yaml`.
 - **GPS des lieux**: coordonnées **WGS84** décimales ; GeoJSON = `[lon, lat]` (ne pas inverser) ; swisstopo : lire `lat`/`lon`, **jamais `x`/`y`** (grille suisse LV95). Le géocodage passe par des résolveurs `geo/` routés par pays (`crewai_custom_tools`).

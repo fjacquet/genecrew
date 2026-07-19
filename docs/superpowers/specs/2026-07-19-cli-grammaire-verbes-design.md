@@ -105,7 +105,8 @@ la seule qui existe. On met le complément dès maintenant : un futur `merge peo
 
 ### Coupure nette, pas d'alias
 
-Les 16 anciens noms disparaissent. `genecrew lieux-apply` produit une erreur argparse.
+`stats` mis à part, les 15 autres anciens noms disparaissent. `genecrew lieux-apply`
+produit une erreur argparse.
 
 Conséquence assumée : toute commande copiée depuis un ancien rapport ou une ancienne note
 échoue. Le risque reste faible — l'échec est bruyant, immédiat, et **n'écrit rien**. Le
@@ -151,7 +152,7 @@ qui a été fait à sa date ; c'est l'ADR 0012 qui fait le pont, pas la réécri
   Chacun ne faisait qu'un `uv run` complet pour vérifier la présence d'un flag dans
   `--help` ; ils deviennent des tests de parsing appelant `build_parser()` directement —
   plus rapides, et ils testent la construction du parseur, pas l'installation de `uv`.
-- **Un test nouveau** vérifie que chacun des 16 anciens noms échoue. La coupure nette
+- **Un test nouveau** vérifie que chacun des 15 anciens noms échoue. La coupure nette
   devient un comportement testé, pas un effet de bord.
 - Un `test_cli_dispatch.py` vérifie que chaque feuille route vers la bonne fonction `*_cmd`.
 - La fusion `deces-apply`/`militaires-apply` **est déjà couverte** par

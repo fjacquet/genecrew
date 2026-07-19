@@ -45,11 +45,11 @@ Tout se lance **depuis la racine** :
 
 ```bash
 uv run genecrew stats                             # tableau de bord de l'arbre (Phase 0)
-uv run genecrew audit --scope all --limit 200     # audit déterministe, lecture seule (R1–R10, D1–D3)
-uv run genecrew names --dry-run                   # standardiser la casse des noms (écriture encadrée)
-uv run genecrew gender --scope all --limit 200    # inférer le genre — propositions, lecture seule
-uv run genecrew gender-apply --dry-run            # écrire les corrections de genre à haute confiance
-uv run genecrew apply-all --dry-run               # casse puis genre, en un passage
+uv run genecrew propose audit --scope all --limit 200     # audit déterministe, lecture seule (R1–R10, D1–D3)
+uv run genecrew apply case --dry-run              # standardiser la casse des noms (écriture encadrée)
+uv run genecrew propose gender --scope all --limit 200    # inférer le genre — propositions, lecture seule
+uv run genecrew apply gender --dry-run            # écrire les corrections de genre à haute confiance
+uv run genecrew apply all --dry-run               # casse puis genre, en un passage
 ```
 
 **Sécurité des écritures** : toute écriture est encadrée par le flag `--dry-run` **et** l'interrupteur
@@ -61,7 +61,7 @@ global `GENECREW_DRY_RUN` (dans `.env`) — tant qu'il vaut `true`, tout est **s
 
 - [`docs/USER_GUIDE.md`](docs/USER_GUIDE.md) — guide d'utilisation, phase par phase.
 - [`docs/document-de-travail.md`](docs/document-de-travail.md) — spécification / document de travail.
-- [`docs/adr/`](docs/adr/) — décisions d'architecture (ADR 0001–0009).
+- [`docs/adr/`](docs/adr/) — décisions d'architecture (ADR 0001–0012).
 - [`CHANGELOG.md`](CHANGELOG.md) — journal des livraisons · [`docs/BACKLOG.md`](docs/BACKLOG.md) — idées différées.
 
 ## Tests
