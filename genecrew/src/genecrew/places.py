@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import httpx
 import yaml
 
 from crewai_custom_tools.tools.genealogy.geo.registry import (
@@ -23,14 +24,23 @@ def _link(gramps_id: str, base_url: str) -> str:
 
 
 def build_proposition(place: dict, min_score: float) -> PlaceProposition:
-    """Parse + resolve one raw Gramps place into a PlaceProposition."""
+    """Parse + resolve one raw Gramps place into a PlaceProposition. A geocoder HTTP error
+    (503, timeout, connexion…) sur un lieu est capturé : le lieu devient indécidable et le
+    run se poursuit — un seul géocodage défaillant ne doit pas faire tomber tout le lot."""
     original = (place.get("name") or {}).get("value", "")
     parsed = parse_pname(original)
-    resolved = resolve_place(parsed)
+    error: str | None = None
+    try:
+        resolved = resolve_place(parsed)
+    except httpx.HTTPError as exc:
+        resolved, error = None, type(exc).__name__
     action = decide_action(resolved, min_score)
     if resolved is not None:
         preuve = f"{resolved.source} | {resolved.query} | score {resolved.score:.3f}"
         priorite = "haute" if resolved.score >= 1.0 else "moyenne"
+    elif error is not None:
+        preuve = f"non résolu — erreur de résolution ({error})"
+        priorite = "basse"
     else:
         preuve = f"non résolu (pays={parsed.country or '?'}, décalé={parsed.shifted})"
         priorite = "basse"
