@@ -1,0 +1,43 @@
+interpreter_anomalies:
+  description: >
+    Voici les anomalies déterministes détectées sur un lot de personnes de l'arbre
+    généalogique (date du run : {date}). Chaque bloc donne le gramps_id, le handle
+    interne et le nom de la personne, puis la liste de ses anomalies (règle, gravité,
+    message) :
+
+    {anomalies_block}
+
+    Pour CHAQUE personne, analyse ses anomalies. Recoupe si c'est utile via les outils
+    de lecture Gramps (chronologie de la personne, objets liés) et Wikipédia (contexte
+    historique d'une date, d'un lieu ou d'un événement). Puis produis un verdict :
+      - gramps_id, handle et nom (recopie-les tels quels, sans les altérer) ;
+      - verdict : "anomalie" (erreur ferme à corriger) ou "a_verifier" (doute à lever) ;
+      - priorité : haute | moyenne | basse ;
+      - note : un paragraphe en français qui explique le problème et la piste à suivre.
+    N'invente aucun fait. Tu n'as aucun outil d'écriture : tu ne fais que lire et juger.
+  expected_output: >
+    Une liste, une entrée par personne signalée, chacune indiquant explicitement :
+    gramps_id, handle, nom, verdict (anomalie|a_verifier), priorité (haute|moyenne|basse)
+    et le texte complet de la note.
+  agent: detective
+
+rediger_annotations:
+  description: >
+    À partir des verdicts du Détective, consigne chaque personne signalée dans Gramps,
+    de façon strictement additive. Pour chaque personne, dans cet ordre :
+      1. Assure-toi que le tag qualité existe avec gramps_ensure_tag : le nom du tag est
+         "ia-anomalie" si le verdict est "anomalie", "ia-a-verifier" si le verdict est
+         "a_verifier". Récupère le handle du tag renvoyé.
+      2. Crée la note avec gramps_create_note : le texte DOIT commencer par le marqueur
+         exact "[genecrew:audit:{date}:detective] " suivi du texte de la note rédigé par
+         le Détective. Récupère le handle de la note renvoyé.
+      3. Attache la note ET le tag à la personne avec gramps_attach, en passant le handle
+         de la personne (celui fourni par le Détective), le handle de la note et le handle
+         du tag.
+    Ne touche à rien d'autre : ni nom, ni date, ni lien. Si le mode simulation est actif,
+    les outils renvoient des handles factices et n'appliquent aucune écriture — reprends
+    alors ces handles factices dans les étapes suivantes.
+  expected_output: >
+    Un récapitulatif, une entrée par personne : gramps_id, le tag posé (ia-anomalie ou
+    ia-a-verifier), un extrait de la note créée, et si l'écriture a été réelle ou simulée.
+  agent: chroniqueur

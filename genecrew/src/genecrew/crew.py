@@ -1,64 +1,97 @@
-from crewai import Agent, Crew, Process, Task
-from crewai.project import CrewBase, agent, crew, task
+"""The GeneCrew audit crew: two LLM agents over the deterministic findings.
+
+Détective-Corrélateur — reads Gramps + Wikipedia, judges the anomalies, holds NO
+write tool. Chroniqueur-Greffier — the only writer, holds ONLY the append-only note/
+tag tools. Write isolation is structural (tool wiring), not a prompt promise.
+
+LLM: read from the `MODEL` env (OpenRouter/LiteLLM, e.g. openrouter/z-ai/glm-5.2).
+"""
+
+from __future__ import annotations
+
+import os
+
+from crewai import LLM, Agent, Crew, Process, Task
 from crewai.agents.agent_builder.base_agent import BaseAgent
-from typing import List
-# If you want to run a snippet of code before or after the crew starts,
-# you can use the @before_kickoff and @after_kickoff decorators
-# https://docs.crewai.com/concepts/crews#example-crew-class-with-decorators
+from crewai.project import CrewBase, agent, crew, task
+
+from crewai_custom_tools.tools.genealogy.gramps.read_tools import (
+    GrampsGetObjectTool,
+    GrampsSearchTool,
+    GrampsTimelineTool,
+)
+from crewai_custom_tools.tools.genealogy.gramps.write_tools import (
+    GrampsAttachTool,
+    GrampsCreateNoteTool,
+    GrampsEnsureTagTool,
+)
+from crewai_custom_tools.tools.web.wikipedia import (
+    WikipediaArticleTool,
+    WikipediaSearchTool,
+)
+
+DEFAULT_MODEL = "openrouter/z-ai/glm-5.2"
+
+
+def build_llm() -> LLM:
+    """Build the crew LLM from the MODEL env (OpenRouter via LiteLLM)."""
+    return LLM(model=os.environ.get("MODEL", DEFAULT_MODEL))
+
 
 @CrewBase
-class Genecrew():
-    """Genecrew crew"""
+class Genecrew:
+    """GeneCrew audit crew: Détective (read + Wikipedia, no write) → Chroniqueur (write only)."""
 
-    agents: List[BaseAgent]
-    tasks: List[Task]
+    agents: list[BaseAgent]
+    tasks: list[Task]
 
-    # Learn more about YAML configuration files here:
-    # Agents: https://docs.crewai.com/concepts/agents#yaml-configuration-recommended
-    # Tasks: https://docs.crewai.com/concepts/tasks#yaml-configuration-recommended
-    
-    # If you would like to add tools to your agents, you can learn more about it here:
-    # https://docs.crewai.com/concepts/agents#agent-tools
-    @agent
-    def researcher(self) -> Agent:
-        return Agent(
-            config=self.agents_config['researcher'], # type: ignore[index]
-            verbose=True
-        )
+    agents_config = "config/agents.yaml"
+    tasks_config = "config/tasks/audit.yaml"
 
     @agent
-    def reporting_analyst(self) -> Agent:
+    def detective(self) -> Agent:
+        """Reads and correlates; deliberately has no write tool."""
         return Agent(
-            config=self.agents_config['reporting_analyst'], # type: ignore[index]
-            verbose=True
+            config=self.agents_config["detective"],  # type: ignore[index]
+            tools=[
+                GrampsGetObjectTool(),
+                GrampsTimelineTool(),
+                GrampsSearchTool(),
+                WikipediaSearchTool(),
+                WikipediaArticleTool(),
+            ],
+            llm=build_llm(),
+            verbose=True,
         )
 
-    # To learn more about structured task outputs,
-    # task dependencies, and task callbacks, check out the documentation:
-    # https://docs.crewai.com/concepts/tasks#overview-of-a-task
-    @task
-    def research_task(self) -> Task:
-        return Task(
-            config=self.tasks_config['research_task'], # type: ignore[index]
+    @agent
+    def chroniqueur(self) -> Agent:
+        """The only writer; holds only the append-only note/tag tools."""
+        return Agent(
+            config=self.agents_config["chroniqueur"],  # type: ignore[index]
+            tools=[
+                GrampsEnsureTagTool(),
+                GrampsCreateNoteTool(),
+                GrampsAttachTool(),
+            ],
+            llm=build_llm(),
+            verbose=True,
         )
 
     @task
-    def reporting_task(self) -> Task:
-        return Task(
-            config=self.tasks_config['reporting_task'], # type: ignore[index]
-            output_file='report.md'
-        )
+    def interpreter_anomalies(self) -> Task:
+        return Task(config=self.tasks_config["interpreter_anomalies"])  # type: ignore[index]
+
+    @task
+    def rediger_annotations(self) -> Task:
+        return Task(config=self.tasks_config["rediger_annotations"])  # type: ignore[index]
 
     @crew
     def crew(self) -> Crew:
-        """Creates the Genecrew crew"""
-        # To learn how to add knowledge sources to your crew, check out the documentation:
-        # https://docs.crewai.com/concepts/knowledge#what-is-knowledge
-
+        """Creates the GeneCrew audit crew (sequential: Détective then Chroniqueur)."""
         return Crew(
-            agents=self.agents, # Automatically created by the @agent decorator
-            tasks=self.tasks, # Automatically created by the @task decorator
+            agents=self.agents,  # created by the @agent decorators
+            tasks=self.tasks,  # created by the @task decorators
             process=Process.sequential,
             verbose=True,
-            # process=Process.hierarchical, # In case you wanna use that instead https://docs.crewai.com/how-to/Hierarchical/
         )
