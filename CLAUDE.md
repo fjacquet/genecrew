@@ -85,7 +85,7 @@ uv run genecrew propose audit --scope all --limit 200     # deterministic audit,
 uv run genecrew apply case --dry-run              # name-casing standardizer (first writer)
 uv run genecrew propose gender --scope all --limit 200    # inférence de genre, lecture seule (propositions)
 uv run genecrew apply gender --dry-run            # écrit les corrections de genre (fait, ADR 0009)
-uv run genecrew apply all --dry-run               # casse puis genre en un passage
+uv run genecrew apply all --dry-run               # casse, genre, lieux : écrit ; décès : proposition
 uv run genecrew propose places --scope all        # propositions de lieux (lecture seule)
 uv run genecrew apply places --dry-run            # écrit hiérarchie + GPS au-dessus du score
 uv run genecrew merge places --yaml <fusions.yaml>  # exécute les fusions relues (jamais auto)

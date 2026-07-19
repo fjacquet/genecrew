@@ -302,9 +302,12 @@ Le global `GENECREW_DRY_RUN=true` (défaut du `.env`) force la simulation quel q
 
 ## Tout appliquer d'un coup
 
-`apply all` enchaîne les corrections automatiques en un passage : d'abord la **casse** des noms
-(forme), puis les **genres** à haute confiance (fait, ADR 0009). Mêmes garde-fous que les
-commandes séparées (dry-run recommandé d'abord ; `GENECREW_DRY_RUN=true` force la simulation).
+`apply all` enchaîne les corrections automatiques en un passage : la **casse** des noms (forme),
+les **genres** à haute confiance (fait, ADR 0009) et la standardisation des **lieux** (hiérarchie
+et GPS) sont **écrits** dans Gramps ; seul le volet **décès** (enrichissement INSEE/MatchID) reste
+en lecture seule et ne produit qu'une proposition à relire. Mêmes garde-fous que les commandes
+séparées pour les trois premiers volets (dry-run recommandé d'abord ; `GENECREW_DRY_RUN=true` force
+la simulation).
 
 ```bash
 uv run genecrew apply all --scope all --dry-run   # simuler

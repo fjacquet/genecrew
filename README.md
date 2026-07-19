@@ -49,7 +49,7 @@ uv run genecrew propose audit --scope all --limit 200     # audit déterministe,
 uv run genecrew apply case --dry-run              # standardiser la casse des noms (écriture encadrée)
 uv run genecrew propose gender --scope all --limit 200    # inférer le genre — propositions, lecture seule
 uv run genecrew apply gender --dry-run            # écrire les corrections de genre à haute confiance
-uv run genecrew apply all --dry-run               # casse puis genre, en un passage
+uv run genecrew apply all --dry-run               # casse, genre, lieux : écrit ; décès : proposition
 ```
 
 **Sécurité des écritures** : toute écriture est encadrée par le flag `--dry-run` **et** l'interrupteur
