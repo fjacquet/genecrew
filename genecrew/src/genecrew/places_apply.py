@@ -25,6 +25,33 @@ def _link(gramps_id: str, base_url: str) -> str:
     return f"[{gramps_id}]({base_url}/place/{gramps_id})"
 
 
+def _seed_parent_index(client: GrampsClient) -> dict[str, str]:
+    """Reconstruct {path -> handle} for existing places so re-runs reuse parents (idempotent)."""
+    places, page = [], 1
+    while True:
+        batch = client.get_json("/places/", params={"page": page, "pagesize": 200})
+        if not batch:
+            break
+        places.extend(batch)
+        page += 1
+    by_handle = {p["handle"]: p for p in places}
+    index: dict[str, str] = {}
+    for p in places:
+        names, cur, seen = [], p, set()
+        while cur is not None and cur["handle"] not in seen:
+            seen.add(cur["handle"])
+            name = (cur.get("name") or {}).get("value", "")
+            if not name:
+                names = []                      # unreliable chain -> don't index this path
+                break
+            names.append(name)
+            refs = cur.get("placeref_list") or []
+            cur = by_handle.get(refs[0]["ref"]) if refs else None
+        if names:
+            index[">".join(reversed(names))] = p["handle"]
+    return index
+
+
 def _ensure_parents(chain, index, creator, dry_run) -> str | None:
     """Create/reuse each parent in `chain` (top→down); return the immediate parent handle."""
     parent = None
@@ -35,17 +62,20 @@ def _ensure_parents(chain, index, creator, dry_run) -> str | None:
             payload = json.loads(creator._run(
                 name=level.name, place_type=level.place_type, parent_handle=parent,
                 date_qualifier=chain.date_qualifier, code=level.code, dry_run=dry_run))
+            if not payload["success"]:
+                raise RuntimeError(f"create '{path}': {payload['error']}")
             index[path] = payload["data"]["handle"]
         parent = index[path]
     return parent
 
 
-def render_apply_report(scope, date, applied, proposals, merges, errors, dry_run,
+def render_apply_report(scope, date, applied, skipped, proposals, merges, errors, dry_run,
                         base_url="http://localhost") -> str:
     mode = "simulation (dry-run, aucune écriture)" if dry_run else "écritures appliquées"
     lines = [f"# Application des lieux — {scope} — {date}", "",
              f"Mode : {mode}.", "",
              f"- Lieux écrits : {len(applied)}",
+             f"- Déjà structurés (ignorés) : {skipped}",
              f"- Propositions (non écrites) : {len(proposals)}",
              f"- Fusions proposées (jamais auto) : {len(merges)}",
              f"- Erreurs : {len(errors)}", "",
@@ -78,14 +108,18 @@ def run_places_apply(client: GrampsClient, scope: str, output_dir, *, date: str,
     output_dir = Path(output_dir)
     creator = GrampsCreatePlaceTool()
     updater = GrampsUpdatePlaceTool()
-    index: dict[str, str] = {}
+    index = _seed_parent_index(client)
     applied: list = []
+    skipped = 0
     proposals: list = []
     errors: list = []
     by_canonical: dict[str, list[tuple[str, str]]] = defaultdict(list)
 
     for batch in iter_places(client, scope, batch_size, limit):
         for place in batch:
+            if (place.get("place_type") or "Unknown") != "Unknown":
+                skipped += 1                # déjà structuré (parent créé ou feuille enrichie) : idempotent
+                continue
             prop = build_proposition(place, min_score)
             if prop.action != "ecrire":
                 proposals.append(prop)
@@ -101,13 +135,18 @@ def run_places_apply(client: GrampsClient, scope: str, output_dir, *, date: str,
                     if chain.date_qualifier:
                         ref["_date_qualifier"] = chain.date_qualifier
                     placeref_list.append(ref)
-                json.loads(updater._run(
+                payload = json.loads(updater._run(
                     handle=prop.handle, name=rp.name, place_type=rp.place_type,
                     lat=rp.lat, long=rp.long, code=rp.code, placeref_list=placeref_list,
                     alt_names=[a.model_dump() for a in rp.alt_names],
                     provenance=prop.preuve, dry_run=dry_run))
-                applied.append((prop.gramps_id, rp.name, rp.place_type, rp.lat, rp.long))
-            except Exception as exc:  # noqa: BLE001
+                if payload["success"]:
+                    applied.append((prop.gramps_id, rp.name, rp.place_type, rp.lat, rp.long))
+                else:
+                    errors.append((prop.gramps_id, payload["error"]))
+            except RuntimeError as exc:
+                # levée uniquement par _ensure_parents sur un échec de création côté Gramps ;
+                # toute autre exception (bug de programmation) doit remonter, pas être avalée ici.
                 errors.append((prop.gramps_id, str(exc)))
 
     merges = [PlaceMergeProposition(
@@ -120,7 +159,7 @@ def run_places_apply(client: GrampsClient, scope: str, output_dir, *, date: str,
     out.mkdir(parents=True, exist_ok=True)
     scope_slug = scope.replace(":", "_")
     path = out / f"{date}_lieux_appliques_{scope_slug}.md"
-    path.write_text(render_apply_report(scope, date, applied, proposals, merges, errors,
+    path.write_text(render_apply_report(scope, date, applied, skipped, proposals, merges, errors,
                                         effective_dry_run(dry_run)), encoding="utf-8")
 
     merges_path = out / f"{date}_fusions_lieux_{scope_slug}.yaml"
