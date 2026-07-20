@@ -1,9 +1,11 @@
 """Tests hors-ligne du moteur d'appariement des relevés (pur, sans réseau)."""
 
+from typing import get_args
+
 import pytest
 from pydantic import ValidationError
 
-from genecrew.releves import Appariement, PersonneLiee, ReleveIndexe
+from genecrew.releves import FACTEURS_FORTS, POIDS, Appariement, FacteurReleve, PersonneLiee, ReleveIndexe
 
 
 def test_releve_indexe_minimal():
@@ -31,3 +33,12 @@ def test_annee_approximative_est_un_facteur_distinct_de_la_date():
     """Règle projet : une année seule n'est jamais discriminante."""
     a = Appariement(verdict="gris", facteurs=["année approximative"])
     assert "date complète" not in a.facteurs
+
+
+def test_vocabulaire_des_facteurs_reste_synchronise():
+    """`FacteurReleve`, `POIDS` et `FACTEURS_FORTS` répètent le même vocabulaire à
+    trois endroits ; un renommage ou un accent oublié dans un seul des trois ferait
+    calculer des poids faux sans qu'aucune erreur ne se déclenche ailleurs."""
+    vocabulaire = set(get_args(FacteurReleve))
+    assert set(POIDS.keys()) == vocabulaire
+    assert FACTEURS_FORTS <= vocabulaire
