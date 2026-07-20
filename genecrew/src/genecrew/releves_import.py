@@ -96,10 +96,48 @@ def parse_releve(texte: str, llm=None) -> ReleveIndexe:
 
 
 def code_fonds(fonds: str) -> str:
-    """Identifiant sobre et stable du fonds, pour le marqueur."""
+    """Identifiant sobre et stable du fonds, pour le marqueur d'idempotence.
+
+    `fonds` est extrait par un LLM depuis du texte libre : sa ponctuation
+    varie d'un appel à l'autre pour la MÊME association. Deux choix
+    délibérés en découlent — une revue avait recommandé l'inverse du
+    premier, la décision retenue ici va sciemment à son encontre :
+
+    1. Espace et tiret sont traités comme ÉQUIVALENTS (tous deux deviennent
+       "-"). Les deux directions d'erreur ne coûtent pas la même chose : si
+       on les distingue, la même association orthographiée « Haut-Berry »
+       une fois et « Haut Berry » une autre fois produit deux marqueurs
+       différents, donc le MÊME relevé est réimporté en double — ce cas est
+       PROBABLE, vu la variabilité du LLM. Le risque symétrique — deux
+       associations RÉELLEMENT différentes dont les noms ne diffèrent QUE
+       par un tiret/espace, ET qui numérotent leurs relevés de façon
+       identique — est quasi impossible. Le pouvoir discriminant du
+       marqueur vient de `reference` (un identifiant long propre au
+       relevé) ; `code_fonds` n'est qu'un espace de noms, pas le
+       discriminant.
+    2. Toute AUTRE suite de caractères non alphanumériques (apostrophes,
+       points, virgules, mais aussi ':' et ']') est purement supprimée,
+       sans devenir un nouveau tiret : elle ne porte pas d'information de
+       séparation entre mots, contrairement à l'espace et au tiret.
+       Bénéfice de sûreté indépendant : ':' et ']' sont justement les
+       caractères qui structurent le marqueur
+       `[genecrew:releve:<code_fonds>:<reference>]` — s'ils survivaient
+       ici, un nom de fonds qui en contient casserait la forme du
+       marqueur.
+
+    Le dépouillement des accents se fait AVANT le nettoyage de ponctuation
+    (NFD puis suppression des marques combinantes 'Mn'), pour ne pas casser
+    les lettres accentuées ou les trémas (branches suisses/allemandes de
+    l'arbre) en les traitant comme de la ponctuation à jeter.
+    """
     sans_accent = "".join(c for c in unicodedata.normalize("NFD", fonds)
                           if unicodedata.category(c) != "Mn")
-    return "-".join(sans_accent.lower().split())
+    # Ponctuation parasite (apostrophes, points, virgules, ':', ']', …) :
+    # supprimée purement, elle ne délimite jamais un mot.
+    sans_ponctuation = re.sub(r"[^\w\s-]", "", sans_accent, flags=re.UNICODE)
+    # Espace et tiret : seuls séparateurs reconnus, équivalents entre eux.
+    morceaux = re.split(r"[\s-]+", sans_ponctuation.lower())
+    return "-".join(m for m in morceaux if m)
 
 
 def marqueur_releve(fonds: str, reference: str) -> str:
