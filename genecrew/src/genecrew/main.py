@@ -186,7 +186,11 @@ def gender_apply_cmd(args) -> None:
 
 
 def apply_all_cmd(args) -> None:
-    """Apply casing, then gender, then places in one pass; print all report paths."""
+    """Apply casing, gender and places, then propose deaths; print all report paths.
+
+    The first three volets **write**; the deaths volet only produces propositions for
+    human review (`apply citations` writes them once relu). See `apply_all.run_apply_all`.
+    """
     from pathlib import Path
 
     from crewai_custom_tools.tools.genealogy.gramps.client import get_client
