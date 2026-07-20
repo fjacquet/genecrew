@@ -55,7 +55,9 @@ def pick_article(place_name: str, candidates: list[dict]) -> dict | None:
     scored = [(c, s) for c, s in scored if s >= MIN_SIM]
     if not scored:
         return None
-    scored.sort(key=lambda t: (-t[1], t[0].get("dist") or 1e9))
+    # `dist` absent -> tout en bas ; `dist == 0` (article pile sur le point) est la
+    # meilleure distance possible, pas une distance manquante.
+    scored.sort(key=lambda t: (-t[1], 1e9 if t[0].get("dist") is None else t[0]["dist"]))
     if len(scored) >= 2 and scored[0][1] - scored[1][1] < AMBIGUITY_MARGIN:
         return None            # deux articles aussi bons (homonymes) -> abstention
     return scored[0][0]
@@ -71,16 +73,20 @@ def run_lieux_wiki(client: GrampsClient, output_dir, *, date: str,
                    dry_run: bool = False) -> Path:
     """Enrich GPS-bearing places with a verified frwiki link (+ article image)."""
     dry_run = effective_dry_run(dry_run)
-    places, page = [], 1
+    # Filtrage page par page : `--limit` doit borner le trafic Gramps, pas seulement la
+    # liste finale — sur un arbre de plusieurs centaines de lieux, tout paginer avant de
+    # trancher ferait de la borne une promesse creuse.
+    targets, page = [], 1
     while True:
         batch = client.get_json("/places/", params={"page": page, "pagesize": 200})
         if not batch:
             break
-        places.extend(batch)
+        targets.extend(p for p in batch
+                       if p.get("lat") and p.get("long") and not has_wikipedia_url(p))
+        if limit and len(targets) >= limit:
+            break
         page += 1
 
-    targets = [p for p in places
-               if p.get("lat") and p.get("long") and not has_wikipedia_url(p)]
     if limit:
         targets = targets[:limit]
 
@@ -116,11 +122,17 @@ def run_lieux_wiki(client: GrampsClient, output_dir, *, date: str,
                     description=f"{info['title']} — Wikipédia/Wikimedia Commons "
                                 f"({info['url']})",
                     dry_run=dry_run))
-                if m["success"]:
+                # Un échec ici laisse le lien posé mais l'image perdue : le rapport doit
+                # le dire, sinon il tait une écriture partielle.
+                if not m["success"]:
+                    errors.append((name, f"image non importée : {m['error']}"))
+                else:
                     a = json.loads(at_tool._run(object_type="places", handle=p["handle"],
                                                 media_handle=m["data"]["handle"],
                                                 dry_run=dry_run))
-                    if a["success"] and a["data"]["changed"]:
+                    if not a["success"]:
+                        errors.append((name, f"image non attachée : {a['error']}"))
+                    elif a["data"]["changed"]:
                         imaged += 1
         except Exception as exc:
             get_logger().warning("lieux-wiki: échec pour %s", name, exc_info=True)
