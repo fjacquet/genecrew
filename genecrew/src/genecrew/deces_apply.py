@@ -31,6 +31,11 @@ SOURCE_TITLE = "INSEE — Fichier des personnes décédées"
 _SCORE_RE = re.compile(r"\s*\(score [^)]*\)\.?\s*$")
 _MDH_RE = re.compile(r"Mémoire des hommes \(([^)]+)\)")
 _INSEE_RE = re.compile(r"(?i)\binsee\b")
+# Un relevé de cercle généalogique s'annonce "Relevé — <cercle>" (préfixe
+# composé par `releves_import.corps_note_releve`). Le cercle devient à la
+# fois le titre et l'auteur de la source Gramps : c'est lui, et non un
+# registre officiel, qui a produit le dépouillement.
+_RELEVE_RE = re.compile(r"(?i)^\s*relev[ée]\s*[—-]\s*(.+?)\s*$")
 
 
 def citation_page(preuve_detail: str, preuve_url: str) -> str:
@@ -55,6 +60,10 @@ def source_title_for(preuve_detail: str) -> tuple[str, str]:
                 "Bibliothèque nationale de France")
     if _INSEE_RE.search(detail):
         return SOURCE_TITLE, "INSEE"
+    m = _RELEVE_RE.match(detail)
+    if m:
+        cercle = m.group(1).strip()
+        return f"{cercle} — relevés", cercle
     raise ValueError(
         f"source_title_for : registre non reconnu dans preuve_detail : {detail!r}. "
         "Ajoutez sa route dans source_title_for() "

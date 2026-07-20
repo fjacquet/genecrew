@@ -6,7 +6,15 @@ import httpx
 import pytest
 from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient, GrampsConfig
 
-from genecrew.releves_import import code_fonds, deja_importe, marqueur_releve, parse_releve
+from genecrew.deces_apply import source_title_for
+from genecrew.releves import Appariement
+from genecrew.releves_import import (
+    code_fonds,
+    corps_note_releve,
+    deja_importe,
+    marqueur_releve,
+    parse_releve,
+)
 
 CONFIG = GrampsConfig(api_url="http://g.test/api", username="u", password="p")
 
@@ -192,3 +200,37 @@ def test_deja_importe_faux_sans_note():
     def h(request):
         return httpx.Response(200, json=[{"extended": {"notes": []}}])
     assert deja_importe(_client(h), "I0001", marqueur_releve("CGHB", "1")) is False
+
+
+def test_source_title_route_un_releve_de_cercle():
+    titre, auteur = source_title_for("Relevé — Cercle Généalogique du Haut-Berry")
+    assert titre == "Cercle Généalogique du Haut-Berry — relevés"
+    assert auteur == "Cercle Généalogique du Haut-Berry"
+
+
+def test_source_title_leve_toujours_sur_un_registre_inconnu():
+    """Pas de repli silencieux sur l'INSEE : ce serait une fausse attribution."""
+    with pytest.raises(ValueError):
+        source_title_for("provenance mystérieuse")
+
+
+def test_note_recopie_le_texte_brut():
+    r = parse_releve(COLLAGE_ROSE, llm=_LLMStub(json.dumps(_JSON_ATTENDU)))
+    corps = corps_note_releve(r, Appariement(verdict="net", gramps_id="I1",
+                                             facteurs=["date complète", "lieu"],
+                                             poids=8))
+    assert COLLAGE_ROSE.strip() in corps
+
+
+def test_note_porte_le_marqueur_en_tete_et_les_facteurs():
+    r = parse_releve(COLLAGE_ROSE, llm=_LLMStub(json.dumps(_JSON_ATTENDU)))
+    corps = corps_note_releve(r, Appariement(verdict="net", facteurs=["date complète"],
+                                             poids=5))
+    assert corps.startswith("[genecrew:releve:")
+    assert "date complète" in corps
+
+
+def test_note_dit_que_le_releve_est_une_source_derivee():
+    r = parse_releve(COLLAGE_ROSE, llm=_LLMStub(json.dumps(_JSON_ATTENDU)))
+    corps = corps_note_releve(r, Appariement(verdict="net"))
+    assert "dérivée" in corps and "acte" in corps

@@ -14,7 +14,7 @@ import unicodedata
 from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient
 
 from genecrew.crew import build_llm
-from genecrew.releves import ReleveIndexe
+from genecrew.releves import Appariement, ReleveIndexe
 
 TAG_RELEVE = "ia-releve"
 
@@ -148,6 +148,35 @@ def marqueur_releve(fonds: str, reference: str) -> str:
     n'écrit rien.
     """
     return f"[genecrew:releve:{code_fonds(fonds)}:{reference}]"
+
+
+def corps_note_releve(releve: ReleveIndexe, appariement: Appariement) -> str:
+    """Le corps de la note posée sur la personne.
+
+    Deux exigences priment sur la mise en forme :
+    - c'est une source DÉRIVÉE (un dépouillement de cercle, pas l'acte d'état
+      civil original) — le dire explicitement évite qu'un futur lecteur de
+      l'arbre prenne le relevé pour l'acte lui-même ;
+    - le texte brut du relevé est recopié INTÉGRALEMENT, pour que la source
+      reste vérifiable par un humain quoi qu'il arrive à l'interprétation LLM.
+    Le marqueur d'idempotence (`marqueur_releve`) ouvre la note : c'est lui que
+    `deja_importe` recherche en tête de note existante.
+    """
+    lignes = [
+        marqueur_releve(releve.fonds, releve.reference),
+        f"Relevé — {releve.fonds}",
+        f"Référence : {releve.reference}",
+        "",
+        f"Appariement : {appariement.verdict.upper()} (poids {appariement.poids})",
+        f"  facteurs   : {', '.join(appariement.facteurs) or '—'}",
+        f"  divergences: {', '.join(appariement.divergences) or '—'}",
+        "",
+        "Source dérivée : un relevé est un dépouillement, pas l'acte original.",
+        "",
+        "Texte relevé tel que copié :",
+        releve.texte_brut.strip(),
+    ]
+    return "\n".join(lignes)
 
 
 def deja_importe(client: GrampsClient, gramps_id: str, marqueur: str) -> bool:
