@@ -184,3 +184,24 @@ def test_rapport_sans_piste_le_dit():
     from genecrew.pistes import render_rapport_pistes
     md = render_rapport_pistes([], "2026-07-20", dry_run=False)
     assert "Aucune piste" in md
+
+
+def test_rapport_suit_le_dry_run_effectif_pas_celui_demande(monkeypatch):
+    """L'env impose la simulation : le rapport ne doit pas annoncer des écritures.
+
+    Ce cas était masqué par la fixture autouse `_ecriture_reelle`, qui pose
+    GENECREW_DRY_RUN=false pour tout le module : le test du mode passait donc pour
+    la mauvaise raison. Ici on rétablit la contrainte d'environnement explicitement.
+
+    Le scénario réel : GENECREW_DRY_RUN absent ou vrai — le défaut sûr du projet —
+    et un appelant qui passe dry_run=False. `consigner` répond « simulation » pour
+    chaque piste et n'écrit rien, pendant que le rapport annoncerait « écritures
+    appliquées ». Le généalogiste croirait avoir des pistes dans Gramps ; il n'en
+    aurait aucune, et rien ne le lui dirait au passage suivant.
+    """
+    from genecrew.pistes import render_rapport_pistes
+
+    monkeypatch.setenv("GENECREW_DRY_RUN", "true")
+    md = render_rapport_pistes([_piste()], "2026-07-20", dry_run=False)
+    assert "simulation" in md
+    assert "écritures appliquées" not in md

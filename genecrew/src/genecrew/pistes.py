@@ -140,7 +140,14 @@ def consigner(client, piste: Piste, *, dry_run: bool = False) -> dict:
 
 
 def render_rapport_pistes(pistes: list[Piste], date: str, *, dry_run: bool) -> str:
-    """Rapport Markdown. Les faibles n'existent QUE là — les perdre les perdrait."""
+    """Rapport Markdown. Les faibles n'existent QUE là — les perdre les perdrait.
+
+    `effective_dry_run` est appliqué ici comme dans `consigner` : sans lui, un appelant
+    passant `dry_run=False` alors que `GENECREW_DRY_RUN` impose la simulation ferait
+    annoncer « écritures appliquées » à un rapport dont aucune piste n'a été écrite.
+    Le mode affiché doit être le mode EFFECTIF, jamais celui demandé.
+    """
+    dry_run = effective_dry_run(dry_run)
     mode = "simulation (dry-run, aucune écriture)" if dry_run else "écritures appliquées"
     fortes = [p for p in pistes if p.force == "forte"]
     faibles = [p for p in pistes if p.force == "faible"]
