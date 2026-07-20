@@ -35,11 +35,17 @@ def iter_people_batches(client: GrampsClient, fetcher: FactsFetcher,
 
 
 def iter_places(client: GrampsClient, scope: str, batch_size: int, limit: int | None):
-    """Yield successive batches of raw Gramps place dicts for `scope` (all supported in P1-P4)."""
-    kind, _gid = parse_scope(scope)
+    """Yield successive batches of raw Gramps place dicts for `scope` ('all' or 'place:<ID>')."""
+    kind, gid = parse_scope(scope)
+    if kind == "place":
+        places = client.get_json("/places/", params={"gramps_id": gid})
+        if places:
+            yield places
+        return
     if kind != "all":
         raise NotImplementedError(
-            f"scope {scope!r} non supporté pour les lieux en P1–P6 ; utilisez --scope all")
+            f"scope {scope!r} non supporté pour les lieux ; "
+            "utilisez --scope all ou --scope place:<ID>")
     fetched = 0
     page = 1
     while True:

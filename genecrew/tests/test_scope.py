@@ -44,3 +44,16 @@ def test_branch_scope_not_implemented():
     client = GrampsClient(CONFIG, transport=httpx.MockTransport(lambda r: httpx.Response(200, json={"access_token": "t"})))
     with pytest.raises(NotImplementedError):
         resolve_handles(client, "branch:I0042")
+
+
+def test_parse_scope_accepts_place():
+    assert parse_scope("place:P0080") == ("place", "P0080")
+
+
+def test_resolve_handles_rejects_place_scope():
+    # parse_scope est partagé ; sans garde explicite, "place:" retomberait sur la
+    # branche "all" et paginerait TOUTES les personnes en silence.
+    client = GrampsClient(CONFIG, transport=httpx.MockTransport(
+        lambda request: httpx.Response(200, json={"access_token": "t"})))
+    with pytest.raises(NotImplementedError):
+        resolve_handles(client, "place:P0080")

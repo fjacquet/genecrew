@@ -28,3 +28,38 @@ def test_iter_places_rejects_unsupported_scope():
     client = GrampsClient(CONFIG, transport=httpx.MockTransport(_handler))
     with pytest.raises(NotImplementedError):
         list(iter_places(client, "person:I0001", batch_size=25, limit=None))
+
+
+def test_iter_places_place_scope_fetches_single_place():
+    import httpx
+    from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient, GrampsConfig
+    from genecrew.batching import iter_places
+
+    def handler(request):
+        if request.url.path == "/api/token/":
+            return httpx.Response(200, json={"access_token": "t"})
+        assert request.url.path == "/api/places/"
+        assert request.url.params["gramps_id"] == "P0080"
+        return httpx.Response(200, json=[{"handle": "h80", "gramps_id": "P0080"}])
+
+    client = GrampsClient(
+        GrampsConfig(api_url="http://g.test/api", username="u", password="p"),
+        transport=httpx.MockTransport(handler))
+    batches = list(iter_places(client, "place:P0080", 25, None))
+    assert batches == [[{"handle": "h80", "gramps_id": "P0080"}]]
+
+
+def test_iter_places_place_scope_unknown_id_yields_nothing():
+    import httpx
+    from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient, GrampsConfig
+    from genecrew.batching import iter_places
+
+    def handler(request):
+        if request.url.path == "/api/token/":
+            return httpx.Response(200, json={"access_token": "t"})
+        return httpx.Response(200, json=[])
+
+    client = GrampsClient(
+        GrampsConfig(api_url="http://g.test/api", username="u", password="p"),
+        transport=httpx.MockTransport(handler))
+    assert list(iter_places(client, "place:P9999", 25, None)) == []
