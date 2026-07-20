@@ -25,10 +25,10 @@ Spec de référence : `docs/superpowers/specs/2026-07-20-fusion-doublons-personn
 
 ## État des dépôts au moment de la rédaction
 
-- `genecrew` : branche `feat/sources-archives-pistes`, HEAD `96131bc`.
-- `crewai_custom_tools` : branche `feat/sources-archives-pistes`, HEAD `53c28b4`, version `0.21.0`.
+- `genecrew` : branche `feat/sources-archives-pistes`, HEAD `6fd25e9`.
+- `crewai_custom_tools` : branche `feat/sources-archives-pistes`, HEAD `5dd2bc6`, version `0.21.1`.
 
-**Une autre session travaille sur ces deux branches.** Vérifier `git branch --show-current` et `git log --oneline -1` avant et après chaque tâche. Ne jamais changer de branche, ne jamais `git push`, ne jamais taguer sans accord explicite de l'utilisateur (Task 7).
+**Une autre session travaille activement sur ces deux branches** — les deux HEAD ont bougé pendant la seule rédaction de ce plan. Ces valeurs sont un repère daté, pas une garantie : vérifier `git branch --show-current` et `git log --oneline -1` avant et après chaque tâche. Ne jamais changer de branche, ne jamais `git push`, ne jamais taguer sans accord explicite de l'utilisateur (Task 7).
 
 ## Structure des fichiers
 
@@ -1342,7 +1342,9 @@ Attendu : tout vert. Ne pas continuer sinon.
 
 - [ ] **Step 2: Monter la version**
 
-Dans `/Users/fjacquet/Projects/crewai_custom_tools/pyproject.toml`, ligne 7 : remplacer `version = "0.21.0"` par `version = "0.22.0"`.
+Dans `/Users/fjacquet/Projects/crewai_custom_tools/pyproject.toml`, ligne 7 : porter la version à `0.22.0`.
+
+> **Lire la version réelle avant d'éditer.** Elle était à `0.21.0` au début de la rédaction de ce plan, puis une autre session l'a portée à `0.21.1`. Faire `grep -n '^version' pyproject.toml` et partir de ce qui s'y trouve, pas de ce que ce plan suppose.
 
 Version mineure : trois modules publics s'ajoutent (`phonetics`, `merge_plan`, l'outil de fusion) sans rien casser.
 
