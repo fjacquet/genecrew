@@ -10,7 +10,6 @@ from __future__ import annotations
 import hashlib
 import json
 import unicodedata
-from typing import Literal
 
 from crewai_custom_tools.tools.genealogy.gramps.write_tools import (
     GrampsAttachTool,
@@ -21,21 +20,6 @@ from crewai_custom_tools.tools.genealogy.gramps.write_tools import (
 from crewai_custom_tools.tools.genealogy.models.domain import Piste  # noqa: F401
 
 _LONGUEUR_CLE = 8
-
-
-def evaluer_force(concordances: list[str],
-                  divergences: list[str]) -> Literal["forte", "faible"]:
-    """Forte = au moins DEUX facteurs concordants indépendants ET aucune divergence dure.
-
-    Catégoriel, pas numérique. Un score peut valoir 1.0 en masquant une ambiguïté
-    (mesuré sur le résolveur de lieux), et la règle projet « une année seule n'est
-    jamais discriminante » est catégorielle par nature. L'appelant est responsable
-    de ne PAS lister l'année seule comme concordance : elle qualifie une date, elle
-    n'en constitue pas une.
-    """
-    if divergences:
-        return "faible"
-    return "forte" if len(concordances) >= 2 else "faible"
 
 
 def _normaliser(valeur: str) -> str:

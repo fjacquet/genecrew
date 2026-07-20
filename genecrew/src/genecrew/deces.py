@@ -21,7 +21,7 @@ from crewai_custom_tools.tools.genealogy.models.domain import EventFact, PersonF
 
 from genecrew.batching import iter_people_batches
 from genecrew.logging_setup import get_logger
-from genecrew.pistes import Piste, evaluer_force
+from genecrew.pistes import Piste
 from genecrew.propositions import PropositionAudit
 
 MIN_BIRTH_YEAR = 1850  # né avant → mort avant 1970 quasi certain, hors fichier
@@ -263,7 +263,7 @@ def piste_depuis_match(person: PersonFacts, match: dict, url: str) -> Piste:
     if len(naissance_insee) == 8 and len(naissance_arbre) == 10:
         iso_insee = f"{naissance_insee[:4]}-{naissance_insee[4:6]}-{naissance_insee[6:]}"
         if iso_insee == naissance_arbre:
-            concordances.append("date de naissance complète")
+            concordances.append("date complète")
         else:
             divergences.append("dates de naissance différentes")
     return Piste(
@@ -272,5 +272,4 @@ def piste_depuis_match(person: PersonFacts, match: dict, url: str) -> Piste:
         url=url or None,
         requete=f"nom={person.surname}&prenom={first_given(person.given)}",
         concordances=concordances, divergences=divergences,
-        force=evaluer_force(concordances, divergences),
     )

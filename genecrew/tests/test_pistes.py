@@ -4,25 +4,35 @@ import httpx
 import pytest
 from crewai_custom_tools.tools.genealogy.gramps import write_tools
 from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient, GrampsConfig
+from pydantic import ValidationError
 
-from genecrew.pistes import Piste, cle_derivee, consigner, evaluer_force, marqueur, marqueurs_existants
+from genecrew.pistes import Piste, cle_derivee, consigner, marqueur, marqueurs_existants
 
 CONFIG = GrampsConfig(api_url="http://g.test/api", username="u", password="p")
 
 
 def test_deux_facteurs_independants_font_une_piste_forte():
-    assert evaluer_force(["nom", "date de naissance complète"], []) == "forte"
+    assert Piste(**_base_piste(concordances=["nom", "date complète"], divergences=[])).force == "forte"
 
 
 def test_un_seul_facteur_ne_suffit_pas():
-    assert evaluer_force(["nom"], []) == "faible"
-    assert evaluer_force([], []) == "faible"
+    assert Piste(**_base_piste(concordances=["nom"], divergences=[])).force == "faible"
+    assert Piste(**_base_piste(concordances=[], divergences=[])).force == "faible"
 
 
 def test_une_divergence_dure_degrade_malgre_les_concordances():
     # Règle du projet : une contradiction irréductible l'emporte sur n'importe
     # quel nombre de concordances.
-    assert evaluer_force(["nom", "prénom", "lieu"], ["départements incompatibles"]) == "faible"
+    assert Piste(**_base_piste(
+        concordances=["nom", "prénom", "lieu"],
+        divergences=["départements incompatibles"])).force == "faible"
+
+
+def test_vocabulaire_ferme_refuse_une_concordance_inventee():
+    # Le vocabulaire fermé (Literal côté bibliothèque) empêche une source future
+    # de contourner la règle « deux facteurs » en inventant un facteur ad hoc.
+    with pytest.raises(ValidationError):
+        Piste(**_base_piste(concordances=["nom", "né en 1888"], divergences=[]))
 
 
 def test_cle_derivee_est_stable_entre_appels():
@@ -84,12 +94,18 @@ def _client(records, notes=()):
     return GrampsClient(CONFIG, transport=httpx.MockTransport(handler))
 
 
-def _piste(force="forte", **kw):
+def _base_piste(**kw):
     base = dict(gramps_id="I1123", handle="h1", source="matchid", identite="a1b2c3d4",
                 requete="nom=SOULAT&prenom=Kleber", url="https://deces.matchid.io/id/a1b2c3d4",
-                concordances=["nom", "date de naissance complète"], divergences=[], force=force)
+                concordances=["nom", "date complète"], divergences=[])
     base.update(kw)
-    return Piste(**base)
+    return base
+
+
+def _piste(**kw):
+    # Deux facteurs par défaut -> forte. Pour une faible, passer un seul facteur,
+    # par ex. concordances=["nom"] : `force` n'est plus saisissable, il se déduit.
+    return Piste(**_base_piste(**kw))
 
 
 def test_marqueurs_existants_lit_les_notes_de_la_personne():
@@ -112,7 +128,7 @@ def test_une_piste_faible_ne_touche_jamais_l_arbre(mocker):
     records = []
     client = _client(records)
     mocker.patch.object(write_tools, "get_client", return_value=client)
-    out = consigner(client, _piste(force="faible"))
+    out = consigner(client, _piste(concordances=["nom"]))
     assert out["ecrite"] is False and out["raison"] == "faible"
     assert not [r for r in records if r[0] in ("POST", "PUT")], "une faible a écrit dans l'arbre"
 
@@ -160,7 +176,7 @@ def test_le_corps_ne_conclut_pas(mocker):
 
 def test_rapport_separe_fortes_et_faibles():
     from genecrew.pistes import render_rapport_pistes
-    md = render_rapport_pistes([_piste(), _piste(force="faible", identite="zzz")],
+    md = render_rapport_pistes([_piste(), _piste(concordances=["nom"], identite="zzz")],
                                "2026-07-20", dry_run=False)
     assert "Pistes fortes" in md and "Pistes faibles" in md
     assert "écritures appliquées" in md
@@ -175,7 +191,7 @@ def test_rapport_dit_le_mode_simulation():
 def test_rapport_contient_les_faibles_absentes_de_l_arbre():
     # Les faibles n'existent QUE là : si le rapport les perd, elles sont perdues.
     from genecrew.pistes import render_rapport_pistes
-    md = render_rapport_pistes([_piste(force="faible", identite="zzz",
+    md = render_rapport_pistes([_piste(identite="zzz",
                                        concordances=["nom"])], "2026-07-20", dry_run=False)
     assert "zzz" in md
 
