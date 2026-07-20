@@ -8,14 +8,16 @@ _PAGESIZE = 200
 
 
 def parse_scope(spec: str) -> tuple[str, str | None]:
-    """Parse 'all' | 'person:<id>' | 'branch:<id>' into (kind, gramps_id)."""
+    """Parse 'all' | 'person:<id>' | 'branch:<id>' | 'place:<id>' into (kind, gramps_id)."""
     if spec == "all":
         return ("all", None)
     if ":" in spec:
         kind, _, gid = spec.partition(":")
-        if kind in ("person", "branch"):
+        if kind in ("person", "branch", "place"):
             return (kind, gid)
-    raise ValueError(f"Périmètre invalide : {spec!r} (attendu 'all', 'person:ID', 'branch:ID')")
+    raise ValueError(
+        f"Périmètre invalide : {spec!r} "
+        "(attendu 'all', 'person:ID', 'branch:ID', 'place:ID')")
 
 
 def resolve_handles(
@@ -23,6 +25,11 @@ def resolve_handles(
 ) -> list[tuple[str, str]]:
     """Return sorted (handle, gramps_id) pairs for the given scope."""
     kind, gid = parse_scope(spec)
+    if kind == "place":
+        # parse_scope est partagé avec les lieux ; sans ce refus explicite, "place:"
+        # retomberait sur la branche "all" et paginerait toutes les personnes.
+        raise NotImplementedError(
+            "Le périmètre 'place:' ne s'applique qu'aux lieux, pas aux personnes.")
     if kind == "person":
         raw = client.get_json("/people/", params={"gramps_id": gid})
         return [(r["handle"], r["gramps_id"]) for r in raw]

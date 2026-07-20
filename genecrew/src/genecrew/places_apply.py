@@ -53,7 +53,16 @@ def _seed_parent_index(client: GrampsClient) -> dict[str, str]:
 
 
 def _ensure_parents(chain, index, creator, dry_run) -> str | None:
-    """Create/reuse each parent in `chain` (top→down); return the immediate parent handle."""
+    """Create/reuse each parent in `chain` (top→down); return the immediate parent handle.
+
+    Le `date_qualifier` de la chaîne n'est **pas** propagé ici : il qualifie la relation
+    entre la FEUILLE et son parent, pas la construction des parents entre eux. Il est
+    posé, correctement, via `_date_qualifier` dans le `placeref_list` de la feuille.
+    Le propager reviendrait à dater les rattachements des parents créés — un lieu
+    fusionné en 1973 ferait naître un « Grand Est → France » daté « avant 1973-01-01 »,
+    alors que le Grand Est existe depuis 2016. Ces nœuds sont partagés : la pollution
+    toucherait tous les lieux ultérieurs rattachés dessous.
+    """
     parent = None
     path = ""
     for level in chain.levels:
@@ -61,7 +70,7 @@ def _ensure_parents(chain, index, creator, dry_run) -> str | None:
         if path not in index:
             payload = json.loads(creator._run(
                 name=level.name, place_type=level.place_type, parent_handle=parent,
-                date_qualifier=chain.date_qualifier, code=level.code, dry_run=dry_run))
+                code=level.code, dry_run=dry_run))
             if not payload["success"]:
                 raise RuntimeError(f"create '{path}': {payload['error']}")
             index[path] = payload["data"]["handle"]

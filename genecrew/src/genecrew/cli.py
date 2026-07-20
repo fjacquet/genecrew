@@ -61,7 +61,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_date(p)
 
     p = propose_sub.add_parser("places", help="Standardisation des lieux")
-    _add_scope(p, "all (seul supporté pour les lieux en P1–P6)")
+    _add_scope(p, "all | place:ID (cibler un lieu unique)")
     _add_batch(p)
     _add_min_score(p, "seuil de score pour action=ecrire (défaut 0.90)")
     _add_date(p)
@@ -104,7 +104,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_date(p)
 
     p = apply_sub.add_parser("places", help="Hiérarchie et GPS des lieux au-dessus du score")
-    _add_scope(p, "all (seul supporté pour les lieux en P1–P6)")
+    _add_scope(p, "all | place:ID (cibler un lieu unique)")
     _add_batch(p)
     _add_min_score(p, "seuil de score pour écrire (défaut 0.90)")
     _add_dry_run(p)
