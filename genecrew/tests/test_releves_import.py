@@ -401,6 +401,47 @@ def test_parents_par_handle_passe_par_la_famille():
     assert index["hp"] == []
 
 
+def test_index_des_parents_borne_aux_candidats(monkeypatch):
+    """L'index parental ne se construit QUE pour les candidats du blocage.
+
+    `apparier` ne consulte cet index que pour les personnes retenues par
+    `candidats_blocage` ; l'indexer sur l'arbre entier faisait ~1 requête
+    `/families/` par famille parentale de l'arbre (~1 000 sur 2 100 personnes)
+    pour n'en servir qu'une poignée. Au-delà du coût, la stack Gramps Web a un
+    limiteur de débit : `get_family_facts` n'avale que les 404, un 429
+    avorterait l'import.
+
+    Ici un seul JACQUET (le patronyme du relevé) contre cinq DURAND ayant chacun
+    leur famille parentale : un seul GET `/families/` doit partir. Une
+    implémentation qui réindexerait tout l'arbre en ferait six.
+    """
+    monkeypatch.delenv("GENECREW_DRY_RUN", raising=False)
+    familles_vues: list[str] = []
+
+    rose = _personne("I0001", "h1", familles_parentales=["f1"])
+    etrangers = [_personne(f"I01{i}", f"hd{i}", prenom="Jean", nom="DURAND",
+                           familles_parentales=[f"f1{i}"]) for i in range(5)]
+    familles = {"f1": _FAMILLE_ROSE}
+    for i in range(5):
+        familles[f"f1{i}"] = {"gramps_id": f"F01{i}", "handle": f"f1{i}",
+                              "father_handle": "", "mother_handle": "",
+                              "child_ref_list": [], "extended": {"events": []}}
+
+    base = _handler_arbre([rose, *etrangers], familles)
+
+    def h(request):
+        if request.url.path.startswith("/api/families/"):
+            familles_vues.append(request.url.path.rsplit("/", 1)[-1])
+        return base(request)
+
+    out = run_import_releve(_client(h), COLLAGE_ROSE, llm=_llm())
+    assert familles_vues == ["f1"]
+    # Le verdict doit rester IDENTIQUE : `apparier` refait son propre blocage,
+    # et une personne hors blocage n'a de toute façon aucun facteur « parent ».
+    assert out["appariement"].verdict == "net"
+    assert out["appariement"].gramps_id == "I0001"
+
+
 def test_type_evenement_non_gere_refuse_d_ecrire(monkeypatch):
     """Un relevé de MARIAGE peut atteindre `net` par le seul facteur « deux
     parents nommés » (8 = SEUIL_NET), alors que le moteur n'a comparé AUCUN

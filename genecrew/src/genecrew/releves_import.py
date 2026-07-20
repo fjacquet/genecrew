@@ -23,7 +23,13 @@ from crewai_custom_tools.tools.genealogy.models.domain import PersonFacts
 
 from genecrew.batching import iter_people_batches
 from genecrew.crew import build_llm
-from genecrew.releves import Appariement, ReleveIndexe, apparier, rarete_patronymes
+from genecrew.releves import (
+    Appariement,
+    ReleveIndexe,
+    apparier,
+    candidats_blocage,
+    rarete_patronymes,
+)
 
 TAG_RELEVE = "ia-releve"
 
@@ -213,8 +219,9 @@ def deja_importe(client: GrampsClient, gramps_id: str, marqueur: str) -> bool:
                for n in notes)
 
 
-def _parents_par_handle(fetcher: FactsFetcher,
-                        people: list[PersonFacts]) -> dict[str, list[str]]:
+def _parents_par_handle(fetcher: FactsFetcher, people: list[PersonFacts],
+                        sujets: list[PersonFacts] | None = None,
+                        ) -> dict[str, list[str]]:
     """handle → noms complets des parents, pour le facteur « parent nommé ».
 
     Passe par `get_family_facts` : c'est la FAMILLE qui porte `father_handle` et
@@ -223,17 +230,26 @@ def _parents_par_handle(fetcher: FactsFetcher,
     fetcher met les familles en cache, donc une famille partagée par une fratrie
     n'est lue qu'une fois.
 
-    Les parents sont cherchés dans `people`, c'est-à-dire dans le lot déjà
-    collecté : aucune requête personne supplémentaire. Un parent absent du lot
-    (arbre partiel, borné par `--limit` un jour) est simplement ignoré — mieux
-    vaut un facteur non tiré qu'un aller-retour réseau par candidat.
+    Deux listes, deux rôles, et il faut les tenir pour distincts :
+    - `sujets` (par défaut : tout `people`) est l'ensemble des personnes DONT on
+      indexe les parents. C'est lui qui coûte des requêtes réseau, une par
+      famille parentale — d'où l'intérêt de le restreindre aux seuls candidats
+      du blocage, les seuls que `apparier` consultera jamais ;
+    - `people` reste l'arbre ENTIER, et sert uniquement à retrouver le NOM d'un
+      parent depuis son handle. Le restreindre aussi serait un bug : le père
+      d'une candidate ne partage pas forcément le patronyme du relevé, donc il
+      n'est pas nécessairement candidat lui-même.
+
+    Aucune requête personne supplémentaire n'est faite : un parent absent du lot
+    collecté (arbre partiel, borné par `--limit` un jour) est simplement ignoré
+    — mieux vaut un facteur non tiré qu'un aller-retour réseau par candidat.
 
     Construit ici, côté orchestration : le moteur d'appariement le reçoit tout
     fait, ce qui lui permet de rester pur et testable sans réseau.
     """
     par_handle = {p.handle: p for p in people}
     index: dict[str, list[str]] = {}
-    for p in people:
+    for p in (people if sujets is None else sujets):
         noms: list[str] = []
         for fam_handle in p.parent_family_handles:
             famille = fetcher.get_family_facts(fam_handle)
@@ -269,8 +285,17 @@ def run_import_releve(client: GrampsClient, texte: str, *, llm=None,
     # et un candidat manquant ferait conclure « absent de l'arbre »).
     people = [p for lot in iter_people_batches(client, fetcher, "all", TAILLE_LOT, None)
               for p in lot]
+    # L'index parental ne se construit que pour les CANDIDATS du blocage : c'est
+    # la seule chose que `apparier` en consultera, et chaque personne indexée
+    # coûte une requête `/families/` par famille parentale. Sur l'arbre entier
+    # (~2 100 personnes) c'était ~1 000 requêtes par relevé importé, pour n'en
+    # servir qu'une poignée — assez pour réveiller le limiteur de débit Redis de
+    # Gramps Web, et `get_family_facts` n'avale que les 404 : un 429 avorterait
+    # l'import. `candidats_blocage` est pure et refaite à l'identique par
+    # `apparier`, donc le verdict est inchangé.
+    candidats = candidats_blocage(releve, people)
     appariement = apparier(releve, people, rarete_patronymes(people),
-                           _parents_par_handle(fetcher, people))
+                           _parents_par_handle(fetcher, people, candidats))
     out = {"releve": releve, "appariement": appariement, "ecrit": False,
            "raison": "", "dry_run": dry_run}
 
