@@ -247,7 +247,7 @@ Ajouter à `genecrew/src/genecrew/releves.py` (l'import en tête du module) :
 ```python
 from collections import Counter
 
-from crewai_custom_tools.tools.genealogy.models.domain import PersonFacts
+from crewai_custom_tools.tools.genealogy.models.domain import EventFact, PersonFacts
 
 from genecrew.pistes import _normaliser
 
@@ -413,8 +413,16 @@ from crewai_custom_tools.tools.genealogy.models.domain import EventFact
 from genecrew.releves import apparier
 
 
-def _mort(person, date_iso, lieu=""):
-    person.death = EventFact(type="Death", date=date_iso, place=lieu, sortval=1)
+def _ev(type_, jour=0, mois=0, annee=0, lieu="", modifier=0):
+    """`EventFact` ne porte PAS de champ `date` : la source est `dateval`, au
+    format Gramps [jour, mois, année, slash]. 0 = composante inconnue."""
+    return EventFact(type=type_, dateval=[jour, mois, annee, False],
+                     year=annee or None, modifier=modifier, place=lieu,
+                     sortval=1 if annee else 0)
+
+
+def _mort(person, jour, mois, annee, lieu=""):
+    person.death = _ev("Death", jour, mois, annee, lieu)
     return person
 
 
@@ -425,7 +433,7 @@ ROSE = _releve(evenement_date="1894-12-10", evenement_lieu="Saint-Martin-d'Auxig
 
 
 def test_deux_facteurs_forts_donnent_net():
-    p = _mort(_p("I1", "JACQUET", "Rose"), "1894-12-10", "Saint-Martin-d'Auxigny")
+    p = _mort(_p("I1", "JACQUET", "Rose"), 10, 12, 1894, "Saint-Martin-d'Auxigny")
     a = apparier(ROSE, [p], {"JACQUET": 0.75}, {})
     assert a.verdict == "net"
     assert "date complète" in a.facteurs and "lieu" in a.facteurs
@@ -434,15 +442,33 @@ def test_deux_facteurs_forts_donnent_net():
 
 def test_divergence_de_date_est_un_veto_pas_un_malus():
     """Un empilement de concordances ne doit jamais écraser une contradiction."""
-    p = _mort(_p("I1", "JACQUET", "Rose"), "1901-03-02", "Saint-Martin-d'Auxigny")
+    p = _mort(_p("I1", "JACQUET", "Rose"), 2, 3, 1901, "Saint-Martin-d'Auxigny")
     a = apparier(ROSE, [p], {"JACQUET": 0.75}, {})
     assert a.verdict == "aucun"
     assert a.divergences
 
 
+def test_annee_seule_ne_fait_pas_une_date_complete():
+    """dateval [0, 0, 1894] est une année, pas une date : aucun facteur fort."""
+    p = _p("I1", "JACQUET", "Rose")
+    p.death = _ev("Death", annee=1894)
+    a = apparier(ROSE, [p], {"JACQUET": 0.75}, {})
+    assert "date complète" not in a.facteurs
+    assert a.divergences == []          # une année n'est pas non plus une divergence
+
+
+def test_date_texte_n_est_ni_concordance_ni_divergence():
+    """modifier==6 : date en texte libre, non comparable terme à terme."""
+    p = _p("I1", "JACQUET", "Rose")
+    p.death = _ev("Death", 10, 12, 1894, modifier=6)
+    a = apparier(ROSE, [p], {"JACQUET": 0.75}, {})
+    assert "date complète" not in a.facteurs
+    assert a.divergences == []
+
+
 def test_facteurs_faibles_seuls_ne_font_jamais_un_net():
     p = _p("I1", "JACQUET", "Rose")          # ni date ni lieu : prénom + année seuls
-    p.birth = EventFact(type="Birth", date="1821-00-00", place="", sortval=1)
+    p.birth = _ev("Birth", annee=1821, modifier=3)      # 3 = about
     a = apparier(ROSE, [p], {"JACQUET": 0.75}, {})
     assert a.verdict != "net"
 
@@ -486,8 +512,28 @@ Expected: FAIL — `ImportError: cannot import name 'apparier'`
 - [ ] **Step 3: Write minimal implementation**
 
 ```python
-def _evenement_compare(person: PersonFacts, type_: str) -> object | None:
+def _evenement_compare(person: PersonFacts, type_: str) -> EventFact | None:
     return person.death if type_ == "Death" else person.birth
+
+
+def _date_iso(ev: EventFact | None) -> str:
+    """La date de l'événement en AAAA-MM-JJ, "" si elle n'est pas complète.
+
+    `EventFact` ne porte pas de date texte : la source est `dateval`, au format
+    Gramps `[jour, mois, année, slash]`, où 0 signale une composante inconnue.
+    Une date n'est COMPLÈTE que si les trois composantes sont non nulles — c'est
+    exactement ce qui sépare le facteur fort « date complète » du facteur faible
+    « année approximative ».
+
+    `modifier == 6` (date en texte libre) est écarté : elle n'est comparable ni
+    comme concordance ni comme divergence.
+    """
+    if ev is None or ev.modifier == 6 or len(ev.dateval) < 3:
+        return ""
+    jour, mois, annee = ev.dateval[0], ev.dateval[1], ev.dateval[2]
+    if not (jour and mois and annee):
+        return ""
+    return f"{annee:04d}-{mois:02d}-{jour:02d}"
 
 
 def facteurs_et_divergences(
@@ -499,11 +545,12 @@ def facteurs_et_divergences(
     divergences: list[str] = []
     ev = _evenement_compare(person, releve.evenement_type)
 
-    if releve.evenement_date and ev and ev.date:
-        if ev.date == releve.evenement_date:
+    date_arbre = _date_iso(ev)
+    if releve.evenement_date and date_arbre:
+        if date_arbre == releve.evenement_date:
             facteurs.append("date complète")
-        elif len(ev.date) == 10 and len(releve.evenement_date) == 10:
-            divergences.append(f"date {ev.date} ≠ relevé {releve.evenement_date}")
+        else:
+            divergences.append(f"date {date_arbre} ≠ relevé {releve.evenement_date}")
 
     if releve.evenement_lieu and ev and ev.place:
         if _normaliser(ev.place) == _normaliser(releve.evenement_lieu):
@@ -517,8 +564,9 @@ def facteurs_et_divergences(
     if _normaliser(person.given) == _normaliser(releve.sujet_prenom):
         facteurs.append("prénom")
 
-    if releve.naissance_estimee and person.birth and person.birth.date[:4].isdigit():
-        if abs(int(person.birth.date[:4]) - releve.naissance_estimee) <= 2:
+    annee_arbre = person.birth.year if person.birth else None
+    if releve.naissance_estimee and annee_arbre:
+        if abs(annee_arbre - releve.naissance_estimee) <= 2:
             facteurs.append("année approximative")
 
     parents_arbre = {_normaliser(n) for n in parents_par_handle.get(person.handle, [])}
@@ -1013,8 +1061,10 @@ git commit -m "feat(releves): route de source par cercle et corps de note"
 - Test: `genecrew/tests/test_releves_import.py`
 
 **Interfaces:**
-- Consomme : `FactsFetcher` (`crewai_custom_tools...gramps.facts`), `GrampsCreateNoteTool`, `GrampsEnsureTagTool`, `GrampsAttachTool`, `GrampsCreateCitationTool`, `GrampsEnsureSourceTool`, `GrampsAttachCitationTool`, `effective_dry_run`.
-- Produit : `run_import_releve(client, texte, *, llm=None, dry_run=False) -> dict` avec les clés `releve`, `appariement`, `ecrit`, `raison`, `dry_run`.
+- Consomme : `FactsFetcher` (`crewai_custom_tools...gramps.facts`), `iter_people_batches` (`genecrew.batching`), `GrampsCreateNoteTool`, `GrampsEnsureTagTool`, `GrampsAttachTool`, `effective_dry_run`.
+- Produit : `_parents_par_handle(fetcher, people) -> dict[str, list[str]]`, `run_import_releve(client, texte, *, llm=None, dry_run=False) -> dict` avec les clés `releve`, `appariement`, `ecrit`, `raison`, `dry_run`.
+
+**Avant d'écrire les fixtures :** `_ROSE_ARBRE` ci-dessous est la forme JSON brute que `person_from_json` doit savoir lire. **Vérifie sa forme réelle** dans `crewai_custom_tools/tools/genealogy/gramps/facts.py` (fonction `person_from_json`) et aligne la fixture dessus plutôt que de la deviner — les tests existants de `test_deces.py` et `test_gender.py` en contiennent des exemples fiables à recopier.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1023,11 +1073,17 @@ from genecrew.releves_import import run_import_releve
 
 
 def _arbre(*people_json):
-    """Répond aux appels Gramps : /people/ (liste), /people/ (idempotence)."""
+    """Répond aux appels Gramps : /people/ paginé, /people/?gramps_id= (idempotence).
+
+    La page 2 rend une liste vide : `iter_people_batches` pagine jusqu'à
+    l'épuisement, et un mock qui renvoie toujours la même page boucle sans fin.
+    """
     def h(request):
         if request.url.path == "/api/people/":
             if "gramps_id" in request.url.params:
                 return httpx.Response(200, json=[{"extended": {"notes": []}}])
+            if request.url.params.get("page", "1") != "1":
+                return httpx.Response(200, json=[])
             return httpx.Response(200, json=list(people_json))
         return httpx.Response(200, json=[])
     return _client(h)
@@ -1069,6 +1125,8 @@ def test_deuxieme_passage_n_ecrit_rien(monkeypatch):
             if "gramps_id" in request.url.params:
                 return httpx.Response(200, json=[{"extended": {"notes": [
                     {"text": {"string": m}}]}}])
+            if request.url.params.get("page", "1") != "1":
+                return httpx.Response(200, json=[])
             return httpx.Response(200, json=[_ROSE_ARBRE])
         return httpx.Response(200, json=[])
 
@@ -1091,22 +1149,33 @@ from crewai_custom_tools.tools.genealogy.gramps.write_tools import (
     GrampsAttachTool, GrampsCreateNoteTool, GrampsEnsureTagTool, effective_dry_run,
 )
 
+from genecrew.batching import iter_people_batches
 from genecrew.releves import apparier, rarete_patronymes
 
 
-def _parents_par_handle(people) -> dict[str, list[str]]:
+def _parents_par_handle(fetcher: FactsFetcher, people) -> dict[str, list[str]]:
     """handle → noms complets des parents, pour le facteur « parent nommé ».
+
+    Passe par `get_family_facts` : c'est la FAMILLE qui porte `father_handle` et
+    `mother_handle` ; `PersonFacts` ne connaît que les handles de ses familles
+    parentales. Le fetcher met les familles en cache, donc une famille partagée
+    par une fratrie n'est lue qu'une fois.
 
     Construit ici, côté orchestration : le moteur d'appariement le reçoit tout
     fait pour rester pur.
     """
+    par_handle = {p.handle: p for p in people}
     index: dict[str, list[str]] = {}
     for p in people:
-        noms = []
-        for fam in p.parent_family_handles:
-            for autre in people:
-                if fam in autre.family_handles:
-                    noms.append(autre.name)
+        noms: list[str] = []
+        for fam_handle in p.parent_family_handles:
+            famille = fetcher.get_family_facts(fam_handle)
+            if not famille:
+                continue
+            for parent_handle in (famille.father_handle, famille.mother_handle):
+                parent = par_handle.get(parent_handle) if parent_handle else None
+                if parent:
+                    noms.append(parent.name)
         index[p.handle] = noms
     return index
 
@@ -1116,9 +1185,11 @@ def run_import_releve(client: GrampsClient, texte: str, *, llm=None,
     """Interprète, apparie, écrit si le verdict est net. Rend le verdict et sa raison."""
     dry_run = effective_dry_run(dry_run)
     releve = parse_releve(texte, llm=llm)
-    people = FactsFetcher(client).fetch_people()
+    fetcher = FactsFetcher(client)
+    people = [p for lot in iter_people_batches(client, fetcher, "all", 200, None)
+              for p in lot]
     appariement = apparier(releve, people, rarete_patronymes(people),
-                           _parents_par_handle(people))
+                           _parents_par_handle(fetcher, people))
     out = {"releve": releve, "appariement": appariement, "ecrit": False,
            "raison": "", "dry_run": dry_run}
 
