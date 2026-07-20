@@ -37,8 +37,10 @@ orchestration/CLI: `cli.py` (the verb grammar — `build_parser()`, the dispatch
 names), `audit.py`, `names.py`, `gender.py`, `gender_apply.py`, `apply_all.py`, `places.py`,
 `places_apply.py`, `places_merge.py`, `deces.py`, `deces_apply.py`, `militaires.py`,
 `lieux_wiki.py`, `lieu_import.py`, `propositions.py`, `stats.py`, `checkpoint.py`,
-`crew_audit.py` (crew orchestration), `crew.py` (the crew), `logging_setup.py`, `facts.py`,
+`crew_audit.py` (crew orchestration), `crew.py` (the crew), `logging_setup.py`,
 `scope.py`, `batching.py`, `report.py`.
+Note: `facts.py` (`FactsFetcher`) is **not** here — it lives in the library, at
+`crewai_custom_tools/tools/genealogy/gramps/facts.py`, and is imported from there.
 After bumping the library version, run `uv sync` from the repo root to pick it up.
 
 ## Genealogy stack (Gramps Web)
