@@ -140,3 +140,76 @@ def test_apply_failed_leaf_write_records_error_not_applied(tmp_path, monkeypatch
     text = report.read_text(encoding="utf-8")
     assert "Lieux écrits : 0" in text
     assert "Erreurs : 1" in text
+
+
+def test_ensure_parents_never_dates_the_parents_it_creates():
+    """Couture bibliothèque → genecrew : une chaîne datée ne doit pas dater les parents.
+
+    Le `date_qualifier` qualifie la relation FEUILLE → parent, pas la construction des
+    parents entre eux. Le propager ferait naître un « Grand Est → France » daté
+    « avant 1973-01-01 » alors que le Grand Est existe depuis 2016 — et ces nœuds sont
+    partagés par tous les lieux rattachés dessous.
+
+    Ce cas n'était couvert par aucun test des deux dépôts : ceux de la bibliothèque
+    s'arrêtent au ResolvedPlace, ceux d'ici partaient tous d'une chaîne unique non datée.
+    """
+    class _Creator:
+        def __init__(self):
+            self.calls = []
+
+        def _run(self, **kw):
+            self.calls.append(kw)
+            return json.dumps({"success": True,
+                               "data": {"handle": f"h-{kw['name']}"}})
+
+    chain = DatedChain(
+        levels=[PlaceLevel(name="France", place_type="Country"),
+                PlaceLevel(name="Grand Est", place_type="Region", code="44"),
+                PlaceLevel(name="Meuse", place_type="Department", code="55")],
+        date_qualifier="avant 1973-01-01")
+    creator = _Creator()
+    index = {}                                    # arbre vierge : tout est à créer
+
+    parent = places_apply._ensure_parents(chain, index, creator, dry_run=False)
+
+    assert parent == "h-Meuse"
+    assert [c["name"] for c in creator.calls] == ["France", "Grand Est", "Meuse"]
+    for call in creator.calls:
+        assert call.get("date_qualifier") is None, (
+            f"{call['name']} a été créé avec une date : {call.get('date_qualifier')!r}")
+
+
+def test_apply_leaf_carries_both_dated_placerefs(tmp_path, monkeypatch, mocker):
+    """La feuille, elle, porte bien les deux rattachements datés — c'est là que la date vit."""
+    records = []
+    resolved = ResolvedPlace(
+        name="Saint-Agnant-sous-les-Côtes", place_type="Municipality", code="55451",
+        lat="48.842142", long="5.622588",
+        chains=[
+            DatedChain(levels=[PlaceLevel(name="France", place_type="Country")],
+                       date_qualifier="avant 1973-01-01"),
+            DatedChain(levels=[PlaceLevel(name="France", place_type="Country"),
+                               PlaceLevel(name="Apremont-la-Forêt",
+                                          place_type="Municipality", code="55012")],
+                       date_qualifier="après 1973-01-01"),
+        ],
+        score=1.0, source="test", query="")
+
+    def _prop(place, min_score):
+        from crewai_custom_tools.tools.genealogy.models.domain import PlaceProposition
+        return PlaceProposition(
+            type="lieu_resolu", gramps_id=place["gramps_id"], handle=place["handle"],
+            original=place["name"]["value"], country="France", resolution=resolved,
+            action="ecrire", confiance="haute", priorite="haute", preuve="…")
+
+    monkeypatch.setattr(places_apply, "build_proposition", _prop)
+    client = _client(records)
+    mocker.patch.object(write_tools, "get_client", return_value=client)
+    run_places_apply(client, "all", tmp_path, date="2026-07-20", dry_run=False)
+
+    puts = [r for m, r in records if m == "PUT"]
+    assert puts, "la feuille n'a pas été écrite"
+    refs = puts[-1]["placeref_list"]
+    assert len(refs) == 2
+    assert [r["date"]["modifier"] for r in refs] == [1, 2]        # 1 = avant, 2 = après
+    assert all(r["date"]["dateval"] == [1, 1, 1973, False] for r in refs)
