@@ -13,7 +13,12 @@
 - Deux dépôts : `/Users/fjacquet/Projects/crewai_custom_tools` (résolveur) et `/Users/fjacquet/Projects/genecrew` (scope + nettoyage). **Faire les opérations git de chaque dépôt dans des appels séparés** — un `cd A && git … && cd B && git …` exécute les deux git dans A.
 - Tests **offline** : toute fonction réseau est un `_http_get` / `sparql_rows` monkeypatché. Aucun test ne sort sur le réseau.
 - **Coordonnées WGS84 décimales.** `centre` de geo.api.gouv.fr est du GeoJSON `[lon, lat]` ; `P625` de Wikidata est du WKT `Point(lon lat)`. **Longitude d'abord dans les deux cas.**
-- Date de dissolution retenue : `1972-12-31` (Wikidata `P576`, précision jour). Format des qualificatifs : `avant YYYY-MM-DD` / `après YYYY-MM-DD` — c'est ce qu'attend `date_qualifier_to_gramps_date`.
+- **Dissolution ≠ borne.** Wikidata `P576` donne le **dernier jour d'existence** (`1972-12-31` pour
+  Saint-Agnant, précision jour). La **borne** des rattachements est le lendemain, `merged_on` =
+  `1973-01-01` — sans quoi « après » démarrerait un jour où la commune existait encore. C'est ce
+  qu'énonce la prose de Wikipédia. Format des qualificatifs : `avant YYYY-MM-DD` / `après YYYY-MM-DD`,
+  ce qu'attend `date_qualifier_to_gramps_date` (une année seule lui fait rendre `None`, donc une
+  placeref sans date, en silence).
 - Jamais de date inventée : sources discordantes ou `P576` absent → une seule chaîne non datée.
 - Version de la bibliothèque : `0.18.0` → `0.19.0`. (`feat/export-missing-tools` a été
   **fusionnée dans `main`** pendant la Task 1 et y a posé `0.18.0` ; la branche a donc été
@@ -491,9 +496,9 @@ def test_resolve_ex_commune_emits_two_dated_chains(monkeypatch):
 
     assert len(rp.chains) == 2
     historique, moderne = rp.chains[0], rp.chains[1]
-    assert historique.date_qualifier == "avant 1972-12-31"
+    assert historique.date_qualifier == "avant 1973-01-01"     # dissolution + 1 jour
     assert [lvl.name for lvl in historique.levels] == ["France", "Grand Est", "Meuse"]
-    assert moderne.date_qualifier == "après 1972-12-31"
+    assert moderne.date_qualifier == "après 1973-01-01"
     assert [lvl.name for lvl in moderne.levels] == [
         "France", "Grand Est", "Meuse", "Apremont-la-Forêt"]
     assert moderne.levels[-1].code == "55012"
@@ -779,8 +784,8 @@ def test_registry_falls_through_to_ex_commune_when_resolve_fr_none(monkeypatch):
     france = PlaceLevel(name="France", place_type="Country")
     sentinel = ResolvedPlace(
         name="Saint-Agnant-sous-les-Côtes", place_type="Municipality", code="55451",
-        chains=[DatedChain(levels=[france], date_qualifier="avant 1972-12-31"),
-                DatedChain(levels=[france], date_qualifier="après 1972-12-31")],
+        chains=[DatedChain(levels=[france], date_qualifier="avant 1973-01-01"),
+                DatedChain(levels=[france], date_qualifier="après 1973-01-01")],
         score=1.0, source="ex-commune", query="")
     monkeypatch.setattr(registry, "resolve_fr", lambda p: None)
     monkeypatch.setattr(registry, "resolve_fr_ex_commune", lambda p: sentinel)
@@ -794,7 +799,7 @@ def test_registry_falls_through_to_ex_commune_when_resolve_fr_none(monkeypatch):
     # historical_parent), donc les deux chaînes datées doivent survivre intactes.
     # Cette assertion est le garde-fou : ajouter une ligne "France" au dataset
     # écraserait silencieusement les rattachements des ex-communes.
-    assert [c.date_qualifier for c in got.chains] == ["avant 1972-12-31", "après 1972-12-31"]
+    assert [c.date_qualifier for c in got.chains] == ["avant 1973-01-01", "après 1973-01-01"]
 
 
 def test_registry_live_commune_never_reaches_ex_commune_path(monkeypatch):
@@ -931,8 +936,8 @@ Attendu **exactement** :
 action : ecrire
 nom    : Saint-Agnant-sous-les-Côtes | code : 55451 | GPS : 48.842142 5.622588
 source : geo.api.gouv.fr/communes_associees_deleguees + Wikidata
-  chaîne avant 1972-12-31 -> ['France', 'Grand Est', 'Meuse']
-  chaîne après 1972-12-31 -> ['France', 'Grand Est', 'Meuse', 'Apremont-la-Forêt']
+  chaîne avant 1973-01-01 -> ['France', 'Grand Est', 'Meuse']
+  chaîne après 1973-01-01 -> ['France', 'Grand Est', 'Meuse', 'Apremont-la-Forêt']
 ```
 
 Si l'action n'est pas `ecrire`, ou si les chaînes ne sont pas deux, **ne pas continuer** :
@@ -1203,7 +1208,7 @@ Attendu :
 - nom `Saint-Agnant-sous-les-Côtes`, type `Municipality`, code **`55451`** (plus `55012`) ;
 - GPS `48.842142 / 5.622588` ;
 - **deux** placerefs : l'une vers `Meuse` avec une `date` de modifier « avant », l'autre vers
-  `Apremont-la-Forêt` avec un modifier « après », toutes deux au 31/12/1972 ;
+  `Apremont-la-Forêt` avec un modifier « après », toutes deux au **01/01/1973** ;
 - l'ancien titre plat présent dans `alt_names`.
 
 - [ ] **Step 5: Vérifier que l'événement de décès est intact**
