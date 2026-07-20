@@ -132,6 +132,17 @@ def candidats_blocage(releve: ReleveIndexe,
     DÉLIBÉRÉMENT large : c'est la pondération qui tranche, pas lui. Un blocage
     trop serré ferait dire « absent de l'arbre » à une personne présente, et
     l'import créerait un doublon.
+
+    Exception volontaire à ce parti pris de largeur : un patronyme vide n'est
+    jamais bloqué, même contre une personne à patronyme également vide (filiation
+    inconnue, enfant naturel — cas courant en généalogie). Une chaîne vide n'est
+    pas une graphie du nom, c'est l'absence de la donnée ; la traiter comme une
+    clé ordinaire ferait apparier deux absences entre elles, et ces candidats
+    alimenteraient ensuite une pondération capable de conclure à un verdict net
+    — qui écrit dans l'arbre. Mieux vaut ne bloquer sur rien que bloquer sur du
+    vide.
     """
     cle = _cle_blocage(releve.sujet_nom)
+    if not cle:
+        return []
     return [p for p in people if _cle_blocage(p.surname) == cle]

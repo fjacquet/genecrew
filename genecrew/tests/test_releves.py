@@ -112,3 +112,19 @@ def test_blocage_suit_les_variantes_de_graphie():
 def test_blocage_vide_quand_le_patronyme_est_inconnu():
     people = [_p("I1", "JACQUET", "Rose")]
     assert candidats_blocage(_releve(sujet_nom="MARTIN"), people) == []
+
+
+def test_blocage_vide_quand_le_releve_n_a_pas_de_patronyme():
+    """Un patronyme vide n'est pas une graphie : même si l'arbre contient une
+    personne à patronyme vide (filiation inconnue, enfant naturel), on ne peut
+    pas bloquer sur une absence de donnée des deux côtés."""
+    people = [_p("I1", "", "Rose"), _p("I2", "JACQUET", "Pierre")]
+    assert candidats_blocage(_releve(sujet_nom=""), people) == []
+
+
+def test_blocage_ignore_les_personnes_a_patronyme_vide_quand_le_releve_en_a_un():
+    """Un relevé au patronyme renseigné ne doit jamais retenir une personne à
+    patronyme vide — ce cas passe déjà, mais on le verrouille pour ne pas
+    régresser si `_cle_blocage` change un jour."""
+    people = [_p("I1", "", "Rose"), _p("I2", "JACQUET", "Pierre")]
+    assert [c.gramps_id for c in candidats_blocage(_releve(sujet_nom="JACQUET"), people)] == ["I2"]
