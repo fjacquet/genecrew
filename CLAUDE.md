@@ -95,6 +95,7 @@ uv run genecrew apply gender --dry-run            # écrit les corrections de ge
 uv run genecrew apply all --dry-run               # casse, genre, lieux : écrit ; décès : proposition
 uv run genecrew propose places --scope all        # propositions de lieux (lecture seule)
 uv run genecrew apply places --dry-run            # écrit hiérarchie + GPS au-dessus du score
+uv run genecrew apply places --scope place:P0080 --dry-run  # cibler UN lieu avant d'élargir
 uv run genecrew merge places --yaml <fusions.yaml>  # exécute les fusions relues (jamais auto)
 
 # Train / replay / test the crew
@@ -108,7 +109,11 @@ uv run ruff check .
 
 Gramps Web is **not** brought up from this repo — see "Genealogy stack (Gramps Web)" above.
 
-Tests live in `genecrew/tests/` — run `uv run python -m pytest genecrew/tests/ -q` from the root; the `crewai_custom_tools` library has its own offline suite. No CI in this repo yet.
+Tests live in `genecrew/tests/` — run `uv run python -m pytest genecrew/tests/ -q` from the root; the `crewai_custom_tools` library has its own offline suite.
+
+**CI**: `.github/workflows/ci.yml` (tests, ruff, Semgrep en informatif) et `docs.yml` (build MkDocs +
+déploiement Pages) tournent sur chaque PR. Voir aussi la garde de cohérence lock/bibliothèque dans les
+gotchas — c'est elle qui impose l'ordre de livraison entre les deux dépôts.
 
 ## Environment / secrets
 
@@ -128,8 +133,10 @@ Tests live in `genecrew/tests/` — run `uv run python -m pytest genecrew/tests/
 - **Dates**: compare via the integer `sortval` (Julian day; `0` = unknown/unsortable). Undated events come back as `dateval=[0,0,0,False]`, `year=0`, `sortval=0` (not empty). Text-only dates have `modifier==6`.
 - **Gender int**: `0=F, 1=M, 2=U`.
 - **Form vs fact**: casing = *form* → direct write allowed, guarded by a case-only invariant that refuses any non-casing change. A *fact* stays a proposal for human review — **except gender**, now written at high confidence by `apply gender` (ratio ≥ 0.98 on the INSEE+OFS table, reversible; ADR 0009 relaxes ADR 0008). Other facts (dates, relationships, name spelling) still need a source → proposal.
-- **Write safety switch**: writes are gated by the per-command `--dry-run` flag OR the global `GENECREW_DRY_RUN` env var. The env can only *force* simulation; the **default when the var is absent is to simulate** (safe — via `effective_dry_run` in `crewai_custom_tools` 0.12.0). Set `GENECREW_DRY_RUN=false` in `.env` to write for real. The report's `Mode:` line reflects the **effective** dry-run (env included), so it never claims writes that didn't happen.
+- **Write safety switch**: writes are gated by the per-command `--dry-run` flag OR the global `GENECREW_DRY_RUN` env var. The env can only *force* simulation; the **default when the var is absent is to simulate** (safe — via `effective_dry_run`, dans `crewai_custom_tools` depuis 0.12.0). Set `GENECREW_DRY_RUN=false` in `.env` to write for real. The report's `Mode:` line reflects the **effective** dry-run (env included), so it never claims writes that didn't happen.
 - Full-tree `propose audit`/`apply case` runs are slow (minutes: per-family N+1 fetch + O(n²) duplicate check); iterate with `--limit`.
 - **Crew write isolation & cost**: only the `chroniqueur` agent has write tools (append-only note/tag); the `detective` cannot write. A `crew audit` run costs ~23k LLM tokens/person (heavy read correlation) — always bound full-tree runs with `--limit`.
 - **Durable logs**: every `genecrew <verbe> <cible>` appends to `output/logs/<date>_genecrew.log` (START/DONE/FAILED + the `genecrew`/`crewai_custom_tools` namespaces); `crew audit` also writes a structured agent/tool trace to `output/crew_audit/<date>_crew_audit_<scope>.log.txt` (CrewAI only accepts `.txt`/`.json`), plus its `.md`/`.yaml` report and the human-review `<date>_propositions_audit_<scope>.yaml`.
-- **GPS des lieux**: coordonnées **WGS84** décimales ; GeoJSON = `[lon, lat]` (ne pas inverser) ; swisstopo : lire `lat`/`lon`, **jamais `x`/`y`** (grille suisse LV95). Le géocodage passe par des résolveurs `geo/` routés par pays (`crewai_custom_tools`).
+- **GPS des lieux**: coordonnées **WGS84** décimales ; GeoJSON = `[lon, lat]` (ne pas inverser) ; WKT Wikidata = `Point(lon lat)`, **longitude d'abord aussi** ; swisstopo : lire `lat`/`lon`, **jamais `x`/`y`** (grille suisse LV95). Le géocodage passe par des résolveurs `geo/` routés par pays (`crewai_custom_tools`).
+- **Communes fusionnées** : absentes de `geo.api.gouv.fr/communes`, qui ne connaît que les communes vivantes. `geo/france_ex_communes.py` bascule sur `/communes_associees_deleguees` (rattachement + code INSEE propre) puis Wikidata (SPARQL par `P374`), et pose **deux placerefs datées** — sous le département avant la fusion, sous la commune absorbante après. La borne est la dissolution **+ 1 jour** : poser `P576` telle quelle ferait démarrer le rattachement moderne un jour où la commune existait encore. **`wdt:P576` rend toujours un `dateTime` complet quelle que soit la précision réelle** (une dissolution à l'année sort `AAAA-01-01`), d'où le contrôle `wikibase:timePrecision == 11`. Rien n'est daté si Wikidata et l'API ne concordent pas sur le successeur.
+- **Ordre de livraison entre les deux dépôts** : la CI checkoute le voisin sur le **tag** `v<version>` lu dans `uv.lock`, pas sur `main`. Bumper la bibliothèque impose donc de **taguer et pousser** avant que la CI de genecrew puisse verdir — `uv sync` seul ne suffit pas, et l'échec se présente comme un `uv sync --locked` qui refuse le lock.
