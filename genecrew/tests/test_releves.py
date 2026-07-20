@@ -471,17 +471,51 @@ def test_candidats_a_poids_proches_donnent_gris_pas_un_gagnant():
     assert a.gramps_id is None
 
 
-def test_candidat_hors_marge_ne_brouille_pas_le_gagnant():
-    """Symétrique : la marge ne doit pas transformer tout concurrent en
-    ex aequo, sans quoi plus aucun `net` ne sortirait jamais. Un candidat
-    nettement en dessous (prénom seul, écarté faute de facteur fort) laisse le
-    gagnant seul."""
+def test_concurrent_retenu_juste_au_dela_de_la_marge_laisse_le_gagnant_seul():
+    """Borne HAUTE de `MARGE_EX_AEQUO`, et correction d'un test qui ne testait
+    rien.
+
+    La version précédente opposait au gagnant un concurrent sans le moindre
+    facteur fort (prénom seul) : `_verdict_candidat` lui rendait « aucun » et le
+    filtre `retenus` l'éliminait AVANT que `ex_aequo` ne soit calculé. Le test
+    passait donc quelle que soit la valeur de la constante — vérifié : il
+    passait encore avec `MARGE_EX_AEQUO = 1000`. C'est le défaut exact de
+    l'assertion qui ne peut pas échouer sur la garde qu'elle prétend protéger.
+
+    Ici le concurrent est RÉELLEMENT retenu : il porte le facteur fort « date
+    complète » et n'a aucune divergence (son lieu discordant n'en produit pas).
+    Il pèse 5 contre 9, soit un écart de 4, juste AU-DELÀ de la marge — le
+    gagnant doit donc sortir seul. Ce test tombe si la marge monte à 4."""
     a1 = _mort(_p("I1", "JACQUET", "Rose"), 10, 12, 1894, "Saint-Martin-d'Auxigny")
-    a2 = _p("I2", "JACQUET", "Rose")
+    a2 = _mort(_p("I2", "JACQUET", "Roze"), 10, 12, 1894, "Sancerre")
     a = apparier(ROSE, [a1, a2], {"JACQUET": 0.75}, {})
     assert a.verdict == "net"
+    assert a.poids == 9                 # date (5) + lieu (3) + prénom (1)
     assert a.gramps_id == "I1"
     assert a.candidats == ["I1"]
+
+
+def test_concurrent_retenu_juste_en_deca_de_la_marge_donne_gris():
+    """Borne BASSE de `MARGE_EX_AEQUO`, et le scénario qui l'a fixée à 3.
+
+    I1 et I2 partagent la même date de décès COMPLÈTE — la signature d'un
+    doublon d'arbre. 9 contre 6 : le seul différenciateur est le facteur
+    « lieu », c'est-à-dire, hors `lieux_resolus`, une simple égalité de chaîne
+    dont ce même moteur établit par ailleurs qu'elle ne prouve rien (« une
+    inégalité de chaîne n'est PAS une contradiction »). Il suffit que I2 ait sa
+    commune saisie autrement pour perdre ses 3 points, et une écriture
+    automatique se retrouverait arbitrée par une graphie.
+
+    Écart de 3, donc EN DEÇÀ de la marge : verdict gris, les deux candidats
+    listés. Ce test tombe si la marge redescend à 2. Avec celui qui le précède,
+    il encadre la valeur — aucune autre ne les fait passer tous les deux."""
+    a1 = _mort(_p("I1", "JACQUET", "Rose"), 10, 12, 1894, "Saint-Martin-d'Auxigny")
+    a2 = _mort(_p("I2", "JACQUET", "Rose"), 10, 12, 1894, "Sancerre")
+    a = apparier(ROSE, [a1, a2], {"JACQUET": 0.75}, {})
+    assert a.verdict == "gris"
+    assert a.poids == 9                 # le meilleur des deux, mais pas élu
+    assert sorted(a.candidats) == ["I1", "I2"]
+    assert a.gramps_id is None
 
 
 def test_aucun_candidat_donne_aucun():

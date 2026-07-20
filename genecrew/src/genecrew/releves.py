@@ -60,7 +60,7 @@ seuil."""
 
 SEUIL_RARETE = 0.02
 
-MARGE_EX_AEQUO = 2
+MARGE_EX_AEQUO = 3
 """Écart de poids en deçà duquel deux candidats sont tenus pour ex aequo.
 
 Départager sur l'égalité EXACTE des poids est un piège dans un arbre qui
@@ -69,6 +69,26 @@ contient des doublons : deux personnes partageant date et lieu de décès pèsen
 première, c'est écrire dans l'arbre sur la foi d'un point de prénom, entre deux
 candidats appuyés par la même preuve. Un point d'écart n'est pas une décision —
 c'est du bruit, et ça se relit à la main.
+
+**Pourquoi 3 et pas 2.** Sur les poids réels, un écart de 3 laisse encore élire
+un gagnant seul, et le scénario qui produit exactement 3 est le plus dangereux
+du moteur :
+
+    I1 : date complète (5) + lieu (3) + prénom (1) = 9  → net, écriture
+    I2 : date complète (5)            + prénom (1) = 6  → écart 3
+
+Les deux partagent la MÊME date de décès complète — la signature d'un doublon
+d'arbre. Le seul différenciateur est le facteur « lieu » : hors `lieux_resolus`,
+c'est une simple égalité de chaîne, dont `_comparer_lieux` établit par ailleurs
+qu'une inégalité ne prouve rien (« absent de la mesure ne veut pas dire
+contredit »). Il suffit que I2 ait sa commune saisie autrement — « Saint Martin
+d'Auxigny » sans les tirets — pour perdre ses 3 points, et l'écriture
+automatique se retrouve arbitrée par une GRAPHIE. Trois est donc la plus petite
+valeur qui refuse de trancher ce cas.
+
+Au-delà de 3 on n'achète plus rien : 4 engloberait un concurrent qui n'a pas la
+date, c'est-à-dire une preuve franchement moindre, et transformerait en `gris`
+des appariements légitimement nets.
 """
 
 FENETRE_ANNEE_APPROX = 2
