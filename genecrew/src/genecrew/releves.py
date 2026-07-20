@@ -103,3 +103,35 @@ def est_rare(surname: str, rarete: dict[str, float],
     sur une non-mesure ferait basculer des verdicts sur du vide.
     """
     return rarete.get(_normaliser(surname), 1.0) <= seuil
+
+
+VARIANTES: dict[str, str] = {
+    "JAQUET": "JACQUET",
+    "JACQUES": "JACQUET",
+    "VILLEPELET": "VILLEPELLET",
+    "VILAUDY": "VILLAUDY",
+}
+"""Graphies vues en relevé → forme retenue dans l'arbre.
+
+Table volontairement explicite plutôt qu'un algorithme phonétique : Soundex est
+calibré sur l'anglais et rapproche des patronymes français sans rapport. On
+préfère rater une variante — visible au rapport — qu'en inventer.
+"""
+
+
+def _cle_blocage(surname: str) -> str:
+    norme = _normaliser(surname)
+    return VARIANTES.get(norme, norme)
+
+
+def candidats_blocage(releve: ReleveIndexe,
+                       people: list[PersonFacts]) -> list[PersonFacts]:
+    """Les personnes qui méritent une comparaison fine.
+
+    Sans cette étape, N relevés × 2 119 personnes explose. Le blocage est
+    DÉLIBÉRÉMENT large : c'est la pondération qui tranche, pas lui. Un blocage
+    trop serré ferait dire « absent de l'arbre » à une personne présente, et
+    l'import créerait un doublon.
+    """
+    cle = _cle_blocage(releve.sujet_nom)
+    return [p for p in people if _cle_blocage(p.surname) == cle]

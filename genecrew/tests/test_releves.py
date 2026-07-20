@@ -13,6 +13,7 @@ from genecrew.releves import (
     FacteurReleve,
     PersonneLiee,
     ReleveIndexe,
+    candidats_blocage,
     est_rare,
     rarete_patronymes,
 )
@@ -83,3 +84,31 @@ def test_est_rare_distingue_le_courant_du_rare():
 def test_patronyme_absent_de_l_arbre_n_est_pas_rare():
     """Absent ≠ rare : sans mesure, on n'accorde pas de poids fort."""
     assert est_rare("INCONNU", {"JACQUET": 0.75}) is False
+
+
+def _releve(**kw):
+    base = dict(fonds="CGHB", reference="106710046161418286", sujet_nom="JACQUET",
+                sujet_prenom="Rose", evenement_type="Death", texte_brut="…")
+    base.update(kw)
+    return ReleveIndexe(**base)
+
+
+def test_blocage_retient_le_patronyme_et_rejette_le_reste():
+    people = [_p("I1", "JACQUET", "Rose"), _p("I2", "VILLEPELLET", "Marie")]
+    assert [c.gramps_id for c in candidats_blocage(_releve(), people)] == ["I1"]
+
+
+def test_blocage_tolere_casse_et_accents():
+    people = [_p("I1", "Jacquèt", "Rose")]
+    assert len(candidats_blocage(_releve(sujet_nom="JACQUET"), people)) == 1
+
+
+def test_blocage_suit_les_variantes_de_graphie():
+    """Sans table de variantes, « absent » voudrait dire « mal cherché »."""
+    people = [_p("I1", "JACQUET", "Rose")]
+    assert len(candidats_blocage(_releve(sujet_nom="JAQUET"), people)) == 1
+
+
+def test_blocage_vide_quand_le_patronyme_est_inconnu():
+    people = [_p("I1", "JACQUET", "Rose")]
+    assert candidats_blocage(_releve(sujet_nom="MARTIN"), people) == []
