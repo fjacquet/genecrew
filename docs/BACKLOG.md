@@ -61,6 +61,26 @@ Suivis non bloquants notés au fil de l'eau (revues, usage). Aucun n'est urgent 
   3. Étudier si l'API/moteur de recherche de Mémoire des hommes permet de résoudre
      `nom + date de décès` → ark. À vérifier contre le site réel, jamais par déduction.
 
+## Sources de pistes écartées
+
+- **Scriptorium (presse vaudoise, BCUL) — écarté le 2026-07-20**, sur mesure et non sur intuition.
+  Mesuré sur `samples/data.gramps` (2119 personnes) : la Suisse pèse 25 lieux / 224 événements /
+  **122 personnes**, mais elle est massivement **alémanique**. Le territoire de Scriptorium, le
+  canton de Vaud, ne représente que 8 lieux / 12 événements / **9 personnes** (Romandie entière :
+  19).
+
+  S'y ajoute un doute sur l'accès : `docs/document-de-travail.md` annonçait « BCUL, OAI-PMH »,
+  mais `https://www.scriptorium.ch/api` répond « MediaINFO API is up and running » — ni Omeka S ni
+  OAI-PMH, et aucune documentation d'accès programmatique trouvée.
+
+  **Condition de réouverture** : que la branche vaudoise s'étoffe sensiblement. Ne jamais y
+  suppléer par du scraping — cela fabriquerait des URL consignées dans Gramps comme preuves, ce
+  que le projet a déjà refusé sur Mémoire des hommes (voir plus haut).
+
+  À noter, la dissymétrie avec le **DHS**, retenu lui : même origine géographique, mais il couvre
+  la Suisse entière (122 personnes contre 9) et ne coûte qu'une projection de la propriété
+  Wikidata P902. Voir `docs/superpowers/specs/2026-07-20-sources-archives-pistes-design.md`.
+
 ## Discoverabilité de la grammaire de verbes
 
 - **`propose military` → `apply citations`, asymétrie non devinable** — cas réel : l'utilisateur a

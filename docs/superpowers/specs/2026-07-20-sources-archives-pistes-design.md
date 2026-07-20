@@ -1,10 +1,14 @@
-# Sources d'archives en ligne : Gallica, Wikidata, DHS, Scriptorium
+# Sources d'archives en ligne : Wikidata, DHS, Gallica
 
 > Conception validée le 2026-07-20. Deuxième sous-projet de la **Phase 4 — Pistes de recherche**
 > (`document-de-travail.md` §6.3). Il consomme le contrat livré par
 > [le contrat de consignation des pistes](2026-07-20-contrat-pistes-design.md) (cct 0.20.0) et
-> l'alimente par quatre sources d'archives. Aucune citation n'est créée : une piste n'est jamais
+> l'alimente par **trois** sources d'archives. Aucune citation n'est créée : une piste n'est jamais
 > un fait.
+>
+> **Scriptorium a été écarté** en cours de conception, sur mesure et non sur intuition : il ne
+> couvre que la presse vaudoise, soit **9 personnes** de l'arbre, et son accès programmatique
+> n'est pas documenté. Voir §3.4 et `docs/BACKLOG.md`.
 
 ## 1. Contexte
 
@@ -25,7 +29,7 @@ l'erreur a été commitée avant d'être corrigée (`6ce585b`) : l'inventaire ne
 enregistrements. Ils ignorent tout d'une personne, de ses bornes de vie et du contrat `Piste`.
 
 **Le chantier n'est donc pas « intégrer quatre API »** mais **« traduire des résultats d'archives
-en `Piste` »** — une seule fois, avec quatre alimentations.
+en `Piste` »** — une seule fois, avec trois alimentations.
 
 ### 1.2 Le partage actuel est incohérent
 
@@ -43,11 +47,11 @@ sous-projet la corrige plutôt que de la dupliquer.
 
 `Piste.force` vaut `forte` s'il y a **au moins deux facteurs de concordance distincts et aucune
 divergence**. Une occurrence dans un journal donne le nom, parfois le lieu — jamais une date
-complète d'état civil. Gallica et Scriptorium produiront donc presque exclusivement des pistes
+complète d'état civil. Gallica produira donc presque exclusivement des pistes
 faibles.
 
 **Décision** : la presse ne sert pas à *retrouver* une personne mais à *contextualiser* une
-personne **déjà identifiée**. On n'interroge Gallica et Scriptorium que pour des personnes dont
+personne **déjà identifiée**. On n'interroge Gallica que pour des personnes dont
 la date et le lieu sont connus, et ces bornes filtrent les résultats. Volume faible, valeur haute.
 Cela s'écarte du §6.3 du document de travail, qui visait les personnes à lacunes ; l'écart est
 assumé et documenté ici.
@@ -63,10 +67,11 @@ crewai_custom_tools/tools/genealogy/pistes/
   wikidata.py       # pistes_wikidata  — la seule source à pistes fortes
   dhs.py            # pistes_dhs       — projection de wikidata via P902
   gallica.py        # pistes_gallica   — presse FR, contextualisation
-  scriptorium.py    # pistes_scriptorium — CONDITIONNEL, n'existera peut-être jamais (§3.4)
 ```
 
-**Interface commune, uniforme sur les cinq modules :**
+(Pas de `scriptorium.py` : la source est écartée, voir §3.4.)
+
+**Interface commune, uniforme sur les quatre modules :**
 
 ```python
 def pistes_<source>(person: PersonFacts, resultats: list[dict]) -> list[Piste]: ...
@@ -76,24 +81,20 @@ Ces fonctions sont **pures** : elles ne font aucun appel réseau. La collecte re
 (`GallicaSearchTool`, `WikidataSparqlTool`, `search_deces`). Cette séparation est ce qui rend
 l'ensemble testable hors-ligne, conformément à la convention de la bibliothèque.
 
-### 2.2 Côté genecrew : quatre feuilles, zéro mécanique nouvelle
+### 2.2 Côté genecrew : trois feuilles, zéro mécanique nouvelle
 
 Conformément à l'ADR 0012 (« une base de données ajoute une feuille sous `propose`, jamais un
 verbe ») :
 
 ```
-propose gallica  |  propose wikidata  |  propose dhs  |  [propose scriptorium]
+propose wikidata  |  propose dhs  |  propose gallica
 ```
-
-`propose scriptorium` est entre crochets : la feuille n'est ajoutée que si l'exploration du §3.4
-conclut à un accès exploitable. Le livrable nominal de ce spec est donc **trois** feuilles, la
-quatrième étant conditionnelle.
 
 Chaque feuille réutilise **tel quel** l'appareil livré en 0.20.0 : `consigner()` (idempotence par
 marqueur), `render_rapport_pistes()` (fortes et faibles séparées), `effective_dry_run`. Aucune
 écriture d'un type nouveau n'est introduite.
 
-## 3. Les quatre sources
+## 3. Les sources
 
 ### 3.1 Wikidata — la seule à produire des pistes fortes
 
@@ -131,27 +132,40 @@ l'URL n'est **pas** reconstructible.
 
 Concordances attendues : `nom`, parfois `lieu`. Donc `faible` presque toujours — voir §1.3.
 
-### 3.4 Scriptorium — à établir avant de spécifier
+### 3.4 Scriptorium — écarté, et pourquoi
 
-**Le document de travail annonce « BCUL, OAI-PMH ». C'est non vérifié et probablement faux** :
-`https://www.scriptorium.ch/api` répond « MediaINFO API is up and running », ce qui n'est ni
-Omeka S ni OAI-PMH. Aucune documentation d'accès programmatique n'a été trouvée.
+Deux raisons indépendantes, chacune suffisante.
 
-**Décision** : le plan d'implémentation commence par une **exploration bornée** — établir s'il
-existe un accès programmatique exploitable et documenté. Deux issues, tranchées sur le résultat :
+**Le périmètre.** Scriptorium ne couvre que la presse **vaudoise**. Mesuré sur
+`samples/data.gramps` (2119 personnes) :
 
-1. **Accès exploitable** → `pistes_scriptorium` sur le modèle de Gallica (§3.3).
-2. **Pas d'accès** → **la source est abandonnée**, et ce spec est mis à jour pour le consigner.
-   On n'écrira **pas** de scraping fragile : il produirait des URL fabriquées, consignées dans
-   Gramps comme preuves — le pire résultat possible pour une base généalogique.
+| Périmètre | Lieux | Événements | Personnes |
+| --- | --- | --- | --- |
+| Vaud — territoire de Scriptorium | 8 | 12 | **9** |
+| Romandie | 13 | 26 | 19 |
+| Suisse entière | 25 | 224 | 122 |
 
-Cette exploration ne dépasse pas une demi-journée. Au-delà, l'issue 2 s'applique par défaut.
+La Suisse pèse 6 % de l'arbre, mais elle est massivement **alémanique** (Berne, Argovie,
+Thurgovie, Emmental). La cible de Scriptorium est de **neuf personnes**.
+
+**L'accès.** Le document de travail annonce « BCUL, OAI-PMH ». **Non vérifié et probablement
+faux** : `https://www.scriptorium.ch/api` répond « MediaINFO API is up and running », ce qui
+n'est ni Omeka S ni OAI-PMH. Aucune documentation d'accès programmatique n'a été trouvée.
+
+**Décision** : la source est écartée de ce sous-projet et consignée dans `docs/BACKLOG.md` avec
+ces chiffres. Condition de réouverture : que la branche vaudoise s'étoffe sensiblement. En aucun
+cas on n'écrira de scraping pour y suppléer — il produirait des URL fabriquées, consignées dans
+Gramps comme preuves, ce que le projet a déjà refusé sur Mémoire des hommes.
+
+Noter la dissymétrie avec le DHS (§3.2), qui couvre la Suisse **entière** : même origine
+géographique, cibles incomparables (122 personnes contre 9), et coût bien moindre puisqu'il n'est
+qu'une projection de Wikidata.
 
 ## 4. Ce qui ne change pas
 
-- **Aucune citation, aucun fait.** Les cinq sources n'émettent que des `Piste`, consignées en
+- **Aucune citation, aucun fait.** Les quatre sources n'émettent que des `Piste`, consignées en
   notes append-only avec le marqueur du contrat 0.20.0.
-- **`force` reste dérivé** et vit dans la bibliothèque, invoqué identiquement par les cinq
+- **`force` reste dérivé** et vit dans la bibliothèque, invoqué identiquement par les quatre
   sources. Aucun module n'a le droit de le saisir.
 - **Le vocabulaire des concordances reste clos** aux six facteurs existants. Une source qui
   voudrait faire valoir « né en 1888 » se fait refuser par pydantic — l'année seule n'est jamais
@@ -159,21 +173,20 @@ Cette exploration ne dépasse pas une demi-journée. Au-delà, l'issue 2 s'appli
 
 ## 5. Tests
 
-- **Bibliothèque** : les cinq `pistes_*` étant pures, elles se testent par tables de cas sur des
+- **Bibliothèque** : les quatre `pistes_*` étant pures, elles se testent par tables de cas sur des
   résultats d'API figés (fixtures) — aucun réseau. Au minimum, par source : une piste forte quand
   c'est possible, une faible, un rejet hors fenêtre temporelle.
 - **Non-régression du déménagement** : les tests existants de `piste_depuis_match` suivent la
   fonction vers `pistes/matchid.py` et doivent passer **sans modification de leurs assertions**.
   C'est le critère qui prouve que le déplacement n'a rien changé au comportement.
-- **genecrew** : les quatre feuilles se testent au niveau du parseur (`test_cli_parser.py`), comme
+- **genecrew** : les trois feuilles se testent au niveau du parseur (`test_cli_parser.py`), comme
   les feuilles existantes.
 
 ## 6. Risques
 
 | Risque | Traitement |
 | --- | --- |
-| Scriptorium sans accès programmatique | exploration bornée d'abord ; abandon assumé sinon (§3.4) |
-| DHS ne touche aucune personne de l'arbre | coût faible (projection de Wikidata) ; on le saura vite |
+| DHS ne couvre que les personnes notables | cible large (122 personnes suisses), coût faible (projection de Wikidata) ; on le saura vite |
 | Wikidata à faible rendement (personnes non notables) | assumé — coût faible, valeur unitaire haute |
 | Déménagement de `piste_depuis_match` | livraison inter-dépôts : **taguer et pousser la bibliothèque avant** que la CI de genecrew puisse verdir (la CI checkoute le voisin sur le tag lu dans `uv.lock`) |
 | Volume de pistes faibles noyant la relecture | la presse ne cible que des personnes déjà identifiées (§1.3) ; le rapport sépare déjà fortes et faibles |
@@ -182,8 +195,7 @@ Cette exploration ne dépasse pas une demi-journée. Au-delà, l'issue 2 s'appli
 
 1. Déménagement de `piste_depuis_match` → `pistes/matchid.py` (établit le paquet et l'interface).
 2. Wikidata (la source à pistes fortes, celle qui a le plus de valeur).
-3. DHS (projection quasi gratuite de 2).
-4. Gallica (presse FR, le plus gros volume).
-5. Scriptorium — **exploration d'abord**, puis implémentation ou abandon documenté.
+3. DHS (projection quasi gratuite de 2, cible de 122 personnes).
+4. Gallica (presse FR, le plus gros volume, pistes faibles par construction).
 
 Chaque étape est livrable seule : le spec est unique, la livraison reste incrémentale.
