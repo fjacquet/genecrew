@@ -167,7 +167,21 @@ def candidats_blocage(releve: ReleveIndexe,
 
 
 def _evenement_compare(person: PersonFacts, type_: str) -> EventFact | None:
-    return person.death if type_ == "Death" else person.birth
+    """L'événement de l'arbre comparable au relevé, `None` s'il n'y en a pas.
+
+    Le mariage est HORS PÉRIMÈTRE à ce stade : il vit sur la famille, pas sur
+    la personne, et `PersonFacts` n'en porte aucune trace. C'est pourquoi tout
+    type autre que « Death » et « Birth » rend `None` plutôt que de retomber
+    sur la naissance. Un tel repli comparerait un relevé de mariage à un acte
+    de naissance ; comme naître et se marier dans la même commune est le cas
+    ordinaire, le lieu concorderait souvent — et on tirerait un facteur fort
+    d'une comparaison qui n'a jamais regardé le mariage.
+    """
+    if type_ == "Death":
+        return person.death
+    if type_ == "Birth":
+        return person.birth
+    return None
 
 
 def _date_iso(ev: EventFact | None) -> str:

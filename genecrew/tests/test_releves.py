@@ -224,6 +224,23 @@ def test_divergence_de_date_est_un_veto_pas_un_malus():
     assert a.divergences
 
 
+def test_releve_de_mariage_ne_se_compare_a_aucun_evenement():
+    """« Marriage » est une valeur documentée d'`evenement_type`, mais le
+    mariage vit sur la FAMILLE, pas sur la personne : `PersonFacts` n'en porte
+    aucune trace. Un `else` qui rendait la naissance faisait comparer un relevé
+    de mariage à un acte de naissance — et né et marié dans la même commune est
+    le cas ORDINAIRE, donc on tirait un facteur fort « lieu » d'une comparaison
+    qui n'avait jamais regardé le mariage."""
+    p = _p("I1", "JACQUET", "Rose")
+    p.birth = _ev("Birth", 10, 12, 1894, "Saint-Martin-d'Auxigny")
+    r = _releve(evenement_type="Marriage", evenement_date="1894-12-10",
+                evenement_lieu="Saint-Martin-d'Auxigny")
+    a = apparier(r, [p], {"JACQUET": 0.75}, {})
+    assert "lieu" not in a.facteurs
+    assert "date complète" not in a.facteurs
+    assert a.divergences == []
+
+
 def test_annee_seule_ne_fait_pas_une_date_complete():
     """dateval [0, 0, 1894] est une année, pas une date : aucun facteur fort."""
     p = _p("I1", "JACQUET", "Rose")
