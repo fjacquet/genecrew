@@ -7,6 +7,69 @@ Non publié / non versionné (`0.1.0`) : entrées **datées par livraison**. La 
 
 ---
 
+## 2026-07-20
+
+### Changed
+
+- **⚠ La CLI passe de 16 sous-commandes plates à 7 verbes — changement cassant, sans alias.**
+  Le nom encodait l'outil, pas le geste, et chaque nouveau domaine ajoutait une entrée : la
+  surface grandissait linéairement avec les sources de données. Tous les domaines suivent
+  pourtant le même cycle — proposer (lecture seule) → relire (humain) → appliquer (écriture) —
+  appliqué partout dans le code et nulle part dans la CLI. La nouvelle grammaire :
+  `stats`, `propose {audit|places|deaths|military|gender}`,
+  `apply {case|gender|places|citations|all}`, `merge places`, `enrich wiki`, `import place`,
+  `crew audit`. Ajouter une base devient une feuille sous `propose`, jamais un verbe.
+  `deces-apply` et `militaires-apply` **fusionnent** en `apply citations` : elles pointaient
+  déjà sur la même fonction, le registre étant déduit du YAML relu et non du nom de la
+  commande. `stats` est le seul nom inchangé ; les 15 autres disparaissent — l'échec est
+  bruyant, immédiat, et n'écrit rien. Deux flags renommés : `--merges`/`--propositions` →
+  `--yaml`, `--sans-images` → `--no-images`. Le parseur sort de `main.py` dans un `cli.py`
+  testable (`build_parser()`), et les flags partagés — redéclarés 10 fois à l'identique —
+  sont factorisés. **Table de correspondance complète dans l'ADR 0012.**
+
+### Added
+
+- **CI sur chaque PR** (`.github/workflows/ci.yml`). `crewai-custom-tools` n'étant pas sur PyPI
+  et `uv.lock` verrouillant le chemin relatif `../crewai_custom_tools`, le runner clone les
+  **deux dépôts côte à côte** — ni `pyproject.toml` ni `uv.lock` n'ont eu à changer. Le clone du
+  voisin est **épinglé sur le tag `v<version du lock>`**, donc une PR verte le reste. Une
+  sentinelle non bloquante compare en parallèle le lock au `main` du voisin et émet un
+  avertissement s'il a avancé : on garde la visibilité de la dérive sans qu'elle rougisse une PR
+  qui n'y est pour rien. Jobs bloquants : `tests et lint`, `construction de la doc`. Job
+  `sécurité` **informatif** (semgrep, rulesets explicites sans télémétrie) tant que les alertes
+  Dependabot préexistantes ne sont pas traitées — ses constats partent en SARIF vers l'onglet
+  Security, pour qu'un job vert ne puisse pas taire une détection.
+- **Documentation publiée sur GitHub Pages** — <https://fjacquet.github.io/genecrew/>
+  (`.github/workflows/docs.yml`, `mkdocs.yml`, `scripts/build-docs.sh`). MkDocs Material, en
+  français. Sont publiés le README (page d'accueil), le guide, le PRD, le backlog et les 12 ADR.
+  Sont **exclus** les plans et specs datés (`docs/superpowers/`), le document de travail et les
+  specs d'API : un plan daté décrit ce qui était vrai à sa date, le publier comme documentation
+  courante induirait en erreur. Le build tourne aussi en PR, bloquant, pour qu'un lien cassé
+  soit arrêté avant merge et non découvert par un déploiement silencieusement raté.
+- `test_cmd_bodies.py` — aucun test n'exécutait le corps des fonctions `*_cmd`, là où vivent
+  précisément les lectures d'attributs renommées. Une faute de frappe y passait les 152 tests et
+  échouait au premier vrai run.
+
+### Fixed
+
+- **`apply citations` n'attribue plus à l'INSEE un registre qu'il ne connaît pas.**
+  `source_title_for` reconnaissait Mémoire des hommes et Gallica, puis **retombait
+  silencieusement sur INSEE**. En ajoutant une base (Léonore, presse suisse), chaque citation
+  aurait été écrite dans Gramps attribuée à tort à l'INSEE — sur un chemin d'écriture, sans
+  bruit. Chaque registre est désormais détecté **positivement** et un `preuve_detail` non
+  reconnu lève.
+- **`enrich wiki` : `--limit` borne enfin le trafic, et les échecs d'image ne sont plus avalés.**
+  La pagination lisait l'arbre entier avant d'appliquer la borne. Et lorsqu'un import ou un
+  attachement d'image échouait, la boucle passait au suivant sans rien consigner : lien posé,
+  image perdue, rapport muet. Les deux échecs alimentent maintenant la section « Erreurs ».
+  Corrigé aussi `dist == 0` traité comme une distance manquante (`0 or 1e9` vaut `1e9`) —
+  sans effet observable aujourd'hui, la garde d'ambiguïté masquant le cas, mais le piège
+  mordrait si le seuil bougeait.
+- **Documentation qui sous-décrivait des écritures** : `apply all` était présenté comme
+  « casse puis genre » alors qu'il écrit aussi les lieux (le volet décès, lui, ne fait que
+  proposer) ; `CLAUDE.md` rangeait `facts.py` parmi les modules genecrew alors qu'il vit dans
+  `crewai_custom_tools`.
+
 ## 2026-07-19
 
 ### Changed
