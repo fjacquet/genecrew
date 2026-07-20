@@ -76,12 +76,43 @@ premier run, pour des problèmes antérieurs à toute PR. **Une CI qui démarre 
 qu'on apprend à ignorer** — le pire résultat possible. Le job publie ses constats et laisse
 passer ; il devient bloquant une fois les alertes existantes traitées.
 
-#### `uv sync --locked` échouera quand la bibliothèque bumpera
+#### La dérive de version, et la garde qui la rend lisible
 
-Le lock épingle `crewai-custom-tools` en `0.16.0` ; la CI teste contre `main` du dépôt
-voisin. Un bump côté bibliothèque fera **échouer** l'installation. C'est le comportement
-voulu : la dérive entre les deux dépôts devient bruyante au lieu d'être découverte à
-l'usage. Le remède est `uv sync` puis commit du lock.
+État au 2026-07-20, vérifié : voisin local = distant = `3693f36`, version `0.16.0` des deux
+côtés, lock à `0.16.0`, `uv sync --locked` passe. **La CI est verte dès le premier run.**
+
+Le lock épingle `0.16.0` et la CI teste contre `main` du voisin. Un bump côté bibliothèque
+fait donc échouer l'installation — comportement voulu : la dérive devient bruyante au lieu
+d'être découverte à l'usage.
+
+Échec reproduit expérimentalement (version du voisin passée à `0.17.0`, puis restaurée) :
+
+```
+error: The lockfile at `uv.lock` needs to be updated, but `--locked` was provided.
+hint: To update the lockfile, run `uv lock`.
+```
+
+Message exact, mais **muet sur la cause** : il ne nomme ni la dépendance qui a dérivé, ni le
+fait que la PR en cours n'y est pour rien. Une étape préalable comble ce trou :
+
+```bash
+LOCK_V=$(…)   # version lue dans uv.lock
+LIB_V=$(…)    # version lue dans ../crewai_custom_tools/pyproject.toml
+[ "$LOCK_V" = "$LIB_V" ] || {
+  echo "::error::crewai-custom-tools main est en $LIB_V, uv.lock attend $LOCK_V."
+  echo "::error::Ce n'est pas un défaut de cette PR."
+  echo "::error::Corriger : uv sync && git add uv.lock && git commit"
+  exit 1
+}
+```
+
+Cinq lignes qui transforment une erreur cryptique en tâche à faire.
+
+Deux options ont été écartées. **`uv sync` sans `--locked`** : la CI ne rougirait jamais,
+mais cesserait de tester ce qu'un développeur installe réellement, et le lock deviendrait
+décoratif. **Épingler un SHA du voisin + job hebdomadaire** : plus rigoureux, mais les tags
+du voisin sont abandonnés (dernier `v0.11.0` pour une version `0.16.0`), donc aucun point
+d'ancrage naturel — le SHA se mettrait à jour à la main et rouillerait.
 
 ### `docs.yml` — la doc vivante sur Pages
 
