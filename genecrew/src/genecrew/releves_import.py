@@ -65,4 +65,26 @@ def parse_releve(texte: str, llm=None) -> ReleveIndexe:
     # une valeur renvoyée par le LLM (même s'il en invente une sous cette clé) :
     # c'est la seule garantie que la source reste vérifiable par un humain.
     donnees["texte_brut"] = texte
-    return ReleveIndexe.model_validate(donnees)
+    releve = ReleveIndexe.model_validate(donnees)
+    # `fonds` et `reference` composent la clé d'idempotence écrite dans la note
+    # de l'arbre : f"[genecrew:releve:{code_fonds(fonds)}:{reference}]". Aucun
+    # des deux champs n'a de contrainte de longueur côté pydantic — un JSON
+    # valide avec l'un des deux vide (ou fait uniquement de blancs) traverse
+    # model_validate() sans broncher. Si ça arrivait, la clé dégénérerait en la
+    # CONSTANTE "[genecrew:releve::]" : tout autre relevé mal interprété de la
+    # même façon produirait le même marqueur, et deja_importe() conclurait à
+    # tort « déjà importé » — un relevé réellement distinct serait alors
+    # silencieusement sauté, sans erreur ni log. C'est une perte de donnée
+    # invisible, le pire mode de défaillance possible ici : mieux vaut refuser
+    # bruyamment un relevé mal interprété que le sauter en silence.
+    if not releve.fonds.strip():
+        raise ValueError(
+            "Le fonds est vide ou ne contient que des blancs : un relevé sans "
+            "fonds ne peut pas être identifié de façon stable."
+        )
+    if not releve.reference.strip():
+        raise ValueError(
+            "La référence est vide ou ne contient que des blancs : un relevé "
+            "sans référence ne peut pas être identifié de façon stable."
+        )
+    return releve

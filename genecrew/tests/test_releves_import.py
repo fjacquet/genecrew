@@ -76,3 +76,30 @@ def test_json_entoure_de_texte_est_extrait():
 def test_reponse_illisible_leve_clairement():
     with pytest.raises(ValueError, match="JSON"):
         parse_releve(COLLAGE_ROSE, llm=_LLMStub("je ne sais pas"))
+
+
+def test_reference_vide_leve_une_erreur_explicite():
+    """Une référence vide dégraderait la clé d'idempotence en constante — voir
+    la docstring de parse_releve : refuser bruyamment plutôt que sauter en silence."""
+    donnees = dict(_JSON_ATTENDU, reference="")
+    with pytest.raises(ValueError, match="(?i)référence"):
+        parse_releve(COLLAGE_ROSE, llm=_LLMStub(json.dumps(donnees)))
+
+
+def test_fonds_vide_leve_une_erreur_explicite():
+    donnees = dict(_JSON_ATTENDU, fonds="")
+    with pytest.raises(ValueError, match="(?i)fonds"):
+        parse_releve(COLLAGE_ROSE, llm=_LLMStub(json.dumps(donnees)))
+
+
+def test_reference_uniquement_blancs_leve_une_erreur():
+    """Un strip() est nécessaire : une garde naïve sur `== ""` raterait ce cas."""
+    donnees = dict(_JSON_ATTENDU, reference="   ")
+    with pytest.raises(ValueError, match="(?i)référence"):
+        parse_releve(COLLAGE_ROSE, llm=_LLMStub(json.dumps(donnees)))
+
+
+def test_fonds_uniquement_blancs_leve_une_erreur():
+    donnees = dict(_JSON_ATTENDU, fonds="\t \n")
+    with pytest.raises(ValueError, match="(?i)fonds"):
+        parse_releve(COLLAGE_ROSE, llm=_LLMStub(json.dumps(donnees)))
