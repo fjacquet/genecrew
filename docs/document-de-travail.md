@@ -623,12 +623,14 @@ de sortie sur l'arbre réel.**
 | **1** | ✅ terminée | R1–R10 + D1–D3, `propose audit`, checkpoints, `crew audit` (ADR 0006) |
 | **2** | ✅ terminée | note/tag append-only, `effective_dry_run`, ADR 0001 |
 | **3** | ✅ **dépassée** | résolveurs FR/CH **et** DE/US (hors périmètre initial), ex-communes fusionnées avec placerefs datées, `merge places`, GPS ; casse des noms (ADR 0007), genre (ADR 0008/0009), lieux (ADR 0010). Restent non traités : normalisation des **dates textuelles** et des **titres de sources** |
-| **4** | 🟡 **en cours** | MatchID décès ✅ (critère de sortie atteint) ; contrat `Piste` ✅ (marqueur, idempotence, force dérivée, rapport fortes/faibles). `GallicaSearchTool` (SRU) et `WikidataSparqlTool` existent dans `tools/web/`, mais **génériques** : ils ne savent pas construire une requête à partir d'une personne, ni émettre de `Piste`. **Manquent : la couche généalogique par-dessus ces deux outils, et le DHS et Scriptorium en entier** |
+| **4** | 🟡 **en cours** | MatchID décès ✅ (critère de sortie atteint) ; contrat `Piste` ✅ (marqueur, idempotence, force dérivée, rapport fortes/faibles). Trois sources livrées : MatchID (décès), **`propose wikidata`** (seule source à produire des pistes fortes ; réserve de couverture — personnes notables seulement, rendement faible attendu sur un arbre ordinaire) et **`propose dhs`** (projection de Wikidata via la propriété P902, Suisse entière, 122 personnes de l'arbre concernées). Gallica reste dans la bibliothèque, volontairement sans feuille CLI (SRU = notices de collection, pas d'articles ; sous-projet à part, voir `docs/BACKLOG.md`) ; Scriptorium a été écarté (9 personnes, accès non documenté, voir `docs/BACKLOG.md`). **Mode d'emploi dans `docs/USER_GUIDE.md`. Critère de sortie non encore évalué** : « pistes jugées utiles par l'utilisateur » dépend d'une mesure sur l'arbre réel, pas encore faite — à confirmer avec le propriétaire de l'arbre avant de passer la phase à ✅ |
 | **5** | 🟡 **partielle** | chaîne source→citation→rattachement ✅ avec confiance plafonnée à 2 (ADR 0011, `apply citations`, éprouvée sur les propositions militaires). **Manquent : notices biographiques et rapport familial** |
 | **6** | ⬜ non commencée | ni agent Archiviste, ni OCR, ni transcription par vision |
 
-**Prochain incrément** : les outils d'archives en ligne de la phase 4 (Gallica, Wikidata, DHS,
-Scriptorium), qui donnent enfin sa matière à l'Historien.
+**Prochain incrément** : mesurer le rendement réel de `propose wikidata`/`propose dhs` sur
+l'arbre complet et faire trancher le critère de sortie de la phase 4 par le propriétaire de
+l'arbre. Le sous-projet Gallica (`services/ContentSearch`, deux étapes) reste ouvert, voir
+`docs/BACKLOG.md`.
 
 ---
 

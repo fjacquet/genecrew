@@ -40,13 +40,23 @@ prolifération de mots de tête :
 
 ```
 genecrew stats
-genecrew propose  {audit | places | deaths | military | gender}   # lecture seule → rapport + YAML
+genecrew propose  {audit | places | deaths | military | gender | wikidata | dhs}  # lecture seule → rapport (+ YAML pour audit|places|deaths|military)
 genecrew apply    {case | gender | places | citations | all}      # écrit
 genecrew merge    places --yaml <fusions relues>                  # jamais auto
 genecrew enrich   wiki                                            # append-only
 genecrew import   place "<adresse>"                               # one-shot
 genecrew crew     audit                                           # LLM (escalade)
 ```
+
+`propose wikidata` et `propose dhs` (chantier 2026-07-20, pistes de recherche) ont ajouté deux
+feuilles à `propose` après cet ADR, exactement selon la doctrine qu'il pose : aucun nouveau mot
+de tête, une feuille de plus sous le verbe existant. Elles ne produisent pas de YAML à relire — le
+cycle proposer→appliquer ne s'y applique pas : une piste n'est jamais un fait, donc rien n'entre
+dans `apply citations` depuis ces deux commandes ; seules les pistes fortes sont consignées en
+note, directement, sous leur propre garde `GENECREW_DRY_RUN` (voir `docs/USER_GUIDE.md`, section
+« Pistes depuis les archives en ligne »). Une troisième source (Gallica) existe dans la
+bibliothèque mais n'a délibérément aucune feuille CLI ; une quatrième (Scriptorium) a été écartée
+sur mesure. Détail des deux dans `docs/BACKLOG.md`.
 
 Ajouter une base de données devient `propose <base>` — une feuille de plus sous un verbe
 existant, jamais un nouveau mot de tête. Le YAML relu qui sort d'un `propose` passe par

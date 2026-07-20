@@ -363,6 +363,64 @@ sont réversibles via l'historique des transactions Gramps (ADR 0001).
 
 ---
 
+## Pistes depuis les archives en ligne
+
+Interroge des bases externes pour trouver, pour une personne de l'arbre, une fiche qui pourrait
+la concerner ailleurs — jamais un fait : **aucune citation n'est créée** par ces commandes. Seules
+les pistes jugées **fortes** (au moins deux facteurs de concordance distincts, aucune divergence)
+sont consignées, en note append-only taguée `ia-piste` sur la personne ; les pistes **faibles**
+n'existent que dans le rapport Markdown — les perdre les perdrait, donc regardez-y avant de les
+écarter. Voir le contrat `Piste` (§6.3 du document de travail).
+
+Deux sources, deux feuilles sous `propose` :
+
+- **`propose wikidata`** — interroge Wikidata par son service de recherche indexé. C'est la
+  **seule source capable de produire des pistes fortes** : ses propriétés sont structurées, donc
+  plusieurs facteurs de concordance distincts (nom, date complète, lieu) peuvent s'aligner sur la
+  même fiche. En contrepartie, réserve honnête : Wikidata ne décrit que des **personnes
+  notables** — sur un arbre de généalogie ordinaire, le rendement sera faible. C'est acceptable :
+  le coût par personne est faible, et les rares correspondances sont de haute valeur.
+- **`propose dhs`** — le *Dictionnaire historique de la Suisse*. Ce n'est **pas une API** : la
+  propriété Wikidata **P902** porte l'identifiant de l'article DHS sur l'élément Wikidata de la
+  personne, donc cette commande est une projection de `propose wikidata`, pas un protocole
+  distinct. Elle vise la Suisse **entière**, alémanique comprise — 122 personnes de l'arbre sont
+  rattachées à un lieu suisse (contre 9 seulement pour le canton de Vaud, voir plus bas).
+
+```bash
+# Le scan par personne est le mode d'usage normal — le scan complet de l'arbre est l'exception :
+uv run genecrew propose wikidata --scope person:I0042
+uv run genecrew propose dhs --scope person:I0042
+
+# Scan complet, borné avec --limit (voir plus bas pourquoi c'est nécessaire) :
+uv run genecrew propose wikidata --scope all --limit 50
+uv run genecrew propose dhs --scope all --limit 50
+```
+
+Rapport écrit sous `output/` : `<AAAA-MM-JJ>_pistes_<source>_<scope>.md`, pistes fortes et
+faibles séparées, avec pour chacune la requête rejouable et l'URL (ou, à défaut de permalien dans
+la source, une note explicite plutôt qu'un lien mort).
+
+**Ces commandes interrogent une API publique et gratuite, une fois par personne, avec un
+espacement délibéré de 2 secondes entre les appels.** Un scan complet de l'arbre est donc long —
+c'est voulu : c'est de la politesse envers un service partagé, pas une limite technique à
+contourner. Bornez toujours un premier essai avec `--limit`.
+
+Comme pour les autres écritures du projet, le double interrupteur dry-run s'applique aux pistes
+fortes : le défaut (`GENECREW_DRY_RUN=true`) simule la consignation tant qu'il n'est pas mis à
+`false` dans `.env`. Ces deux commandes n'ont pas de flag `--dry-run` propre — il n'y a rien
+d'autre à simuler que cette seule consignation, déjà gouvernée par la variable globale.
+
+**Gallica n'est volontairement pas exposée ici.** Mesurée contre l'API réelle, son protocole SRU
+ne rend que des notices de *collection* (un périodique, pas un article) — une piste dirait « ce
+nom apparaît quelque part dans ce volume de 500 pages », inexploitable en généalogie. L'API
+adéquate (`services/ContentSearch`, qui rend des passages avec numéro de page) impose une
+conception à deux étapes et fera l'objet d'un sous-projet séparé. Détail complet, mesures et
+piste de reprise dans `docs/BACKLOG.md` (section « Sources de pistes écartées »), qui couvre
+aussi Scriptorium (presse vaudoise, écarté pour une cible trop étroite — 9 personnes — et un
+accès programmatique non documenté).
+
+---
+
 ## Phases suivantes
 
 Les sections Phase 1b (interprétation LLM, tags, PDF) à Phase 6 (Archiviste Numérique) seront
