@@ -250,13 +250,40 @@ def test_wikidata_ex_commune_missing_optionals(monkeypatch):
 
 
 def test_wikidata_ex_commune_network_failure_is_none(monkeypatch):
+    import requests
+
     def boom(query):
-        raise RuntimeError("wikidata down")
+        raise requests.ConnectionError("wikidata down")
 
     monkeypatch.setattr(fec, "sparql_rows", boom)
-    # Wikidata n'est qu'un enrichisseur : son indisponibilité ne doit pas faire
+    # Wikidata n'est qu'un enrichisseur : une panne réseau ne doit pas faire
     # échouer la résolution, seulement priver de la datation.
     assert fec.wikidata_ex_commune("55451") is None
+
+
+def test_wikidata_ex_commune_malformed_json_is_none(monkeypatch):
+    import requests
+
+    def boom(query):
+        # requests.exceptions.JSONDecodeError hérite de RequestException (vérifié) :
+        # un JSON malformé est donc couvert par la même clause que le réseau.
+        raise requests.exceptions.JSONDecodeError("bad", "", 0)
+
+    monkeypatch.setattr(fec, "sparql_rows", boom)
+    assert fec.wikidata_ex_commune("55451") is None
+
+
+def test_wikidata_ex_commune_programming_error_propagates(monkeypatch):
+    import pytest
+
+    def boom(query):
+        raise KeyError("variable SPARQL absente du gabarit")
+
+    monkeypatch.setattr(fec, "sparql_rows", boom)
+    # Convention du dépôt (cf. places_apply.py) : un bug de programmation remonte,
+    # il n'est pas déguisé en « pas de datation ».
+    with pytest.raises(KeyError):
+        fec.wikidata_ex_commune("55451")
 ```
 
 - [ ] **Step 2: Lancer les tests, vérifier qu'ils échouent**
@@ -287,6 +314,7 @@ from __future__ import annotations
 
 import re
 
+import requests
 from pydantic import BaseModel
 
 from crewai_custom_tools.tools.web.wikidata import sparql_rows
@@ -333,7 +361,11 @@ def wikidata_ex_commune(insee: str) -> ExCommuneFacts | None:
     """
     try:
         rows = sparql_rows(_SPARQL.format(insee=insee))
-    except Exception:                      # réseau, SPARQL, JSON : dégradation, pas d'échec
+    except requests.RequestException:
+        # Réseau ET JSON malformé (JSONDecodeError hérite de RequestException).
+        # Volontairement étroit : un KeyError ou une ValidationError seraient des
+        # bugs de ce module, et doivent remonter plutôt que se déguiser en
+        # « pas de datation » — même convention que places_apply.py.
         return None
     if len(rows) != 1:                     # 0 = inconnu ; >1 = ambigu -> on ne date pas
         return None
@@ -358,7 +390,7 @@ cd /Users/fjacquet/Projects/crewai_custom_tools
 uv run python -m pytest tests/test_genealogy_geo_france_ex_communes.py -v
 ```
 
-Attendu : `7 passed`.
+Attendu : `9 passed`.
 
 - [ ] **Step 5: Commit**
 
@@ -379,11 +411,14 @@ d'abord, comme GeoJSON. 0 ou >1 entité -> None, on ne date pas."
 
 **Files:**
 - Modify: `crewai_custom_tools/src/crewai_custom_tools/tools/genealogy/geo/france_ex_communes.py`
+- Modify: `crewai_custom_tools/src/crewai_custom_tools/tools/genealogy/geo/france.py` (extraction du filtre partagé)
 - Modify: `crewai_custom_tools/tests/test_genealogy_geo_france_ex_communes.py`
 
 **Interfaces:**
 - Consumes: `wikidata_ex_commune(insee) -> ExCommuneFacts | None` (Task 2) ; `map_commune(payload, parsed) -> ResolvedPlace` et `_norm(s) -> str` (existants).
-- Produces: `resolve_fr_ex_commune(parsed: ParsedPlace) -> ResolvedPlace | None` — la signature attendue par le registre (Task 4).
+- Produces:
+  - `pick_exact_by_name(results: list, parsed: ParsedPlace) -> list` — dans `france.py`, extrait de `_resolve_fr_by_name` sans changement de comportement, désormais partagé par les deux résolveurs.
+  - `resolve_fr_ex_commune(parsed: ParsedPlace) -> ResolvedPlace | None` — la signature attendue par le registre (Task 4).
 
 - [ ] **Step 1: Écrire les tests qui échouent**
 
@@ -529,9 +564,58 @@ cd /Users/fjacquet/Projects/crewai_custom_tools
 uv run python -m pytest tests/test_genealogy_geo_france_ex_communes.py -v
 ```
 
-Attendu : les 9 nouveaux tests `FAILED` (`module ... has no attribute '_http_get'` / `'resolve_fr_ex_commune'`), les 7 de la Task 2 toujours `passed`.
+Attendu : les 9 nouveaux tests `FAILED` (`module ... has no attribute '_http_get'` / `'resolve_fr_ex_commune'`), les 9 de la Task 2 toujours `passed`.
 
-- [ ] **Step 3: Implémenter**
+- [ ] **Step 3: Extraire le filtre de nom exact dans `france.py`**
+
+Les deux résolveurs ont besoin du même filtre. Plutôt que de le dupliquer, on le sort de
+`_resolve_fr_by_name`, **sans en changer le comportement** — la clause sur le code de
+département est verrouillée par
+`test_resolve_fr_by_name_region_only_context_does_not_collapse_homonyms`, elle doit survivre
+telle quelle.
+
+Dans `geo/france.py`, ajouter cette fonction avant `_resolve_fr_by_name` :
+
+```python
+def pick_exact_by_name(results: list, parsed: ParsedPlace) -> list:
+    """Ne garder que les correspondances de nom EXACTES, désambiguïsées par contexte.
+
+    La recherche `nom` de geo.api.gouv.fr est floue : un quasi-homonyme ne doit
+    jamais passer pour une résolution. Partagé par le résolveur des communes
+    vivantes et par celui des ex-communes, qui interrogent deux endpoints au
+    format identique.
+    """
+    exact = [c for c in results if _norm(c.get("nom", "")) == _norm(parsed.commune)]
+    ctx = _norm(parsed.departement) or _norm(parsed.region)
+    if ctx and len(exact) > 1:
+        filtered = [c for c in exact
+                    if ctx in (_norm((c.get("departement") or {}).get("nom", "")),
+                               _norm((c.get("region") or {}).get("nom", "")))
+                    or (bool(parsed.departement)
+                        and (c.get("departement") or {}).get("code", "") == parsed.departement)]
+        if filtered:
+            exact = filtered
+    return exact
+```
+
+puis, dans `_resolve_fr_by_name`, remplacer les lignes qui calculaient `exact` (de
+`exact = [c for c in results ...]` jusqu'au `if filtered: exact = filtered` inclus) par :
+
+```python
+    exact = pick_exact_by_name(results, parsed)
+```
+
+Lancer immédiatement la suite France pour prouver que l'extraction est neutre :
+
+```bash
+cd /Users/fjacquet/Projects/crewai_custom_tools
+uv run python -m pytest tests/test_genealogy_geo_france.py -v
+```
+
+Attendu : les 7 tests passent, **inchangés**. Si l'un tombe, l'extraction a modifié le
+comportement — corriger avant de continuer.
+
+- [ ] **Step 4: Implémenter le résolveur**
 
 Dans `france_ex_communes.py`, remplacer le bloc d'imports par :
 
@@ -545,8 +629,7 @@ from pydantic import BaseModel
 
 from crewai_custom_tools.core.rate_limiter import get_rate_limiter
 from crewai_custom_tools.tools.genealogy.geo.france import _FIELDS as _COMMUNE_FIELDS
-from crewai_custom_tools.tools.genealogy.geo.france import map_commune
-from crewai_custom_tools.tools.genealogy.geo.score import _norm
+from crewai_custom_tools.tools.genealogy.geo.france import map_commune, pick_exact_by_name
 from crewai_custom_tools.tools.genealogy.models.domain import (
     DatedChain, DatedName, ParsedPlace, PlaceLevel, ResolvedPlace,
 )
@@ -569,23 +652,6 @@ def _http_get(path: str, params: dict):
     return resp.json()
 
 
-def _pick_exact(results: list, parsed: ParsedPlace) -> list:
-    """Ne garder que les correspondances de nom EXACTES, désambiguïsées par contexte.
-
-    Miroir de `_resolve_fr_by_name` : la recherche `nom` de l'API est floue, un
-    quasi-homonyme ne doit jamais passer pour une résolution.
-    """
-    exact = [c for c in results if _norm(c.get("nom", "")) == _norm(parsed.commune)]
-    ctx = _norm(parsed.departement) or _norm(parsed.region)
-    if ctx and len(exact) > 1:
-        filtered = [c for c in exact
-                    if ctx in (_norm((c.get("departement") or {}).get("nom", "")),
-                               _norm((c.get("region") or {}).get("nom", "")))]
-        if filtered:
-            exact = filtered
-    return exact
-
-
 def resolve_fr_ex_commune(parsed: ParsedPlace) -> ResolvedPlace | None:
     """Résout une commune française fusionnée (associée/déléguée).
 
@@ -598,7 +664,7 @@ def resolve_fr_ex_commune(parsed: ParsedPlace) -> ResolvedPlace | None:
                         {"nom": parsed.commune, "fields": _ASSOCIEE_FIELDS, "limit": 10})
     if not isinstance(results, list) or not results:
         return None
-    exact = _pick_exact(results, parsed)
+    exact = pick_exact_by_name(results, parsed)
     if not exact:
         return None                                  # repli Nominatim côté registre
     ex = exact[0]
@@ -653,20 +719,21 @@ def resolve_fr_ex_commune(parsed: ParsedPlace) -> ResolvedPlace | None:
     return resolved
 ```
 
-- [ ] **Step 4: Lancer les tests, vérifier qu'ils passent**
+- [ ] **Step 5: Lancer les tests, vérifier qu'ils passent**
 
 ```bash
 cd /Users/fjacquet/Projects/crewai_custom_tools
 uv run python -m pytest tests/test_genealogy_geo_france_ex_communes.py -v
 ```
 
-Attendu : `16 passed`.
+Attendu : `18 passed`.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 cd /Users/fjacquet/Projects/crewai_custom_tools
 git add src/crewai_custom_tools/tools/genealogy/geo/france_ex_communes.py \
+        src/crewai_custom_tools/tools/genealogy/geo/france.py \
         tests/test_genealogy_geo_france_ex_communes.py
 git commit -m "feat(geo): resolve_fr_ex_commune, deux placerefs datées
 
