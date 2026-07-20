@@ -1,6 +1,6 @@
 """Apply gender corrections to Gramps (write) from live re-inference.
 
-Unlike `genecrew gender` (read-only), this WRITES a fact: it re-infers each
+Unlike `genecrew propose gender` (read-only), this WRITES a fact: it re-infers each
 person's sex from the INSEE+OFS table and, above a confidence threshold, sets
 the gender in Gramps (fills unknowns, corrects contradictions). Bounded,
 reversible, gated by dry_run + GENECREW_DRY_RUN (ADR 0009).

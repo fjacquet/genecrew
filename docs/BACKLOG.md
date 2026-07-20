@@ -5,7 +5,7 @@ Suivis non bloquants notés au fil de l'eau (revues, usage). Aucun n'est urgent 
 
 ## UX / observabilité
 
-- **Progression pendant les runs longs** — `names` / `gender-apply` / `apply-all` itèrent en
+- **Progression pendant les runs longs** — `apply case` / `apply gender` / `apply all` itèrent en
   silence (plusieurs minutes sur tout l'arbre), rapports écrits seulement à la fin. Ajouter une
   ligne de progression sur **stderr** au fil des lots (ex. `… 300 personnes traitées`), en gardant
   les chemins de rapport sur stdout. Décider : par défaut (interactif) vs derrière `--verbose`.
@@ -25,14 +25,14 @@ Suivis non bloquants notés au fil de l'eau (revues, usage). Aucun n'est urgent 
 
 - **Liens `base_url` non-localhost** — les rapports (`report.py`, `names.py`, `gender_apply.py`)
   hardcodent `http://localhost` ; dériver l'URL web depuis la config client (`GRAMPS_API_URL`) pour
-  des liens corrects hors déploiement localhost. (M1 revue finale gender-apply.)
+  des liens corrects hors déploiement localhost. (M1 revue finale apply gender.)
 - **Types `Literal` sur `Proposition`** — champs à ensemble fermé (`type`, `valeur_*`, `confiance`,
   `priorite`) en `str` libre ; les resserrer en `Literal[...]` pour que Pydantic garantisse le
   contrat du premier émetteur (avant que le pattern se répande aux lieux/dates). (Revue finale cct.)
 - **Label `raison` à 3 valeurs** — le rapport des « indécidables » (gender inference) fond
   « unisexe » et « rare » en un seul libellé ; les séparer (unisexe / rare / non couvert).
 
-## Garde-fous gender-apply (optionnels)
+## Garde-fous apply gender (optionnels)
 
 - **Warn `--min-ratio < 0.95`** — le plancher interne d'`infer_sex` (0.95) domine, donc un
   `--min-ratio 0.90` est silencieusement sans effet. Avertir (ou rejeter). (M2 revue finale.)

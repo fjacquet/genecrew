@@ -1,7 +1,7 @@
 """Import d'un lieu unique depuis une adresse libre — le moteur fuzzy en une commande.
 
-`genecrew lieu-import "Bourges, Cher, France"` : parse → résolution par pays (même
-moteur que `lieux`) → si le score autorise l'écriture, création idempotente de la
+`genecrew import place "Bourges, Cher, France"` : parse → résolution par pays (même
+moteur que `propose places`) → si le score autorise l'écriture, création idempotente de la
 hiérarchie (réutilise l'index de parents et la création de `places_apply`) + GPS/code
 sur la feuille. Sous le seuil ou ambigu : affichage de la proposition, aucune écriture.
 """

@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-import argparse
 import os
 import sys
 import warnings
@@ -31,7 +30,7 @@ def run():
     Run the audit crew over a bounded sample (dry-run) via the orchestrator.
 
     `crewai run` / `run_crew` is a dev convenience: it runs the real audit workflow
-    on a small slice so writes are always simulated. Use `genecrew crew-audit` for the
+    on a small slice so writes are always simulated. Use `genecrew crew audit` for the
     full command with flags.
     """
     from pathlib import Path
@@ -255,7 +254,7 @@ def lieux_merge_cmd(args) -> None:
     client = get_client()
     output_dir = Path(os.environ.get("GENECREW_OUTPUT_DIR", "output"))
     date = args.date or __import__("datetime").date.today().isoformat()
-    report = run_places_merge(client, args.merges, output_dir, date=date, dry_run=args.dry_run)
+    report = run_places_merge(client, args.yaml, output_dir, date=date, dry_run=args.dry_run)
     print(f"Rapport : {report}")
 
 
@@ -307,7 +306,7 @@ def lieux_wiki_cmd(args) -> None:
     output_dir = Path(os.environ.get("GENECREW_OUTPUT_DIR", "output"))
     date = args.date or __import__("datetime").date.today().isoformat()
     report = run_lieux_wiki(client, output_dir, date=date, limit=args.limit,
-                            images=not args.sans_images, dry_run=args.dry_run)
+                            images=not args.no_images, dry_run=args.dry_run)
     print(f"Rapport : {report}")
 
 
@@ -322,7 +321,7 @@ def deces_apply_cmd(args) -> None:
     client = get_client()
     output_dir = Path(os.environ.get("GENECREW_OUTPUT_DIR", "output"))
     date = args.date or __import__("datetime").date.today().isoformat()
-    report = run_deces_apply(client, Path(args.propositions), output_dir,
+    report = run_deces_apply(client, Path(args.yaml), output_dir,
                              date=date, dry_run=args.dry_run)
     print(f"Rapport : {report}")
 
@@ -356,182 +355,45 @@ def crew_audit_cmd(args) -> None:
 
 
 def main() -> None:
-    """CLI entry point: genecrew <command>."""
+    """CLI entry point: genecrew <verbe> <cible>."""
     load_dotenv()
-    parser = argparse.ArgumentParser(prog="genecrew", description="GeneCrew CLI")
-    sub = parser.add_subparsers(dest="command", required=True)
-    sub.add_parser("stats", help="Statistiques de l'arbre Gramps Web")
+    from genecrew.cli import build_parser
 
-    audit_p = sub.add_parser("audit", help="Audit qualité déterministe (sans LLM)")
-    audit_p.add_argument("--scope", default="all",
-                         help="all | person:ID (branch:ID en Phase 1b)")
-    audit_p.add_argument("--limit", type=int, default=None,
-                         help="limiter à N personnes (échantillon)")
-    audit_p.add_argument("--batch-size", type=int,
-                         default=int(os.environ.get("GENECREW_BATCH_SIZE", "25")))
-    audit_p.add_argument("--date", default=None, help="date du rapport (défaut : aujourd'hui)")
-
-    names_p = sub.add_parser("names", help="Standardisation de la casse des noms")
-    names_p.add_argument("--scope", default="all", help="all | person:ID")
-    names_p.add_argument("--limit", type=int, default=None, help="limiter à N personnes")
-    names_p.add_argument("--batch-size", type=int,
-                         default=int(os.environ.get("GENECREW_BATCH_SIZE", "25")))
-    names_p.add_argument("--dry-run", action="store_true",
-                         help="aperçu sans écrire (défaut : écriture réelle)")
-    names_p.add_argument("--date", default=None, help="date du rapport (défaut : aujourd'hui)")
-
-    gender_p = sub.add_parser("gender",
-                              help="Inférence de genre à partir du prénom (lecture seule)")
-    gender_p.add_argument("--scope", default="all", help="all | person:ID")
-    gender_p.add_argument("--limit", type=int, default=None, help="limiter à N personnes")
-    gender_p.add_argument("--date", default=None, help="date du rapport (défaut : aujourd'hui)")
-
-    apply_p = sub.add_parser("gender-apply",
-                             help="Applique (écrit) les corrections de genre à haute confiance")
-    apply_p.add_argument("--scope", default="all", help="all | person:ID")
-    apply_p.add_argument("--min-ratio", type=float, default=0.98,
-                         help="seuil de confiance pour écrire (défaut 0.98)")
-    apply_p.add_argument("--limit", type=int, default=None, help="limiter à N personnes")
-    apply_p.add_argument("--dry-run", action="store_true", help="simuler sans écrire")
-    apply_p.add_argument("--date", default=None, help="date du rapport (défaut : aujourd'hui)")
-
-    all_p = sub.add_parser("apply-all",
-                           help="Applique toutes les corrections auto : casse puis genre puis lieux")
-    all_p.add_argument("--scope", default="all", help="all | person:ID")
-    all_p.add_argument("--min-ratio", type=float, default=0.98,
-                       help="seuil de confiance du volet genre (défaut 0.98)")
-    all_p.add_argument("--min-score", type=float, default=0.90,
-                       help="seuil de score du volet lieux (défaut 0.90)")
-    all_p.add_argument("--limit", type=int, default=None, help="limiter à N personnes")
-    all_p.add_argument("--batch-size", type=int,
-                       default=int(os.environ.get("GENECREW_BATCH_SIZE", "25")))
-    all_p.add_argument("--dry-run", action="store_true", help="simuler sans écrire")
-    all_p.add_argument("--date", default=None, help="date des rapports (défaut : aujourd'hui)")
-
-    lieux_p = sub.add_parser("lieux", help="Standardisation des lieux (lecture seule)")
-    lieux_p.add_argument("--scope", default="all",
-                         help="all (seul supporté pour les lieux en P1–P6)")
-    lieux_p.add_argument("--limit", type=int, default=None, help="limiter à N lieux")
-    lieux_p.add_argument("--batch-size", type=int,
-                         default=int(os.environ.get("GENECREW_BATCH_SIZE", "25")))
-    lieux_p.add_argument("--min-score", type=float, default=0.90,
-                         help="seuil de score pour action=ecrire (défaut 0.90)")
-    lieux_p.add_argument("--date", default=None, help="date du rapport (défaut : aujourd'hui)")
-
-    la_p = sub.add_parser("lieux-apply",
-                          help="Applique (écrit) la standardisation des lieux au-dessus du score")
-    la_p.add_argument("--scope", default="all",
-                      help="all (seul supporté pour les lieux en P1–P6)")
-    la_p.add_argument("--min-score", type=float, default=0.90,
-                      help="seuil de score pour écrire (défaut 0.90)")
-    la_p.add_argument("--limit", type=int, default=None, help="limiter à N lieux")
-    la_p.add_argument("--batch-size", type=int,
-                      default=int(os.environ.get("GENECREW_BATCH_SIZE", "25")))
-    la_p.add_argument("--dry-run", action="store_true", help="simuler sans écrire")
-    la_p.add_argument("--date", default=None, help="date du rapport (défaut : aujourd'hui)")
-
-    lm_p = sub.add_parser("lieux-merge",
-                          help="Exécute les fusions de lieux depuis un YAML relu (jamais auto)")
-    lm_p.add_argument("--merges", required=True, help="chemin du YAML de fusions (relu par un humain)")
-    lm_p.add_argument("--dry-run", action="store_true", help="simuler sans fusionner")
-    lm_p.add_argument("--date", default=None, help="date du rapport (défaut : aujourd'hui)")
-
-    ma_p = sub.add_parser("militaires-apply",
-                          help="Applique les propositions militaires relues : citations "
-                               "Mémoire des hommes (une source par base) — même moteur "
-                               "que deces-apply (ADR 0011)")
-    ma_p.add_argument("--propositions", required=True,
-                      help="chemin du YAML de propositions RELU par un humain")
-    ma_p.add_argument("--dry-run", action="store_true", help="simuler sans écrire")
-    ma_p.add_argument("--date", default=None, help="date du rapport (défaut : aujourd'hui)")
-
-    mi_p = sub.add_parser("militaires",
-                          help="Enrichissement décès militaires (Mémoire des hommes, "
-                               "gazetteer local hors-ligne, lecture seule)")
-    mi_p.add_argument("--scope", default="all", help="all | person:ID")
-    mi_p.add_argument("--limit", type=int, default=None, help="limiter à N personnes")
-    mi_p.add_argument("--batch-size", type=int,
-                      default=int(os.environ.get("GENECREW_BATCH_SIZE", "25")))
-    mi_p.add_argument("--min-score", type=float, default=0.90,
-                      help="seuil du score déterministe (défaut 0.90)")
-    mi_p.add_argument("--date", default=None, help="date du rapport (défaut : aujourd'hui)")
-
-    lw_p = sub.add_parser("lieux-wiki",
-                          help="Lien Wikipédia vérifié (nom+GPS) + image d'article "
-                               "sur les lieux géoréférencés (append-only)")
-    lw_p.add_argument("--limit", type=int, default=None, help="limiter à N lieux")
-    lw_p.add_argument("--sans-images", action="store_true",
-                      help="ne poser que les liens, pas les images")
-    lw_p.add_argument("--dry-run", action="store_true", help="simuler sans écrire")
-    lw_p.add_argument("--date", default=None, help="date du rapport (défaut : aujourd'hui)")
-
-    da_p = sub.add_parser("deces-apply",
-                          help="Applique les propositions décès relues : citations INSEE "
-                               "sur les événements décès existants (ADR 0011)")
-    da_p.add_argument("--propositions", required=True,
-                      help="chemin du YAML de propositions RELU par un humain")
-    da_p.add_argument("--dry-run", action="store_true", help="simuler sans écrire")
-    da_p.add_argument("--date", default=None, help="date du rapport (défaut : aujourd'hui)")
-
-    li_p = sub.add_parser("lieu-import",
-                          help="Importer un lieu depuis une adresse libre (moteur fuzzy)")
-    li_p.add_argument("place", help='adresse, ex. "Bourges, Cher, France"')
-    li_p.add_argument("--min-score", type=float, default=0.90,
-                      help="seuil de score pour créer (défaut 0.90)")
-    li_p.add_argument("--dry-run", action="store_true", help="simuler sans créer")
-
-    dc_p = sub.add_parser("deces",
-                          help="Enrichissement décès INSEE/MatchID, déterministe (lecture seule)")
-    dc_p.add_argument("--scope", default="all", help="all | person:ID")
-    dc_p.add_argument("--limit", type=int, default=None, help="limiter à N personnes")
-    dc_p.add_argument("--batch-size", type=int,
-                      default=int(os.environ.get("GENECREW_BATCH_SIZE", "25")))
-    dc_p.add_argument("--min-score", type=float, default=0.90,
-                      help="seuil du score déterministe (défaut 0.90)")
-    dc_p.add_argument("--date", default=None, help="date du rapport (défaut : aujourd'hui)")
-
-    ca_p = sub.add_parser("crew-audit",
-                          help="Audit interprété par la crew LLM (Détective → Chroniqueur)")
-    ca_p.add_argument("--scope", default="all", help="all | person:ID")
-    ca_p.add_argument("--limit", type=int, default=None, help="limiter à N personnes (borne le coût LLM)")
-    ca_p.add_argument("--batch-size", type=int,
-                      default=int(os.environ.get("GENECREW_BATCH_SIZE", "25")))
-    ca_p.add_argument("--dry-run", action="store_true",
-                      help="simuler les écritures (défaut sûr : simulation via GENECREW_DRY_RUN)")
-    ca_p.add_argument("--date", default=None, help="date du rapport (défaut : aujourd'hui)")
-
-    args = parser.parse_args()
+    args = build_parser().parse_args()
+    target = getattr(args, "target", None)
 
     output_dir = Path(os.environ.get("GENECREW_OUTPUT_DIR", "output"))
     date = getattr(args, "date", None) or datetime.now().date().isoformat()
     log_path = configure_logging(output_dir, date=date)
     log = get_logger()
-    log.info("START command=%s args=%s", args.command,
-             {k: v for k, v in vars(args).items() if k != "command"})
+    log.info("START command=%s target=%s args=%s", args.command, target,
+             {k: v for k, v in vars(args).items() if k not in ("command", "target")})
 
     dispatch = {
-        "stats": lambda: stats(),
-        "audit": lambda: audit_cmd(args),
-        "names": lambda: names_cmd(args),
-        "gender": lambda: gender_cmd(args),
-        "gender-apply": lambda: gender_apply_cmd(args),
-        "apply-all": lambda: apply_all_cmd(args),
-        "lieux": lambda: lieux_cmd(args),
-        "lieux-apply": lambda: lieux_apply_cmd(args),
-        "lieux-merge": lambda: lieux_merge_cmd(args),
-        "crew-audit": lambda: crew_audit_cmd(args),
-        "deces": lambda: deces_cmd(args),
-        "lieu-import": lambda: lieu_import_cmd(args),
-        "deces-apply": lambda: deces_apply_cmd(args),
-        "militaires": lambda: militaires_cmd(args),
-        "militaires-apply": lambda: deces_apply_cmd(args),  # même moteur, source par base
-        "lieux-wiki": lambda: lieux_wiki_cmd(args),
+        ("stats", None): lambda: stats(),
+        ("propose", "audit"): lambda: audit_cmd(args),
+        ("propose", "places"): lambda: lieux_cmd(args),
+        ("propose", "deaths"): lambda: deces_cmd(args),
+        ("propose", "military"): lambda: militaires_cmd(args),
+        ("propose", "gender"): lambda: gender_cmd(args),
+        ("apply", "case"): lambda: names_cmd(args),
+        ("apply", "gender"): lambda: gender_apply_cmd(args),
+        ("apply", "places"): lambda: lieux_apply_cmd(args),
+        # Un seul point d'entrée pour tous les registres : INSEE, Mémoire des hommes,
+        # presse Gallica. La source Gramps est déduite de chaque proposition du YAML
+        # (deces_apply.source_title_for), pas du nom de la commande — ADR 0011.
+        ("apply", "citations"): lambda: deces_apply_cmd(args),
+        ("apply", "all"): lambda: apply_all_cmd(args),
+        ("merge", "places"): lambda: lieux_merge_cmd(args),
+        ("enrich", "wiki"): lambda: lieux_wiki_cmd(args),
+        ("import", "place"): lambda: lieu_import_cmd(args),
+        ("crew", "audit"): lambda: crew_audit_cmd(args),
     }
     try:
-        dispatch[args.command]()
-        log.info("DONE command=%s", args.command)
+        dispatch[(args.command, target)]()
+        log.info("DONE command=%s target=%s", args.command, target)
     except Exception:
-        log.exception("FAILED command=%s", args.command)
+        log.exception("FAILED command=%s target=%s", args.command, target)
         raise
     finally:
         print(f"Log : {log_path}")
