@@ -8,7 +8,7 @@ s'expliquer par les facteurs qui l'ont produit.
 from __future__ import annotations
 
 from collections import Counter
-from typing import Literal
+from typing import Literal, NamedTuple
 
 from crewai_custom_tools.tools.genealogy.models.domain import EventFact, PersonFacts
 from pydantic import BaseModel, Field
@@ -315,38 +315,71 @@ def _verdict_candidat(facteurs: list[str], divergences: list[str]) -> tuple[str,
     return ("net" if poids >= SEUIL_NET else "gris"), poids
 
 
+class _Evalue(NamedTuple):
+    """Un candidat et le résultat de son évaluation.
+
+    Nommé plutôt qu'un 5-uplet indexé : `apparier` est la fonction qui décide
+    d'écrire ou non dans l'arbre de quelqu'un, elle doit se relire sans compter
+    les positions. `e[4]` ne dit pas qu'on parle des divergences.
+    """
+
+    verdict: str
+    poids: int
+    person: PersonFacts
+    facteurs: list[FacteurReleve]
+    divergences: list[str]
+
+
 def apparier(releve: ReleveIndexe, people: list[PersonFacts],
              rarete: dict[str, float],
              parents_par_handle: dict[str, list[str]]) -> Appariement:
-    """Le verdict, motivé. `gris` est un état EXPLICITE, pas un effet de seuil.
+    """Le verdict, motivé.
+
+    `gris` a deux sources distinctes, et il faut les tenir pour telles : c'est
+    un effet de seuil quand un candidat unique reste sous `SEUIL_NET`
+    (`_verdict_candidat`), et un état EXPLICITE quand plusieurs candidats se
+    tiennent à moins de `MARGE_EX_AEQUO` l'un de l'autre — là, aucun poids si
+    élevé soit-il ne fait un `net`, parce que le moteur ne sait pas lequel
+    choisir et que deviner écrirait dans l'arbre.
 
     C'est ce qui borne la facture : le nombre de lignes qui partiront au LLM est
     connu avant le moindre appel.
     """
-    evalues = []
+    evalues: list[_Evalue] = []
     for p in candidats_blocage(releve, people):
         facteurs, divergences = facteurs_et_divergences(
             releve, p, rarete, parents_par_handle)
         verdict, poids = _verdict_candidat(facteurs, divergences)
-        evalues.append((verdict, poids, p, facteurs, divergences))
+        evalues.append(_Evalue(verdict, poids, p, facteurs, divergences))
 
-    retenus = [e for e in evalues if e[0] != "aucun"]
+    retenus = [e for e in evalues if e.verdict != "aucun"]
     if not retenus:
-        div = [d for e in evalues for d in e[4]]
+        # Chaque divergence est préfixée du `gramps_id` qui l'a produite : sans
+        # ça, une liste issue de plusieurs candidats ne dit pas laquelle vient
+        # de qui, et le relecteur ne peut pas remonter à la fiche.
+        div = [f"{e.person.gramps_id} : {d}" for e in evalues for d in e.divergences]
+        if len(evalues) == 1:
+            # Un seul candidat écarté : aucune ambiguïté sur qui a été vu, donc
+            # on remonte son identité et ce qui concordait chez lui — le
+            # relecteur n'a pas à refaire l'analyse pour comprendre le rejet.
+            seul = evalues[0]
+            return Appariement(verdict="aucun", gramps_id=seul.person.gramps_id,
+                               handle=seul.person.handle, facteurs=seul.facteurs,
+                               divergences=div)
         return Appariement(verdict="aucun", divergences=div)
 
-    retenus.sort(key=lambda e: e[1], reverse=True)
+    retenus.sort(key=lambda e: e.poids, reverse=True)
     meilleur = retenus[0]
     # « Comparables », pas « égaux » : tout candidat à moins de MARGE_EX_AEQUO
     # du meilleur reste en lice, et s'ils sont plusieurs le verdict est gris
     # avec la liste COMPLÈTE — le relecteur doit voir le concurrent, pas
     # seulement le gagnant.
-    ex_aequo = [e for e in retenus if meilleur[1] - e[1] <= MARGE_EX_AEQUO]
+    ex_aequo = [e for e in retenus if meilleur.poids - e.poids <= MARGE_EX_AEQUO]
 
     if len(ex_aequo) > 1:
-        return Appariement(verdict="gris", poids=meilleur[1],
-                           facteurs=meilleur[3],
-                           candidats=[e[2].gramps_id for e in ex_aequo])
+        return Appariement(verdict="gris", poids=meilleur.poids,
+                           facteurs=meilleur.facteurs,
+                           candidats=[e.person.gramps_id for e in ex_aequo])
 
     verdict, poids, person, facteurs, _ = meilleur
     return Appariement(verdict=verdict, gramps_id=person.gramps_id,

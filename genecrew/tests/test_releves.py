@@ -241,6 +241,29 @@ def test_releve_de_mariage_ne_se_compare_a_aucun_evenement():
     assert a.divergences == []
 
 
+def test_verdict_aucun_dit_de_qui_il_parle():
+    """Un `aucun` doit rester relisible : sans le `gramps_id` en préfixe, une
+    liste de divergences issue de plusieurs candidats ne dit pas laquelle vient
+    de qui, et le relecteur ne peut pas remonter à la fiche."""
+    a1 = _mort(_p("I1", "JACQUET", "Rose"), 2, 3, 1901)
+    a2 = _mort(_p("I2", "JACQUET", "Rose"), 5, 6, 1902)
+    a = apparier(ROSE, [a1, a2], {"JACQUET": 0.75}, {})
+    assert a.verdict == "aucun"
+    assert any(d.startswith("I1 : ") for d in a.divergences)
+    assert any(d.startswith("I2 : ") for d in a.divergences)
+
+
+def test_verdict_aucun_sur_un_seul_candidat_garde_ses_facteurs():
+    """Quand un seul candidat a été écarté, il n'y a aucune ambiguïté sur QUI
+    a été vu : remonter son identité et ce qui concordait chez lui évite au
+    relecteur de refaire l'analyse à la main pour comprendre le rejet."""
+    p = _mort(_p("I1", "JACQUET", "Rose"), 2, 3, 1901, "Saint-Martin-d'Auxigny")
+    a = apparier(ROSE, [p], {"JACQUET": 0.75}, {})
+    assert a.verdict == "aucun"
+    assert a.gramps_id == "I1"
+    assert "lieu" in a.facteurs and "prénom" in a.facteurs
+
+
 def test_annee_seule_ne_fait_pas_une_date_complete():
     """dateval [0, 0, 1894] est une année, pas une date : aucun facteur fort."""
     p = _p("I1", "JACQUET", "Rose")
