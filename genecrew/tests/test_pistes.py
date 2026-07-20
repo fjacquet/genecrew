@@ -1,4 +1,13 @@
-from genecrew.pistes import cle_derivee, evaluer_force, marqueur
+import json
+
+import httpx
+import pytest
+from crewai_custom_tools.tools.genealogy.gramps import write_tools
+from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient, GrampsConfig
+
+from genecrew.pistes import Piste, cle_derivee, consigner, evaluer_force, marqueur, marqueurs_existants
+
+CONFIG = GrampsConfig(api_url="http://g.test/api", username="u", password="p")
 
 
 def test_deux_facteurs_independants_font_une_piste_forte():
@@ -49,3 +58,101 @@ def test_cle_derivee_ne_depend_pas_du_salage_du_processus():
          "from genecrew.pistes import cle_derivee; print(cle_derivee('mdh', ['SOULAT','Hoche']))"],
         capture_output=True, text=True, check=True).stdout.strip()
     assert autre == cle_derivee("mdh", ["SOULAT", "Hoche"])
+
+
+@pytest.fixture(autouse=True)
+def _ecriture_reelle(monkeypatch):
+    monkeypatch.setenv("GENECREW_DRY_RUN", "false")
+
+
+def _client(records, notes=()):
+    """Client Gramps mocké. `notes` = corps des notes déjà rattachées à la personne."""
+    def handler(request):
+        if request.url.path == "/api/token/":
+            return httpx.Response(200, json={"access_token": "t"})
+        if request.url.path == "/api/people/" and request.method == "GET":
+            return httpx.Response(200, json=[{
+                "handle": "h1", "gramps_id": "I1123",
+                "note_list": [], "tag_list": [],
+                "extended": {"notes": [{"text": {"string": n}} for n in notes]},
+            }])
+        records.append((request.method, str(request.url.path),
+                        json.loads(request.content) if request.content else None))
+        if request.method == "POST":
+            return httpx.Response(201, json=[{"new": [{"handle": "nouveau"}]}])
+        return httpx.Response(200, json={})
+    return GrampsClient(CONFIG, transport=httpx.MockTransport(handler))
+
+
+def _piste(force="forte", **kw):
+    base = dict(gramps_id="I1123", handle="h1", source="matchid", identite="a1b2c3d4",
+                requete="nom=SOULAT&prenom=Kleber", url="https://deces.matchid.io/id/a1b2c3d4",
+                concordances=["nom", "date de naissance complète"], divergences=[], force=force)
+    base.update(kw)
+    return Piste(**base)
+
+
+def test_marqueurs_existants_lit_les_notes_de_la_personne():
+    client = _client([], notes=["[genecrew:piste:matchid:a1b2c3d4] Piste de décès…",
+                                "Note humaine sans marqueur"])
+    assert marqueurs_existants(client, "I1123") == {"[genecrew:piste:matchid:a1b2c3d4]"}
+
+
+def test_une_piste_forte_est_ecrite(mocker):
+    records = []
+    client = _client(records)
+    mocker.patch.object(write_tools, "get_client", return_value=client)
+    out = consigner(client, _piste())
+    assert out["ecrite"] is True
+    posts = [r for r in records if r[0] == "POST"]
+    assert any("/notes/" in r[1] for r in posts), "la note n'a pas été créée"
+
+
+def test_une_piste_faible_ne_touche_jamais_l_arbre(mocker):
+    records = []
+    client = _client(records)
+    mocker.patch.object(write_tools, "get_client", return_value=client)
+    out = consigner(client, _piste(force="faible"))
+    assert out["ecrite"] is False and out["raison"] == "faible"
+    assert not [r for r in records if r[0] in ("POST", "PUT")], "une faible a écrit dans l'arbre"
+
+
+def test_second_passage_n_ecrit_rien(mocker):
+    # LE test qui justifie tout le mécanisme de marqueur.
+    records = []
+    client = _client(records, notes=["[genecrew:piste:matchid:a1b2c3d4] déjà consignée"])
+    mocker.patch.object(write_tools, "get_client", return_value=client)
+    out = consigner(client, _piste())
+    assert out["ecrite"] is False and out["raison"] == "déjà consignée"
+    assert not [r for r in records if r[0] in ("POST", "PUT")]
+
+
+def test_dry_run_n_ecrit_rien(mocker):
+    records = []
+    client = _client(records)
+    mocker.patch.object(write_tools, "get_client", return_value=client)
+    out = consigner(client, _piste(), dry_run=True)
+    assert out["ecrite"] is False and out["raison"] == "simulation"
+    assert not [r for r in records if r[0] == "PUT"]
+
+
+def test_le_corps_de_la_note_dit_l_absence_de_permalien(mocker):
+    records = []
+    client = _client(records)
+    mocker.patch.object(write_tools, "get_client", return_value=client)
+    consigner(client, _piste(url=None, identite="6f2a91c4", identite_derivee=True, source="mdh"))
+    corps = next(r[2]["text"]["string"] for r in records
+                 if r[0] == "POST" and "/notes/" in r[1])
+    assert "ABSENT" in corps
+    assert "http" not in corps, "aucune URL ne doit apparaître quand la source n'en donne pas"
+    assert corps.startswith("[genecrew:piste:mdh:k=6f2a91c4]")
+
+
+def test_le_corps_ne_conclut_pas(mocker):
+    records = []
+    client = _client(records)
+    mocker.patch.object(write_tools, "get_client", return_value=client)
+    consigner(client, _piste())
+    corps = next(r[2]["text"]["string"] for r in records
+                 if r[0] == "POST" and "/notes/" in r[1])
+    assert "Une piste n'est pas un fait" in corps
