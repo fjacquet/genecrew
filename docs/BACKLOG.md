@@ -20,10 +20,12 @@ Suivis non bloquants notés au fil de l'eau (revues, usage). Aucun n'est urgent 
   n'est pas validé par `args_schema`). Durcissement sur une écriture de fait. (Revue finale cct.)
 - **`@api_tool` retry 429** — les outils Gramps lèvent des `httpx` alors que le retry teste des
   `requests.HTTPError` → le retry sur 429 ne se déclenche jamais pour Gramps. (Différé depuis Phase 1a.)
-- **`>=3.11` promis mais jamais vérifié** — `pyproject.toml` déclare
-  `requires-python = ">=3.11,<3.13"` ; la CI ne teste que 3.12 (pas de matrice, choix
-  assumé au 2026-07-20). Soit ajouter `3.11` à une matrice `strategy.matrix.python`, soit
-  restreindre la déclaration à `>=3.12`. En l'état, la promesse est invérifiée.
+- **Ouvrir genecrew à Python 3.13 ?** — le plancher est passé à `>=3.12` le 2026-07-20
+  (décision : « on ne regarde que Python 3.12+ »), ce qui a résolu l'incohérence précédente :
+  `>=3.11` était déclaré sans jamais être testé. Reste la **borne haute `<3.13`**, qui est un
+  choix du projet et **non une contrainte de dépendance** — vérifié, aucun paquet du `uv.lock`
+  ne la réclame. La bibliothèque `crewai_custom_tools` teste et passe sur 3.13. Ouvrir genecrew
+  à 3.13 demande donc surtout de le vérifier, pas de lever un blocage.
 
 ## Rapports / contrats
 
