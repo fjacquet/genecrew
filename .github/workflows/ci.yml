@@ -80,20 +80,39 @@ jobs:
   security:
     name: sécurité (informatif)
     runs-on: ubuntu-latest
-    # Informatif : les constats sont publiés, la PR n'est pas bloquée.
+    # Informatif : les constats sont publiés (onglet Security + annotations de
+    # PR), mais aucune étape ne fait échouer le job — la PR n'est pas bloquée.
     # À passer bloquant une fois les alertes Dependabot existantes traitées.
-    continue-on-error: true
+    permissions:
+      contents: read
+      security-events: write
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v8.3.2
 
       # `--config=auto` exige d'activer la télémétrie Semgrep ; des rulesets
       # explicites s'en passent, donc rien n'est envoyé à l'extérieur.
+      #
+      # continue-on-error au niveau étape (pas job) : `--error` fait échouer
+      # cette étape s'il y a un constat, mais l'étape de publication SARIF ci-
+      # dessous doit quand même s'exécuter pour que le constat soit visible.
       - name: semgrep
+        continue-on-error: true
         run: >
           uvx semgrep@1.170.0 scan
           --config=p/python
           --config=p/secrets
           --metrics=off
           --error
+          --sarif
+          --output=semgrep.sarif
           genecrew/src/
+
+      # Sans ça, un constat semgrep ne vit que dans un log brut que personne
+      # n'ouvre : le job reste vert (continue-on-error) et rien ne le signale.
+      # L'upload met le constat dans l'onglet Security et en annotation de PR.
+      - name: publication SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: semgrep.sarif
