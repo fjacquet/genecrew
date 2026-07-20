@@ -2,9 +2,21 @@
 
 import json
 
+import httpx
 import pytest
+from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient, GrampsConfig
 
-from genecrew.releves_import import parse_releve
+from genecrew.releves_import import code_fonds, deja_importe, marqueur_releve, parse_releve
+
+CONFIG = GrampsConfig(api_url="http://g.test/api", username="u", password="p")
+
+
+def _client(handler):
+    def _h(request):
+        if request.url.path == "/api/token/":
+            return httpx.Response(200, json={"access_token": "t"})
+        return handler(request)
+    return GrampsClient(CONFIG, transport=httpx.MockTransport(_h))
 
 COLLAGE_ROSE = """Rose JACQUET
 Le 10 décembre 1894
@@ -113,3 +125,36 @@ def test_json_syntaxiquement_casse_leve_une_erreur_exploitable():
     with pytest.raises(ValueError, match="(?i)JSON invalide") as exc_info:
         parse_releve(COLLAGE_ROSE, llm=_LLMStub(casse))
     assert isinstance(exc_info.value.__cause__, json.JSONDecodeError)
+
+
+def test_code_fonds_est_stable_et_sobre():
+    assert code_fonds("Cercle Généalogique du Haut-Berry") == "cercle-genealogique-du-haut-berry"
+
+
+def test_marqueur_porte_l_identite_jamais_la_date():
+    m = marqueur_releve("Cercle Généalogique du Haut-Berry", "106710046161418286")
+    assert m == "[genecrew:releve:cercle-genealogique-du-haut-berry:106710046161418286]"
+    assert "2026" not in m
+
+
+def test_deja_importe_detecte_le_marqueur_pose():
+    m = marqueur_releve("CGHB", "106710046161418286")
+    def h(request):
+        return httpx.Response(200, json=[{"extended": {"notes": [
+            {"text": {"string": m + "\nRelevé — CGHB"}}]}}])
+    assert deja_importe(_client(h), "I0001", m) is True
+
+
+def test_deja_importe_faux_sur_une_autre_reference():
+    autre = marqueur_releve("CGHB", "999")
+    def h(request):
+        return httpx.Response(200, json=[{"extended": {"notes": [
+            {"text": {"string": autre}}]}}])
+    m = marqueur_releve("CGHB", "106710046161418286")
+    assert deja_importe(_client(h), "I0001", m) is False
+
+
+def test_deja_importe_faux_sans_note():
+    def h(request):
+        return httpx.Response(200, json=[{"extended": {"notes": []}}])
+    assert deja_importe(_client(h), "I0001", marqueur_releve("CGHB", "1")) is False

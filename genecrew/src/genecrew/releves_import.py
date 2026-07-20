@@ -9,9 +9,14 @@ from __future__ import annotations
 
 import json
 import re
+import unicodedata
+
+from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient
 
 from genecrew.crew import build_llm
 from genecrew.releves import ReleveIndexe
+
+TAG_RELEVE = "ia-releve"
 
 PROMPT_INTERPRETATION = """Tu interprètes un relevé généalogique copié depuis un site.
 
@@ -88,3 +93,35 @@ def parse_releve(texte: str, llm=None) -> ReleveIndexe:
             "sans référence ne peut pas être identifié de façon stable."
         )
     return releve
+
+
+def code_fonds(fonds: str) -> str:
+    """Identifiant sobre et stable du fonds, pour le marqueur."""
+    sans_accent = "".join(c for c in unicodedata.normalize("NFD", fonds)
+                          if unicodedata.category(c) != "Mn")
+    return "-".join(sans_accent.lower().split())
+
+
+def marqueur_releve(fonds: str, reference: str) -> str:
+    """Marqueur d'idempotence : il porte l'IDENTITÉ, jamais la date.
+
+    Même procédé que les pistes. La référence du relevé est un identifiant
+    externe stable — donc pas de clé dérivée ici. Recoller le même relevé
+    n'écrit rien.
+    """
+    return f"[genecrew:releve:{code_fonds(fonds)}:{reference}]"
+
+
+def deja_importe(client: GrampsClient, gramps_id: str, marqueur: str) -> bool:
+    """Ce relevé a-t-il déjà été posé sur cette personne ?
+
+    Un seul appel, pour une personne : filtre serveur sur `gramps_id` et
+    `extend=note_list` (même lecture que `pistes.marqueurs_existants`).
+    """
+    gens = client.get_json("/people/", params={"gramps_id": gramps_id,
+                                               "extend": "note_list"}) or []
+    if not gens:
+        return False
+    notes = (gens[0].get("extended") or {}).get("notes") or []
+    return any((n.get("text") or {}).get("string", "").startswith(marqueur)
+               for n in notes)
