@@ -652,3 +652,73 @@ def test_lieux_resolus_vide_ou_absent_ne_change_rien():
     vide = apparier(ROSE, [p], {"JACQUET": 0.75}, {}, lieux_resolus={})
     assert sans.model_dump() == vide.model_dump()
     assert sans.verdict == "net" and "lieu" in sans.facteurs
+
+
+# --- "FR:None" : le défaut de la porte de derrière ---------------------------
+#
+# `ResolvedPlace.code` est `str | None` dans la bibliothèque. Une orchestration
+# qui construit `lieux_resolus` par `f"{pays}:{place.code}"` produit littéralement
+# la chaîne "FR:None" dès qu'une résolution échoue partiellement. L'ancien garde
+# ("code and ':' in code") laissait passer cette chaîne comme un identifiant
+# résolu — deux communes différentes et non codées auraient alors rendu la même
+# chaîne "FR:None", fabriquant soit un facteur "lieu" entre deux communes
+# jamais comparées, soit un veto sur une absence pure de donnée.
+
+def test_deux_fr_none_ne_donnent_pas_le_facteur_lieu():
+    """Le pire des deux directions : Sancerre et Saint-Martin-d'Auxigny sont deux
+    communes DIFFÉRENTES, toutes deux non codées, qui rendraient la même chaîne
+    "FR:None" via une f-string sur un `Optional` non gardé. Sous l'ancien garde,
+    "FR:None" == "FR:None" aurait produit le facteur « lieu » entre deux communes
+    qui n'ont jamais été comparées. Avec le garde renforcé, "FR:None" retombe au
+    statut non résolu des deux côtés : repli sur la chaîne, qui diffère (aucun
+    facteur), sans jamais fabriquer de concordance."""
+    p = _mort(_p("I1", "JACQUET", "Rose"), 10, 12, 1894, "Sancerre")
+    resolus = {"SANCERRE": "FR:None", "SAINT-MARTIN-D'AUXIGNY": "FR:None"}
+    a = apparier(ROSE, [p], {"JACQUET": 0.75}, {}, lieux_resolus=resolus)
+    assert "lieu" not in a.facteurs
+    assert a.divergences == []
+
+
+def test_fr_none_contre_identifiant_reel_ne_veto_pas():
+    """Symétrique : « FR:None » d'un côté, un identifiant RÉELLEMENT résolu de
+    l'autre. Sous l'ancien garde, les deux passeraient pour résolus, seraient
+    jugés inégaux (« FR:None » ≠ « FR:18197 »), et produiraient un veto sur une
+    absence de donnée — un candidat vetoé ne revient jamais devant le relecteur
+    humain. Avec le garde renforcé, « FR:None » retombe au statut non résolu :
+    repli sur la chaîne, jamais de veto."""
+    p = _mort(_p("I1", "JACQUET", "Rose"), 10, 12, 1894, "Sancerre")
+    resolus = {"SANCERRE": "FR:None", "SAINT-MARTIN-D'AUXIGNY": "FR:18197"}
+    a = apparier(ROSE, [p], {"JACQUET": 0.75}, {}, lieux_resolus=resolus)
+    assert a.divergences == []
+    assert "lieu" not in a.facteurs
+    assert a.verdict == "gris"          # date complète (5) + prénom (1) = 6
+
+
+def test_prefixe_ou_code_vide_traites_comme_non_resolus():
+    """« FR: » (code vide après le pays) et « :18209 » (pays vide) échouent chacun
+    au contrat de préfixe, mais l'ancien garde — qui ne teste que la présence
+    d'un « : » — les aurait laissés passer pour résolus, produisant un veto
+    fabriqué entre deux identifiants malformés et inégaux. `partition(":")`
+    exige les deux moitiés non vides : aucun des deux ne passe le garde, repli
+    sur la chaîne, sans veto."""
+    p = _mort(_p("I1", "JACQUET", "Rose"), 10, 12, 1894, "Sancerre")
+    resolus = {"SANCERRE": "FR:", "SAINT-MARTIN-D'AUXIGNY": ":18209"}
+    a = apparier(ROSE, [p], {"JACQUET": 0.75}, {}, lieux_resolus=resolus)
+    assert a.divergences == []
+    assert "lieu" not in a.facteurs
+    assert a.verdict == "gris"          # date complète (5) + prénom (1) = 6
+
+
+def test_casse_du_prefixe_pays_normalisee():
+    """La casse du préfixe pays ne doit rien changer : « fr:18209 » et
+    « FR:18209 » désignent la même commune. Les deux graphies de la commune
+    (espaces contre tirets) empêchent le repli sur la chaîne de masquer le
+    résultat ; seule la normalisation de la casse du préfixe peut faire
+    concorder les deux identifiants ici. Sans elle, deux saisies de la même
+    résolution différant seulement par la casse produiraient un veto absurde."""
+    p = _mort(_p("I1", "JACQUET", "Rose"), 10, 12, 1894, "Saint Martin d'Auxigny")
+    resolus = {"SAINT MARTIN D'AUXIGNY": "fr:18209",
+               "SAINT-MARTIN-D'AUXIGNY": "FR:18209"}
+    a = apparier(ROSE, [p], {"JACQUET": 0.75}, {}, lieux_resolus=resolus)
+    assert "lieu" in a.facteurs
+    assert a.divergences == []

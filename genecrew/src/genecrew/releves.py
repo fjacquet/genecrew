@@ -302,11 +302,38 @@ def _identifiant_resolu(lieux_resolus: dict[str, str],
     résolu » est en revanche toujours sûr : `_comparer_lieux` n'en tire jamais
     de veto, seulement un repli sur l'égalité de chaîne (voir sa branche 3). Le
     repli est sûr ; faire confiance à un code nu ne l'est pas.
+
+    Un simple test de présence du `:` ne suffit pas : il laisse passer `"FR:"`,
+    `":18209"` et surtout `"FR:None"`. `ResolvedPlace.code` est typé
+    `str | None` dans la bibliothèque, et l'orchestration construit
+    `lieux_resolus` par une f-string du genre `f"{pays}:{place.code}"` — dès
+    qu'une résolution échoue partiellement, elle produit littéralement la
+    chaîne `"FR:None"`. Sans ce garde, DEUX COMMUNES DIFFÉRENTES et non codées
+    rendraient la même chaîne `"FR:None"` : le moteur y verrait deux
+    identifiants résolus et ÉGAUX, fabriquant le facteur « lieu » entre deux
+    communes jamais comparées — et de là un verdict `net` avec une écriture
+    fausse dans l'arbre. Symétriquement, `"FR:None"` contre un identifiant
+    réellement résolu produirait un veto sur une pure absence de donnée, et un
+    candidat vetoé ne revient jamais devant le relecteur humain. `partition`
+    impose que les DEUX moitiés autour du `:` soient non vides, et la moitié
+    droite ne vaut jamais (insensible à la casse) `"none"`.
+
+    La casse du préfixe pays est normalisée (`"fr:18209"` et `"FR:18209"`
+    désignent la même commune) : sans ça, deux saisies de la même résolution
+    diffèreraient par un simple accident de casse, perdant le facteur « lieu »
+    ou pire, fabriquant un veto entre deux graphies de la MÊME commune. La
+    partie numérique, elle, N'EST PAS touchée — certains codes sont
+    alphanumériques et sensibles à la casse (communes corses, ex. `"2A004"`).
     """
     code = lieux_resolus.get(lieu_normalise)
-    if code and ":" in code:
-        return code
-    return None
+    if not code:
+        return None
+    pays, separateur, numero = code.partition(":")
+    if not separateur or not pays or not numero:
+        return None
+    if numero.strip().lower() == "none":
+        return None
+    return f"{pays.upper()}:{numero}"
 
 
 def _comparer_lieux(lieu_releve: str, commune_arbre: str,
