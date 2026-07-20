@@ -410,8 +410,16 @@ def facteurs_et_divergences(
     return facteurs, divergences
 
 
-def _verdict_candidat(facteurs: list[str], divergences: list[str]) -> tuple[str, int]:
-    """Poids et éligibilité d'UN candidat. La divergence est un veto."""
+def _verdict_candidat(facteurs: list[FacteurReleve],
+                      divergences: list[str]) -> tuple[str, int]:
+    """Poids et éligibilité d'UN candidat. La divergence est un veto.
+
+    `facteurs` est typé `FacteurReleve` et non `str`, par cohérence avec
+    `facteurs_et_divergences` qui le produit déjà ainsi : c'est le vocabulaire
+    fermé, et l'annoter ici fait relever une faute de frappe par le vérificateur
+    de types plutôt que par un `KeyError` dans `POIDS` — ou, pire, par un poids
+    silencieusement faux.
+    """
     if divergences:
         return "aucun", 0
     poids = sum(POIDS[f] for f in facteurs)
