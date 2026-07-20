@@ -142,7 +142,8 @@ deux événements, les autres viennent de extended.events."
 - Create: `/Users/fjacquet/Projects/crewai_custom_tools/src/crewai_custom_tools/tools/genealogy/pistes/__init__.py`
 - Create: `/Users/fjacquet/Projects/crewai_custom_tools/src/crewai_custom_tools/tools/genealogy/pistes/matchid.py`
 - Create: `/Users/fjacquet/Projects/crewai_custom_tools/tests/test_genealogy_pistes_matchid.py`
-- Modify: `/Users/fjacquet/Projects/genecrew/genecrew/src/genecrew/deces.py` (retirer `piste_depuis_match` et `_norm_nom`, importer depuis la bibliothèque)
+- Modify: `/Users/fjacquet/Projects/genecrew/genecrew/src/genecrew/deces.py` (retirer `piste_depuis_match` et `_norm_nom`)
+- Modify: `/Users/fjacquet/Projects/genecrew/genecrew/tests/test_deces_pistes.py` (importer `pistes_matchid` depuis la bibliothèque ; assertions inchangées)
 
 **Interfaces:**
 - Consumes: `EventFact.place` (Task 1) — non utilisé ici, mais le paquet en dépend pour les tâches suivantes.
@@ -303,18 +304,17 @@ Expected: PASS (6 tests)
 
 - [ ] **Step 5: Retirer le doublon de genecrew**
 
-Dans `/Users/fjacquet/Projects/genecrew/genecrew/src/genecrew/deces.py` : **supprimer** les fonctions `_norm_nom` et `piste_depuis_match`, et remplacer l'usage local de `event_iso`/`first_given` par l'import bibliothèque. Ajouter en tête des imports :
+Dans `/Users/fjacquet/Projects/genecrew/genecrew/src/genecrew/deces.py` : **supprimer** les fonctions `_norm_nom` et `piste_depuis_match`.
+
+**Aucun alias de compatibilité** : vérifié, `piste_depuis_match` n'a qu'un seul consommateur, son propre fichier de tests (`run_deces` ne l'appelle pas). Un alias serait du code mort.
+
+Migrer donc `genecrew/tests/test_deces_pistes.py` — remplacer son import :
 
 ```python
 from crewai_custom_tools.tools.genealogy.pistes import pistes_matchid
 ```
 
-Garder un alias rétro-compatible juste après les imports, pour que les appelants existants ne cassent pas :
-
-```python
-# Le nom historique, conservé le temps que les appelants migrent.
-piste_depuis_match = pistes_matchid
-```
+et les trois appels `piste_depuis_match(...)` par `pistes_matchid(...)`. **Ne toucher à aucune assertion** : c'est ce qui prouve que le déménagement n'a rien changé au comportement.
 
 **Ne pas** supprimer les fonctions `event_iso` et `first_given` locales de `deces.py` si d'autres fonctions du module les utilisent — vérifier d'abord :
 
@@ -346,10 +346,10 @@ norm_nom et event_iso sont exposés : les sources suivantes en ont besoin."
 
 ```bash
 cd /Users/fjacquet/Projects/genecrew
-git add genecrew/src/genecrew/deces.py
+git add genecrew/src/genecrew/deces.py genecrew/tests/test_deces_pistes.py
 git commit -m "refactor(deces): consommer pistes_matchid depuis la bibliothèque
 
-Alias piste_depuis_match conservé le temps que les appelants migrent."
+Aucun alias : la fonction n'avait qu'un consommateur, son test."
 ```
 
 ---
