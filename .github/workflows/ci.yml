@@ -1,0 +1,99 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Un nouveau push sur la même branche annule le run en cours.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: tests et lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout genecrew
+        uses: actions/checkout@v7
+        with:
+          path: genecrew
+
+      # uv.lock verrouille `source = { editable = "../crewai_custom_tools" }`.
+      # Le dépôt s'appelle crewai-custom-tools (tiret) mais DOIT atterrir dans un
+      # répertoire à souligné, sinon la résolution du lock échoue.
+      - name: checkout crewai-custom-tools
+        uses: actions/checkout@v7
+        with:
+          repository: fjacquet/crewai-custom-tools
+          ref: main
+          path: crewai_custom_tools
+
+      - uses: astral-sh/setup-uv@v8
+        with:
+          enable-cache: true
+
+      # `uv sync --locked` échoue sur une dérive de version, mais son message ne
+      # nomme ni la dépendance en cause ni le fait que la PR n'y est pour rien.
+      # Cette étape le dit à sa place.
+      - name: cohérence uv.lock / bibliothèque voisine
+        working-directory: genecrew
+        run: |
+          LOCK_V=$(python3 -c "
+          import re, pathlib
+          t = pathlib.Path('uv.lock').read_text()
+          m = re.search(r'name = \"crewai-custom-tools\"\nversion = \"([^\"]+)\"', t)
+          print(m.group(1) if m else '')
+          ")
+          LIB_V=$(python3 -c "
+          import re, pathlib
+          t = pathlib.Path('../crewai_custom_tools/pyproject.toml').read_text()
+          m = re.search(r'^version = \"([^\"]+)\"', t, re.M)
+          print(m.group(1) if m else '')
+          ")
+          echo "uv.lock attend : ${LOCK_V:-INTROUVABLE}"
+          echo "voisin main    : ${LIB_V:-INTROUVABLE}"
+          if [ -z "$LOCK_V" ] || [ -z "$LIB_V" ]; then
+            echo "::error::Version illisible — le format de uv.lock ou du pyproject voisin a changé."
+            exit 1
+          fi
+          if [ "$LOCK_V" != "$LIB_V" ]; then
+            echo "::error::crewai-custom-tools main est en $LIB_V, uv.lock attend $LOCK_V."
+            echo "::error::Ce n'est pas un défaut de cette PR."
+            echo "::error::Corriger : uv sync && git add uv.lock && git commit"
+            exit 1
+          fi
+
+      - name: installation
+        working-directory: genecrew
+        run: uv sync --locked
+
+      - name: tests
+        working-directory: genecrew
+        run: uv run python -m pytest genecrew/tests/ -q
+
+      - name: lint
+        working-directory: genecrew
+        run: uv run ruff check .
+
+  security:
+    name: sécurité (informatif)
+    runs-on: ubuntu-latest
+    # Informatif : les constats sont publiés, la PR n'est pas bloquée.
+    # À passer bloquant une fois les alertes Dependabot existantes traitées.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v8
+
+      # `--config=auto` exige d'activer la télémétrie Semgrep ; des rulesets
+      # explicites s'en passent, donc rien n'est envoyé à l'extérieur.
+      - name: semgrep
+        run: >
+          uvx semgrep@1.170.0 scan
+          --config=p/python
+          --config=p/secrets
+          --metrics=off
+          --error
+          genecrew/src/

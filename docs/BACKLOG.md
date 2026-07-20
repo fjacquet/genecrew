@@ -20,6 +20,10 @@ Suivis non bloquants notés au fil de l'eau (revues, usage). Aucun n'est urgent 
   n'est pas validé par `args_schema`). Durcissement sur une écriture de fait. (Revue finale cct.)
 - **`@api_tool` retry 429** — les outils Gramps lèvent des `httpx` alors que le retry teste des
   `requests.HTTPError` → le retry sur 429 ne se déclenche jamais pour Gramps. (Différé depuis Phase 1a.)
+- **`>=3.11` promis mais jamais vérifié** — `pyproject.toml` déclare
+  `requires-python = ">=3.11,<3.13"` ; la CI ne teste que 3.12 (pas de matrice, choix
+  assumé au 2026-07-20). Soit ajouter `3.11` à une matrice `strategy.matrix.python`, soit
+  restreindre la déclaration à `>=3.12`. En l'état, la promesse est invérifiée.
 
 ## Rapports / contrats
 
