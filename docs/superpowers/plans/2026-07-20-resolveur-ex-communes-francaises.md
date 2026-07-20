@@ -375,7 +375,10 @@ def wikidata_ex_commune(insee: str) -> ExCommuneFacts | None:
         # bugs de ce module, et doivent remonter plutôt que se déguiser en
         # « pas de datation » — même convention que places_apply.py.
         return None
-    if len(rows) != 1:                     # 0 = inconnu ; >1 = ambigu -> on ne date pas
+    # On compte les ENTITÉS distinctes, pas les lignes : les trois OPTIONAL peuvent
+    # produire plusieurs lignes pour un même ?item (P625 multivaluée), et une
+    # ex-commune parfaitement claire serait alors prise pour ambiguë.
+    if len({r.get("item") for r in rows}) != 1:   # 0 = inconnu ; >1 entité = ambigu
         return None
     row = rows[0]
     lat = long = None
