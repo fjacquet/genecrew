@@ -224,6 +224,19 @@ def test_divergence_de_date_est_un_veto_pas_un_malus():
     assert a.divergences
 
 
+def test_veto_resiste_a_un_empilement_qui_depasse_le_seuil():
+    """Le test voisin n'oppose au veto que 4 points, la moitié de `SEUIL_NET` :
+    il passerait encore si le veto n'était qu'un malus, ou même s'il
+    disparaissait. Ici les concordances pèsent 12 — deux parents nommés (8) +
+    lieu (3) + prénom (1) —, largement de quoi faire un `net`, et une seule
+    date qui diverge doit tout de même tout annuler."""
+    p = _mort(_p("I1", "JACQUET", "Rose"), 2, 3, 1901, "Saint-Martin-d'Auxigny")
+    a = apparier(ROSE, [p], {"JACQUET": 0.75},
+                 {"hI1": ["Pierre JACQUET", "Marie Anne VILLEPELLET"]})
+    assert a.verdict == "aucun"
+    assert a.divergences
+
+
 def test_releve_de_mariage_ne_se_compare_a_aucun_evenement():
     """« Marriage » est une valeur documentée d'`evenement_type`, mais le
     mariage vit sur la FAMILLE, pas sur la personne : `PersonFacts` n'en porte
@@ -264,13 +277,32 @@ def test_verdict_aucun_sur_un_seul_candidat_garde_ses_facteurs():
     assert "lieu" in a.facteurs and "prénom" in a.facteurs
 
 
-def test_annee_seule_ne_fait_pas_une_date_complete():
-    """dateval [0, 0, 1894] est une année, pas une date : aucun facteur fort."""
+def test_annee_seule_ne_fait_ni_facteur_ni_divergence():
+    """dateval [0, 0, 1901] est une année, pas une date : aucun facteur fort.
+
+    Deux précautions dans le montage. L'année de l'arbre est DISCORDANTE avec
+    celle du relevé (1894) : avec la même année on ne saurait pas distinguer
+    « jamais comparé » de « comparé et concordant ». Et le candidat reste
+    ÉLIGIBLE grâce au lieu — sur un candidat rejeté sans facteur, `facteurs`
+    serait vide de toute façon et l'assertion ne pourrait pas échouer."""
     p = _p("I1", "JACQUET", "Rose")
-    p.death = _ev("Death", annee=1894)
+    p.death = _ev("Death", annee=1901, lieu="Saint-Martin-d'Auxigny")
     a = apparier(ROSE, [p], {"JACQUET": 0.75}, {})
+    assert a.verdict != "aucun"         # l'assertion porte sur une liste peuplée
+    assert "lieu" in a.facteurs
     assert "date complète" not in a.facteurs
     assert a.divergences == []          # une année n'est pas non plus une divergence
+
+
+def test_candidat_sans_aucun_facteur_donne_aucun():
+    """Porte d'entrée du moteur, jamais verrouillée jusqu'ici : un homonyme de
+    patronyme et rien d'autre — prénom différent, aucun événement, aucun parent
+    connu, patronyme courant. Rien ne concorde, donc rien ne doit sortir."""
+    p = _p("I1", "JACQUET", "Jean")
+    a = apparier(ROSE, [p], {"JACQUET": 0.75}, {})
+    assert a.verdict == "aucun"
+    assert a.facteurs == []
+    assert a.divergences == []
 
 
 def test_date_texte_n_est_ni_concordance_ni_divergence():
@@ -344,10 +376,14 @@ def test_annee_about_reste_une_annee_approximative():
 
 
 def test_facteurs_faibles_seuls_ne_font_jamais_un_net():
+    """`assert verdict != "net"` ne verrouillait rien : sur 2 points, supprimer
+    la garde `FACTEURS_FORTS` donnerait `gris` (2 < SEUIL_NET) et le test
+    passerait toujours. Seule la garde produit `aucun` ici — c'est donc elle
+    que cette assertion-là teste vraiment."""
     p = _p("I1", "JACQUET", "Rose")          # ni date ni lieu : prénom + année seuls
     p.birth = _ev("Birth", annee=1821, modifier=3)      # 3 = about
     a = apparier(ROSE, [p], {"JACQUET": 0.75}, {})
-    assert a.verdict != "net"
+    assert a.verdict == "aucun"
 
 
 def test_parent_nomme_concordant_pese_lourd():
