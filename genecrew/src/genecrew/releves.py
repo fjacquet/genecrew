@@ -50,8 +50,13 @@ FACTEURS_FORTS: frozenset[str] = frozenset(
      "patronyme rare"})
 
 SEUIL_NET = 8
-"""Poids minimal d'un verdict `net`. Atteignable par deux facteurs forts, jamais
-par un empilement de faibles (voir `apparier`)."""
+"""Poids minimal d'un verdict `net`.
+
+Atteignable par deux facteurs forts, ou par le seul « deux parents nommés »
+(8) — un couple de parents nommément concordants est une coïncidence assez rare
+pour se suffire. Jamais, en revanche, par un empilement de faibles : la garde
+`FACTEURS_FORTS` de `_verdict_candidat` l'interdit avant même de comparer au
+seuil."""
 
 SEUIL_RARETE = 0.02
 
@@ -246,9 +251,15 @@ def _commune(ev: EventFact | None) -> str:
 def facteurs_et_divergences(
     releve: ReleveIndexe, person: PersonFacts, rarete: dict[str, float],
     parents_par_handle: dict[str, list[str]],
-) -> tuple[list[str], list[str]]:
-    """Ce qui concorde et ce qui contredit, sans encore trancher."""
-    facteurs: list[str] = []
+) -> tuple[list[FacteurReleve], list[str]]:
+    """Ce qui concorde et ce qui contredit, sans encore trancher.
+
+    Le premier membre est typé `FacteurReleve`, pas `str` : c'est le vocabulaire
+    fermé, et l'annoter ainsi fait relever une faute de frappe par le
+    vérificateur de types plutôt que par un `KeyError` dans `POIDS` — ou, pire,
+    par un poids silencieusement faux.
+    """
+    facteurs: list[FacteurReleve] = []
     divergences: list[str] = []
     ev = _evenement_compare(person, releve.evenement_type)
 
