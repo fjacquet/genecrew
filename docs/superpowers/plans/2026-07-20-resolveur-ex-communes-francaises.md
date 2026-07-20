@@ -1205,7 +1205,8 @@ print('alt  :', [a.get('value') for a in p.get('alt_names') or []])
 ```
 
 Attendu :
-- nom `Saint-Agnant-sous-les-Côtes`, type `Municipality`, code **`55451`** (plus `55012`) ;
+- nom `Saint-Agnant-sous-les-Côtes`, type `Municipality`, code **`55451`** — le champ était
+  **vide** avant l'opération (vérifié en base), il n'y avait pas de code erroné à écraser ;
 - GPS `48.842142 / 5.622588` ;
 - **deux** placerefs : l'une vers `Meuse` avec une `date` de modifier « avant », l'autre vers
   `Apremont-la-Forêt` avec un modifier « après », toutes deux au **01/01/1973** ;
@@ -1240,7 +1241,7 @@ git add output/lieux/
 git commit -m "chore(lieux): rapport — P0080 Saint-Agnant structuré
 
 Premier lieu de l'arbre doté d'une hiérarchie complète et de placerefs
-datées. Code INSEE corrigé (55012 -> 55451), GPS posé, E1820 (décès
+datées. Code INSEE renseigné (champ vide -> 55451), GPS posé, E1820 (décès
 Kléber Soulat 1914) intact."
 ```
 

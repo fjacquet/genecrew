@@ -24,8 +24,9 @@ depuis *commune associée*. Deux conséquences mesurées :
    bascule sur Nominatim/OSM, qui trouve bien le point mais ne rend qu'une chaîne
    `France > Saint-Agnant-sous-les-Côtes` — **hiérarchie perdue** — et lève `ambiguous`.
    Résultat observé : `import place` → `proposition (confiance basse)`, aucune écriture.
-2. Le code `55012` embarqué dans le titre est celui d'**Apremont-la-Forêt**, pas celui de
-   Saint-Agnant (**55451**). Il est **faux** pour ce lieu.
+2. Le champ `code` du lieu est **vide** (vérifié en base). Le `55012` visible dans le titre est
+celui d'**Apremont-la-Forêt**, pas celui de Saint-Agnant (**55451**), et le parseur le range
+en `postal`. Il n'y a donc pas de code erroné à écraser, mais un code absent à renseigner.
 
 `transitions.py` ne couvre que les transitions de **souveraineté entre pays** ; il n'a aucune
 prise sur les fusions de communes.
@@ -238,7 +239,7 @@ sur l'arbre entier.
 
 - renomme le lieu en `Saint-Agnant-sous-les-Côtes` ;
 - pose `place_type = Municipality` ;
-- remplace le code **faux 55012** par **55451** ;
+- renseigne le code **55451**, jusqu'ici **vide** ;
 - écrit le GPS `48.842142 / 5.622588` ;
 - crée les parents manquants (France, Grand Est, Meuse, Apremont-la-Forêt) — l'arbre n'en
   contient aucun aujourd'hui ;
