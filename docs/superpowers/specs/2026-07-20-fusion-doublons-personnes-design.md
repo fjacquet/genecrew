@@ -187,7 +187,7 @@ par cinq clés :
 | # | Clé | Rattrape |
 |---|---|---|
 | 1 | nom normalisé exact (prénom + patronyme) | le cas majoritaire, dont la fracture de casse (§3.2) |
-| 2 | clé phonétique française du patronyme + initiale du prénom | variantes orthographiques (`Lelièvre` / `Le Lievre` / `Lelevre`) |
+| 2 | clé phonétique française du patronyme + initiale du prénom | variantes orthographiques : `Lelièvre` / `Le Lievre` → `lelievr`, `Jacquet` / `Jaquet` → `jak`, `Fouquet` / `Foucquet` → `fouk`, `Villaudy` / `Villaudi` → `vilaudi` |
 | 3 | patronyme normalisé + année de naissance ± 2 | l'équivalent de R10, élargi |
 | 4 | famille de conjoint commune | **les personnes sans date** |
 | 5 | famille parentale commune | **les personnes sans date** |
@@ -196,10 +196,21 @@ Alternatives écartées : *embeddings + recherche par voisinage* (surdimensionn�
 personnes, dépendance lourde, non déterministe) ; *balayage LLM par lots* (coûteux, non
 reproductible, et contraire au principe « le LLM interprète, il ne calcule pas »).
 
-**Clé phonétique** : fonction pure d'une trentaine de lignes, adaptée au français (doubles
-lettres réduites, `ph` → `f`, `y` → `i`, terminaisons muettes), testée par table. Préférée à une
-dépendance type `jellyfish` : un Soundex anglais gère mal les patronymes français, et le besoin
-est trop étroit pour justifier une dépendance.
+**Clé phonétique** : fonction pure d'une trentaine de lignes, adaptée au français (`ph` → `f`,
+`ch` protégé, `qu` → `k`, `c` → `k`, `y` → `i`, doubles lettres réduites, terminaisons muettes
+retirées), testée par table. Préférée à une dépendance type `jellyfish` : un Soundex anglais gère
+mal les patronymes français, et le besoin est trop étroit pour justifier une dépendance.
+
+Ses limites sont assumées et documentées : elle rapproche les variantes de graphie qui partagent
+la même ossature consonantique, mais **pas** les variations de voyelle interne — `Lelevre` donne
+`lelevr` et ne rejoint pas `lelievr`. C'est acceptable parce qu'elle ne sert qu'au rappel et que
+quatre autres clés opèrent en parallèle. Elle sépare par ailleurs correctement les familles
+voisines de §3.1 : `Jacquet` → `jak` contre `Jacquier` → `jakier`, `Pagan` → `pagan` contre
+`Pagani` → `pagani`.
+
+**Garde de volume** : un bloc dépassant `MAX_BLOC` membres est ignoré et consigné au rapport.
+Un patronyme très fréquent produirait sinon un nombre quadratique de paires — `Pagan` seul
+(151 personnes) en génèrerait 11 325.
 
 ### 4.3 L'arbitrage par le LLM
 
