@@ -47,10 +47,10 @@ jobs:
           print(m.group(1) if m else '')
           ")
           LIB_V=$(python3 -c "
-          import re, pathlib
-          t = pathlib.Path('../crewai_custom_tools/pyproject.toml').read_text()
-          m = re.search(r'^version = \"([^\"]+)\"', t, re.M)
-          print(m.group(1) if m else '')
+          import tomllib, pathlib
+          with pathlib.Path('../crewai_custom_tools/pyproject.toml').open('rb') as f:
+              data = tomllib.load(f)
+          print(data.get('project', {}).get('version', ''))
           ")
           echo "uv.lock attend : ${LOCK_V:-INTROUVABLE}"
           echo "voisin main    : ${LIB_V:-INTROUVABLE}"
