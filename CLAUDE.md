@@ -33,7 +33,12 @@ genecrew depends on the sibling **`crewai_custom_tools`** library as an editable
 All genealogy logic lives THERE under `src/crewai_custom_tools/tools/genealogy/`: `gramps/`
 (httpx+JWT client, read/write tools), `models/` (generated + `domain.py`), `analysis/` (pure
 rules R1–R10 + D1–D3, duplicate finder), `standardize/` (name casing). genecrew holds only
-orchestration/CLI: `audit.py`, `names.py`, `gender.py`, `gender_apply.py`, `apply_all.py`, `places.py`, `places_apply.py`, `places_merge.py`, `crew_audit.py` (crew orchestration), `crew.py` (the crew), `logging_setup.py`, `facts.py`, `scope.py`, `batching.py`, `report.py`.
+orchestration/CLI: `cli.py` (the verb grammar — `build_parser()`, the dispatch table's target
+names), `audit.py`, `names.py`, `gender.py`, `gender_apply.py`, `apply_all.py`, `places.py`,
+`places_apply.py`, `places_merge.py`, `deces.py`, `deces_apply.py`, `militaires.py`,
+`lieux_wiki.py`, `lieu_import.py`, `propositions.py`, `stats.py`, `checkpoint.py`,
+`crew_audit.py` (crew orchestration), `crew.py` (the crew), `logging_setup.py`, `facts.py`,
+`scope.py`, `batching.py`, `report.py`.
 After bumping the library version, run `uv sync` from the repo root to pick it up.
 
 ## Genealogy stack (Gramps Web)

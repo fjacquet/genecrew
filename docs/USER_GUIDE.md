@@ -314,7 +314,8 @@ uv run genecrew apply all --scope all --dry-run   # simuler
 uv run genecrew apply all --scope all             # écrire (si GENECREW_DRY_RUN=false)
 ```
 
-Affiche les chemins des rapports (casse, noms à vérifier, genres appliqués) dans `output/`.
+Affiche les six chemins de rapport produits (casse, noms à vérifier, genres, lieux, décès,
+propositions décès) dans `output/`.
 
 ---
 

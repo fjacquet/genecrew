@@ -22,7 +22,8 @@ vérifiées**. La généalogie est une discipline de preuve — *« c'est un dev
   standard sous `genecrew/src/genecrew/` ; les métadonnées sont à la racine.
 - **[`crewai_custom_tools`](../crewai_custom_tools)** (dépôt frère, dépendance éditable) — toute la
   **logique généalogie** : client Gramps (httpx + JWT), modèles, règles d'audit R1–R10 + D1–D3,
-  inférence de genre (table INSEE+OFS), outils d'écriture (casse, genre).
+  inférence de genre (table INSEE+OFS), outils d'écriture (casse, genre, lieux, citations de
+  registres).
 - **Gramps Web** — le backend de données, en **REST direct** (pas via un serveur MCP). Non provisionné
   ici (voir le projet frère `gramps-mcp`).
 

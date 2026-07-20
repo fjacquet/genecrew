@@ -53,6 +53,16 @@ existant, jamais un nouveau mot de tête. Le YAML relu qui sort d'un `propose` p
 `apply citations`, qui existe déjà : une nouvelle source de registre n'ouvre pas de
 nouvelle porte d'écriture.
 
+Le cycle « proposer → relire → appliquer » ci-dessus décrit la doctrine, mais seules 2
+des 5 feuilles d'`apply` la suivent à la lettre en consommant le YAML qu'un humain a
+relu : `apply citations` et `merge places`, marquées `--yaml` dans la grammaire. Les
+trois autres — `apply case`, `apply gender`, `apply places` (et `apply all`, qui les
+enchaîne) — recalculent en direct depuis Gramps et ne lisent jamais ce que le `propose`
+correspondant a produit ; c'est délibéré (ADR 0001 : la forme s'écrit directement, sans
+relecture ; ADR 0009 : le genre à haute confiance aussi), pas un oubli de ce chantier.
+L'absence de `--yaml` sur une feuille d'`apply` est déjà le marqueur de cette deuxième
+famille.
+
 Vocabulaire unifié en anglais, verbes et compléments — la CLI mélangeait `names`/
 `gender`/`audit` (anglais) et `lieux`/`deces`/`militaires` (français). `--sans-images`
 devient `--no-images` par la même règle : plus aucun mot accentué ne subsiste dans la
