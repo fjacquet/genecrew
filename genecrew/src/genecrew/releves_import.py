@@ -12,11 +12,30 @@ import re
 import unicodedata
 
 from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient
+from crewai_custom_tools.tools.genealogy.gramps.facts import FactsFetcher
+from crewai_custom_tools.tools.genealogy.gramps.write_tools import (
+    GrampsAttachTool,
+    GrampsCreateNoteTool,
+    GrampsEnsureTagTool,
+    effective_dry_run,
+)
+from crewai_custom_tools.tools.genealogy.models.domain import PersonFacts
 
+from genecrew.batching import iter_people_batches
 from genecrew.crew import build_llm
-from genecrew.releves import Appariement, ReleveIndexe
+from genecrew.releves import Appariement, ReleveIndexe, apparier, rarete_patronymes
 
 TAG_RELEVE = "ia-releve"
+
+TAILLE_LOT = 200
+
+TYPES_EVENEMENT_GERES = ("Death", "Birth")
+"""Les seuls types que le moteur d'appariement sait comparer.
+
+Miroir explicite de `releves._evenement_compare`, qui rend `None` pour tout
+autre type : sur un relevé de mariage, aucun facteur d'ÉVÉNEMENT n'est tiré.
+Voir la garde de `run_import_releve` pour ce que ça implique côté écriture.
+"""
 
 PROMPT_INTERPRETATION = """Tu interprètes un relevé généalogique copié depuis un site.
 
@@ -192,3 +211,113 @@ def deja_importe(client: GrampsClient, gramps_id: str, marqueur: str) -> bool:
     notes = (gens[0].get("extended") or {}).get("notes") or []
     return any((n.get("text") or {}).get("string", "").startswith(marqueur)
                for n in notes)
+
+
+def _parents_par_handle(fetcher: FactsFetcher,
+                        people: list[PersonFacts]) -> dict[str, list[str]]:
+    """handle → noms complets des parents, pour le facteur « parent nommé ».
+
+    Passe par `get_family_facts` : c'est la FAMILLE qui porte `father_handle` et
+    `mother_handle` ; `PersonFacts` ne connaît que les handles de ses familles
+    parentales (`parent_family_handles`), jamais l'identité des parents. Le
+    fetcher met les familles en cache, donc une famille partagée par une fratrie
+    n'est lue qu'une fois.
+
+    Les parents sont cherchés dans `people`, c'est-à-dire dans le lot déjà
+    collecté : aucune requête personne supplémentaire. Un parent absent du lot
+    (arbre partiel, borné par `--limit` un jour) est simplement ignoré — mieux
+    vaut un facteur non tiré qu'un aller-retour réseau par candidat.
+
+    Construit ici, côté orchestration : le moteur d'appariement le reçoit tout
+    fait, ce qui lui permet de rester pur et testable sans réseau.
+    """
+    par_handle = {p.handle: p for p in people}
+    index: dict[str, list[str]] = {}
+    for p in people:
+        noms: list[str] = []
+        for fam_handle in p.parent_family_handles:
+            famille = fetcher.get_family_facts(fam_handle)
+            if famille is None:
+                continue
+            for parent_handle in (famille.father_handle, famille.mother_handle):
+                parent = par_handle.get(parent_handle) if parent_handle else None
+                if parent is not None:
+                    noms.append(parent.name)
+        index[p.handle] = noms
+    return index
+
+
+def run_import_releve(client: GrampsClient, texte: str, *, llm=None,
+                      dry_run: bool = False) -> dict:
+    """Interprète, apparie, écrit si le verdict est net. Rend le verdict ET sa raison.
+
+    Le dict rendu porte toujours les cinq mêmes clés (`releve`, `appariement`,
+    `ecrit`, `raison`, `dry_run`) : l'appelant n'a jamais à deviner pourquoi
+    rien n'a été écrit, et c'est ce qui rendra les verdicts lisibles en lot
+    avant qu'un humain lâche la main.
+
+    `apparier` est appelé SANS `lieux_resolus` : peupler ce dictionnaire
+    demande d'appeler les résolveurs géographiques (réseau), ce qui fera l'objet
+    d'un chantier dédié. Sa valeur par défaut est sûre — le moteur retombe sur
+    une comparaison de chaînes et ne produit jamais de veto sur un lieu.
+    """
+    dry_run = effective_dry_run(dry_run)
+    releve = parse_releve(texte, llm=llm)
+    fetcher = FactsFetcher(client)
+    # `iter_people_batches` pagine réellement : on aplatit, l'appariement a
+    # besoin de l'arbre ENTIER (la rareté des patronymes est mesurée dessus,
+    # et un candidat manquant ferait conclure « absent de l'arbre »).
+    people = [p for lot in iter_people_batches(client, fetcher, "all", TAILLE_LOT, None)
+              for p in lot]
+    appariement = apparier(releve, people, rarete_patronymes(people),
+                           _parents_par_handle(fetcher, people))
+    out = {"releve": releve, "appariement": appariement, "ecrit": False,
+           "raison": "", "dry_run": dry_run}
+
+    # Garde de type, AVANT tout le reste : sur un type que le moteur ne compare
+    # pas (tout sauf Death/Birth — voir TYPES_EVENEMENT_GERES), aucun facteur
+    # d'événement n'est tiré, et pourtant « deux parents nommés » pèse 8 à lui
+    # seul, c'est-à-dire exactement SEUIL_NET. Un relevé de mariage peut donc
+    # sortir `net` sans qu'on ait jamais regardé le mariage. Écrire là poserait
+    # une note sur un type que la chaîne ne sait pas traiter : on refuse, en le
+    # disant.
+    if releve.evenement_type not in TYPES_EVENEMENT_GERES:
+        out["raison"] = (
+            f"type d'événement non géré : {releve.evenement_type} "
+            f"(seuls {', '.join(TYPES_EVENEMENT_GERES)} sont comparés)")
+        return out
+
+    if appariement.verdict == "gris":
+        out["raison"] = "gris — relecture requise"
+        return out
+    if appariement.verdict == "aucun":
+        out["raison"] = "aucun candidat — création du sujet différée"
+        return out
+
+    marqueur = marqueur_releve(releve.fonds, releve.reference)
+    if deja_importe(client, appariement.gramps_id, marqueur):
+        out["raison"] = "déjà importée"
+        return out
+    if dry_run:
+        out["raison"] = "simulation"
+        return out
+
+    note = json.loads(GrampsCreateNoteTool()._run(
+        text=corps_note_releve(releve, appariement), note_type="Research"))
+    if not note["success"]:
+        out["raison"] = f"note refusée : {note['error']}"
+        return out
+    tag = json.loads(GrampsEnsureTagTool()._run(name=TAG_RELEVE))
+    if not tag["success"]:
+        out["raison"] = f"tag refusé : {tag['error']}"
+        return out
+    attache = json.loads(GrampsAttachTool()._run(
+        handle=appariement.handle, note_handle=note["data"]["handle"],
+        tag_handle=tag["data"]["handle"]))
+    if not attache["success"]:
+        out["raison"] = f"rattachement refusé : {attache['error']}"
+        return out
+
+    out["ecrit"] = True
+    out["raison"] = "importée"
+    return out

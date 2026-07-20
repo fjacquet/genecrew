@@ -9,11 +9,14 @@ from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient, Gram
 from genecrew.deces_apply import source_title_for
 from genecrew.releves import Appariement
 from genecrew.releves_import import (
+    TAG_RELEVE,
+    _parents_par_handle,
     code_fonds,
     corps_note_releve,
     deja_importe,
     marqueur_releve,
     parse_releve,
+    run_import_releve,
 )
 
 CONFIG = GrampsConfig(api_url="http://g.test/api", username="u", password="p")
@@ -242,3 +245,211 @@ def test_note_dit_que_le_releve_est_une_source_derivee():
     r = parse_releve(COLLAGE_ROSE, llm=_LLMStub(json.dumps(_JSON_ATTENDU)))
     corps = corps_note_releve(r, Appariement(verdict="net"))
     assert "dérivée" in corps and "acte" in corps
+
+
+# --- orchestration : collecte, appariement, écriture ---------------------------
+#
+# Les fixtures ci-dessous sont la forme JSON BRUTE que `person_from_json` sait
+# lire (patronyme dans `primary_name.surname_list`, événements dans
+# `extended.events` indexés par `birth_ref_index`/`death_ref_index`, lieux dans
+# `profile`). Une fixture inventée rendrait toute la suite verte sur un moteur
+# d'appariement inopérant : c'est la forme réelle qu'on recopie, pas une forme
+# plausible.
+
+def _personne(gramps_id, handle, *, prenom="Rose", nom="JACQUET",
+              familles_parentales=()):
+    return {
+        "gramps_id": gramps_id, "handle": handle, "gender": 0,
+        "primary_name": {"first_name": prenom,
+                         "surname_list": [{"surname": nom}]},
+        "birth_ref_index": 0, "death_ref_index": 1,
+        "parent_family_list": list(familles_parentales),
+        "extended": {"events": [
+            {"type": "Birth", "date": {"dateval": [0, 0, 1821, False], "year": 1821,
+                                       "sortval": 664000, "modifier": 3, "quality": 0}},
+            {"type": "Death", "date": {"dateval": [10, 12, 1894, False], "year": 1894,
+                                       "sortval": 692000, "modifier": 0, "quality": 0}},
+        ]},
+        "profile": {"death": {"place_name": "Saint-Martin-d'Auxigny"}},
+    }
+
+
+_ROSE_ARBRE = _personne("I0001", "h1")
+
+
+def _handler_arbre(people_json, familles=None, notes=()):
+    """Répond aux appels Gramps : /people/ paginé, /people/?gramps_id=, /families/<h>.
+
+    La page 2 rend une liste vide : `iter_people_batches` pagine jusqu'à
+    l'épuisement, et un mock qui renverrait toujours la même page boucle sans fin.
+    """
+    familles = familles or {}
+
+    def h(request):
+        chemin = request.url.path
+        if chemin == "/api/people/":
+            if "gramps_id" in request.url.params:
+                # Lecture d'idempotence (`deja_importe`), pas la pagination.
+                return httpx.Response(200, json=[{"extended": {"notes": list(notes)}}])
+            if request.url.params.get("page", "1") != "1":
+                return httpx.Response(200, json=[])
+            return httpx.Response(200, json=list(people_json))
+        if chemin.startswith("/api/families/"):
+            return httpx.Response(200, json=familles[chemin.rsplit("/", 1)[-1]])
+        return httpx.Response(200, json=[])
+
+    return h
+
+
+def _arbre(*people_json, familles=None, notes=()):
+    return _client(_handler_arbre(people_json, familles, notes))
+
+
+def _llm():
+    return _LLMStub(json.dumps(_JSON_ATTENDU))
+
+
+def test_simulation_par_defaut_n_ecrit_rien(monkeypatch):
+    """GENECREW_DRY_RUN absent = on SIMULE : le verdict se lit, rien ne s'écrit."""
+    monkeypatch.delenv("GENECREW_DRY_RUN", raising=False)
+    out = run_import_releve(_arbre(_ROSE_ARBRE), COLLAGE_ROSE, llm=_llm())
+    assert out["dry_run"] is True
+    assert out["ecrit"] is False
+    assert out["raison"] == "simulation"
+    assert out["appariement"].verdict == "net"
+    assert out["releve"].reference == "106710046161418286"
+
+
+def test_gris_n_ecrit_pas_meme_hors_simulation(monkeypatch):
+    monkeypatch.setenv("GENECREW_DRY_RUN", "false")
+    jumeau = _personne("I0002", "h2")
+    out = run_import_releve(_arbre(_ROSE_ARBRE, jumeau), COLLAGE_ROSE, llm=_llm())
+    assert out["appariement"].verdict == "gris"
+    assert out["ecrit"] is False
+    assert out["raison"] == "gris — relecture requise"
+
+
+def test_aucun_candidat_n_ecrit_pas(monkeypatch):
+    monkeypatch.setenv("GENECREW_DRY_RUN", "false")
+    etranger = _personne("I0009", "h9", prenom="Jean", nom="DURAND")
+    out = run_import_releve(_arbre(etranger), COLLAGE_ROSE, llm=_llm())
+    assert out["appariement"].verdict == "aucun"
+    assert out["ecrit"] is False
+    assert "aucun candidat" in out["raison"]
+
+
+def test_deuxieme_passage_n_ecrit_rien(monkeypatch):
+    monkeypatch.setenv("GENECREW_DRY_RUN", "false")
+    m = marqueur_releve("Cercle Généalogique du Haut-Berry", "106710046161418286")
+    out = run_import_releve(
+        _arbre(_ROSE_ARBRE, notes=[{"text": {"string": m}}]), COLLAGE_ROSE, llm=_llm())
+    assert out["ecrit"] is False
+    assert out["raison"] == "déjà importée"
+
+
+def test_pagination_reelle_collecte_les_pages_suivantes(monkeypatch):
+    """`iter_people_batches` doit vraiment paginer : Rose est SEULE en page 2.
+
+    Une implémentation qui ne lirait que la première page ne la verrait pas et
+    conclurait « aucun candidat ».
+    """
+    monkeypatch.delenv("GENECREW_DRY_RUN", raising=False)
+
+    def h(request):
+        if request.url.path == "/api/people/":
+            if "gramps_id" in request.url.params:
+                return httpx.Response(200, json=[{"extended": {"notes": []}}])
+            page = request.url.params.get("page", "1")
+            if page == "1":
+                return httpx.Response(200, json=[_personne("I0009", "h9",
+                                                           prenom="Jean", nom="DURAND")])
+            if page == "2":
+                return httpx.Response(200, json=[_ROSE_ARBRE])
+            return httpx.Response(200, json=[])
+        return httpx.Response(200, json=[])
+
+    out = run_import_releve(_client(h), COLLAGE_ROSE, llm=_llm())
+    assert out["appariement"].verdict == "net"
+    assert out["appariement"].gramps_id == "I0001"
+
+
+# --- le type d'événement non géré -------------------------------------------
+
+_FAMILLE_ROSE = {"gramps_id": "F0001", "handle": "f1",
+                 "father_handle": "hp", "mother_handle": "hm",
+                 "child_ref_list": [{"ref": "h1"}], "extended": {"events": []}}
+
+_JSON_MARIAGE = dict(_JSON_ATTENDU, evenement_type="Marriage")
+
+
+def _arbre_avec_parents(*, notes=()):
+    rose = _personne("I0001", "h1", familles_parentales=["f1"])
+    pere = _personne("I0002", "hp", prenom="Pierre", nom="JACQUET")
+    mere = _personne("I0003", "hm", prenom="Marie Anne", nom="VILLEPELLET")
+    return _arbre(rose, pere, mere, familles={"f1": _FAMILLE_ROSE}, notes=notes)
+
+
+def test_parents_par_handle_passe_par_la_famille():
+    """C'est la FAMILLE qui porte father_handle/mother_handle, pas la personne."""
+    from crewai_custom_tools.tools.genealogy.gramps.facts import FactsFetcher
+
+    client = _arbre_avec_parents()
+    fetcher = FactsFetcher(client)
+    people = fetcher.list_people_facts(1, 200)
+    index = _parents_par_handle(fetcher, people)
+    assert sorted(index["h1"]) == ["Marie Anne VILLEPELLET", "Pierre JACQUET"]
+    assert index["hp"] == []
+
+
+def test_type_evenement_non_gere_refuse_d_ecrire(monkeypatch):
+    """Un relevé de MARIAGE peut atteindre `net` par le seul facteur « deux
+    parents nommés » (8 = SEUIL_NET), alors que le moteur n'a comparé AUCUN
+    événement : `_evenement_compare` ne connaît que Death et Birth. Écrire là
+    poserait une note sur un type que la chaîne ne sait pas traiter.
+    """
+    monkeypatch.setenv("GENECREW_DRY_RUN", "false")
+    out = run_import_releve(_arbre_avec_parents(), COLLAGE_ROSE,
+                            llm=_LLMStub(json.dumps(_JSON_MARIAGE)))
+    assert out["appariement"].verdict == "net"       # le piège est bien armé
+    assert out["ecrit"] is False
+    assert "Marriage" in out["raison"]
+
+
+# --- l'écriture, quand tout concorde ----------------------------------------
+
+def test_net_hors_simulation_pose_note_et_tag(monkeypatch, mocker):
+    """Le chemin nominal : note créée, tag garanti, les deux rattachés."""
+    monkeypatch.setenv("GENECREW_DRY_RUN", "false")
+    vu = {"notes": [], "tags": [], "put": []}
+
+    def h(request):
+        chemin = request.url.path
+        if request.method == "POST" and chemin == "/api/notes/":
+            vu["notes"].append(json.loads(request.content))
+            return httpx.Response(201, json=[{"new": {"handle": "n1"}}])
+        if request.method == "POST" and chemin == "/api/tags/":
+            vu["tags"].append(json.loads(request.content))
+            return httpx.Response(201, json=[{"new": {"handle": "t1"}}])
+        if request.method == "PUT" and chemin == "/api/people/h1":
+            vu["put"].append(json.loads(request.content))
+            return httpx.Response(200, json={})
+        if chemin == "/api/tags/":
+            return httpx.Response(200, json=[])
+        if chemin == "/api/people/h1":
+            return httpx.Response(200, json={"gramps_id": "I0001", "handle": "h1"})
+        return _handler_arbre([_ROSE_ARBRE])(request)
+
+    client = _client(h)
+    mocker.patch(
+        "crewai_custom_tools.tools.genealogy.gramps.write_tools.get_client",
+        return_value=client)
+
+    out = run_import_releve(client, COLLAGE_ROSE, llm=_llm())
+    assert out["dry_run"] is False
+    assert out["ecrit"] is True
+    assert out["raison"] == "importée"
+    assert COLLAGE_ROSE.strip() in vu["notes"][0]["text"]["string"]
+    assert vu["notes"][0]["text"]["string"].startswith("[genecrew:releve:")
+    assert vu["tags"][0]["name"] == TAG_RELEVE
+    assert vu["put"][0]["note_list"] == ["n1"]
+    assert vu["put"][0]["tag_list"] == ["t1"]
