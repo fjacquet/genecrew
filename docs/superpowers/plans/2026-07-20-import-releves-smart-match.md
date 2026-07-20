@@ -107,8 +107,8 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 FacteurReleve = Literal[
-    "parent nommé", "date complète", "lieu", "patronyme rare",
-    "prénom", "année approximative",
+    "deux parents nommés", "parent nommé", "date complète", "lieu",
+    "patronyme rare", "prénom", "année approximative",
 ]
 """Vocabulaire fermé des facteurs qu'un appariement peut invoquer.
 
@@ -116,9 +116,15 @@ Clos volontairement, sur le procédé de `FacteurConcordance` : un relevé qui
 voudrait faire valoir « né vers 1821 » se fait refuser par pydantic plutôt que
 de gonfler son poids. L'année approximative y figure, mais comme facteur FAIBLE
 et distinct de la date — une année seule n'est jamais discriminante.
+
+Un parent et deux parents sont deux facteurs DISTINCTS, jamais émis ensemble :
+un père homonyme ne prouve presque rien (« Pierre JACQUET » dans le Cher), un
+couple de parents nommés prouve beaucoup. Les confondre sous un poids unique
+rendrait un homonyme suffisant pour écrire dans l'arbre.
 """
 
 POIDS: dict[str, int] = {
+    "deux parents nommés": 8,
     "parent nommé": 5,
     "date complète": 5,
     "lieu": 3,
@@ -128,7 +134,8 @@ POIDS: dict[str, int] = {
 }
 
 FACTEURS_FORTS: frozenset[str] = frozenset(
-    {"parent nommé", "date complète", "lieu", "patronyme rare"})
+    {"deux parents nommés", "parent nommé", "date complète", "lieu",
+     "patronyme rare"})
 
 SEUIL_NET = 8
 """Poids minimal d'un verdict `net`. Atteignable par deux facteurs forts, jamais
@@ -473,17 +480,29 @@ def test_facteurs_faibles_seuls_ne_font_jamais_un_net():
     assert a.verdict != "net"
 
 
-def test_parent_nomme_concordant_pese_lourd():
+def test_deux_parents_concordants_suffisent_a_un_net():
+    """Le couple complet prouve beaucoup : deux JACQUET du Cher ont rarement
+    la même mère."""
     p = _p("I1", "JACQUET", "Rose")
     a = apparier(ROSE, [p], {"JACQUET": 0.75},
                  {"hI1": ["Pierre JACQUET", "Marie Anne VILLEPELLET"]})
-    assert "parent nommé" in a.facteurs
+    assert "deux parents nommés" in a.facteurs
+    assert "parent nommé" not in a.facteurs      # jamais les deux à la fois
     assert a.verdict == "net"
 
 
+def test_un_seul_parent_concordant_ne_suffit_pas():
+    """Garde-fou de l'homonyme : « Pierre JACQUET » dans le Cher ne prouve
+    presque rien, et ne doit jamais déclencher une écriture à lui seul."""
+    p = _p("I1", "JACQUET", "Rose")
+    a = apparier(ROSE, [p], {"JACQUET": 0.75}, {"hI1": ["Pierre JACQUET"]})
+    assert "parent nommé" in a.facteurs
+    assert a.verdict != "net"
+
+
 def test_candidats_multiples_a_poids_egal_donnent_gris():
-    a1 = _mort(_p("I1", "JACQUET", "Rose"), "1894-12-10", "Saint-Martin-d'Auxigny")
-    a2 = _mort(_p("I2", "JACQUET", "Rose"), "1894-12-10", "Saint-Martin-d'Auxigny")
+    a1 = _mort(_p("I1", "JACQUET", "Rose"), 10, 12, 1894, "Saint-Martin-d'Auxigny")
+    a2 = _mort(_p("I2", "JACQUET", "Rose"), 10, 12, 1894, "Saint-Martin-d'Auxigny")
     a = apparier(ROSE, [a1, a2], {"JACQUET": 0.75}, {})
     assert a.verdict == "gris"
     assert sorted(a.candidats) == ["I1", "I2"]
@@ -497,7 +516,7 @@ def test_aucun_candidat_donne_aucun():
 
 
 def test_patronyme_rare_ajoute_un_facteur_fort():
-    p = _mort(_p("I1", "VILLEPELLET", "Marie"), "1894-12-10")
+    p = _mort(_p("I1", "VILLEPELLET", "Marie"), 10, 12, 1894)
     r = _releve(sujet_nom="VILLEPELLET", sujet_prenom="Marie",
                 evenement_date="1894-12-10")
     a = apparier(r, [p], {"VILLEPELLET": 0.01}, {})
@@ -577,10 +596,16 @@ def facteurs_et_divergences(
         if abs(annee_arbre - releve.naissance_estimee) <= 2:
             facteurs.append("année approximative")
 
+    # Un parent ou deux : DEUX facteurs distincts, jamais émis ensemble. Les
+    # cumuler compterait la même preuve deux fois (5 + 8 = 13) ; les confondre
+    # sous un poids unique rendrait un simple homonyme suffisant pour écrire.
     parents_arbre = {_normaliser(n) for n in parents_par_handle.get(person.handle, [])}
     parents_releve = {_normaliser(pl.nom) for pl in releve.personnes_liees
                       if pl.role in ("père", "mère")}
-    if parents_arbre & parents_releve:
+    concordants = len(parents_arbre & parents_releve)
+    if concordants >= 2:
+        facteurs.append("deux parents nommés")
+    elif concordants == 1:
         facteurs.append("parent nommé")
 
     return facteurs, divergences
