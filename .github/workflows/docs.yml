@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'docs/**'
+      - '!docs/superpowers/**'
       - 'README.md'
       - 'mkdocs.yml'
       - '.github/workflows/docs.yml'
