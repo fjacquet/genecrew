@@ -1,0 +1,75 @@
+"""Appariement d'un relevé collé avec les personnes de l'arbre.
+
+Le moteur est PUR : aucun appel réseau, aucune écriture. C'est ce qui le rend
+testable hors-ligne et auditable ligne à ligne — un verdict doit toujours pouvoir
+s'expliquer par les facteurs qui l'ont produit.
+"""
+
+from __future__ import annotations
+
+from typing import Literal
+
+from pydantic import BaseModel, Field
+
+FacteurReleve = Literal[
+    "parent nommé", "date complète", "lieu", "patronyme rare",
+    "prénom", "année approximative",
+]
+"""Vocabulaire fermé des facteurs qu'un appariement peut invoquer.
+
+Clos volontairement, sur le procédé de `FacteurConcordance` : un relevé qui
+voudrait faire valoir « né vers 1821 » se fait refuser par pydantic plutôt que
+de gonfler son poids. L'année approximative y figure, mais comme facteur FAIBLE
+et distinct de la date — une année seule n'est jamais discriminante.
+"""
+
+POIDS: dict[str, int] = {
+    "parent nommé": 5,
+    "date complète": 5,
+    "lieu": 3,
+    "patronyme rare": 3,
+    "prénom": 1,
+    "année approximative": 1,
+}
+
+FACTEURS_FORTS: frozenset[str] = frozenset(
+    {"parent nommé", "date complète", "lieu", "patronyme rare"})
+
+SEUIL_NET = 8
+"""Poids minimal d'un verdict `net`. Atteignable par deux facteurs forts, jamais
+par un empilement de faibles (voir `apparier`)."""
+
+
+class PersonneLiee(BaseModel):
+    """Une personne citée par le relevé sans en être le sujet."""
+
+    nom: str
+    role: str = Field(description="père | mère | conjoint | témoin | autre")
+    detail: str = ""
+
+
+class ReleveIndexe(BaseModel):
+    """Le relevé, une fois interprété. Le texte brut est conservé intégralement."""
+
+    fonds: str
+    reference: str
+    sujet_nom: str
+    sujet_prenom: str
+    evenement_type: str = Field(description="Death | Birth | Marriage")
+    evenement_date: str = ""            # ISO "1894-12-10", "" si absente
+    evenement_lieu: str = ""
+    naissance_estimee: int | None = None
+    personnes_liees: list[PersonneLiee] = Field(default_factory=list)
+    texte_brut: str
+
+
+class Appariement(BaseModel):
+    """Le verdict, et surtout ce qui l'a produit."""
+
+    verdict: Literal["net", "gris", "aucun"]
+    gramps_id: str | None = None
+    handle: str | None = None
+    facteurs: list[FacteurReleve] = Field(default_factory=list)
+    divergences: list[str] = Field(default_factory=list)
+    poids: int = 0
+    candidats: list[str] = Field(default_factory=list)
