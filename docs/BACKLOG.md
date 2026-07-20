@@ -102,6 +102,30 @@ Suivis non bloquants notés au fil de l'eau (revues, usage). Aucun n'est urgent 
   la Suisse entière (122 personnes contre 9) et ne coûte qu'une projection de la propriété
   Wikidata P902. Voir `docs/superpowers/specs/2026-07-20-sources-archives-pistes-design.md`.
 
+## Chemin d'écriture des pistes — gelé, pas oublié
+
+- **Tout le chemin d'écriture des pistes est orphelin en production, délibérément.**
+  `propose wikidata`/`propose dhs` (`genecrew/src/genecrew/archives.py`) sont redevenues
+  lecture seule : la mesure du 2026-07-20 sur l'arbre réel n'a produit **aucune** piste forte,
+  et `consigner()` n'écrit que celles-là — le chemin d'écriture était donc mort dans les faits.
+  Voir ADR 0012 pour le raisonnement complet.
+
+  Restent dans le code, **non supprimées, toujours testées** :
+  - `genecrew/src/genecrew/pistes.py` : `consigner`, `marqueur`, `cle_derivee`,
+    `marqueurs_existants`, et la constante `TAG_PISTE` — plus aucun appelant en production
+    depuis que `propose` est redevenu lecture seule.
+  - `crewai_custom_tools…pistes/matchid.py` : `pistes_matchid` — n'a jamais eu d'appelant en
+    production (le décès passe par `propose deaths`/`genecrew/deces.py`, qui émet des
+    `PropositionAudit`, pas des `Piste`).
+
+  **Ce n'est pas un oubli à nettoyer.** Le propriétaire de l'arbre a choisi de geler ce chemin
+  plutôt que de le supprimer, en attendant qu'une source produise un jour des pistes fortes —
+  moment où une commande `apply pistes` (déjà nommée dans l'ADR 0012, pas encore implémentée)
+  les consommera. **Condition de réveil** : une source de pistes (Gallica/`services/ContentSearch`,
+  une autre projection Wikidata, …) mesurée comme produisant des pistes fortes sur l'arbre réel.
+  D'ici là, ce code reste du code mort assumé — ne pas le supprimer en passant, et ne pas
+  s'étonner qu'il n'ait aucun appelant.
+
 ## Discoverabilité de la grammaire de verbes
 
 - **`propose military` → `apply citations`, asymétrie non devinable** — cas réel : l'utilisateur a

@@ -17,7 +17,8 @@ import yaml
 from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient
 from crewai_custom_tools.tools.genealogy.gramps.facts import FactsFetcher
 from crewai_custom_tools.tools.genealogy.matchid import score_deces_match, search_deces
-from crewai_custom_tools.tools.genealogy.models.domain import EventFact, PersonFacts
+from crewai_custom_tools.tools.genealogy.models.domain import PersonFacts
+from crewai_custom_tools.tools.genealogy.pistes import event_iso, first_given
 
 from genecrew.batching import iter_people_batches
 from genecrew.logging_setup import get_logger
@@ -28,24 +29,6 @@ THROTTLE_S = 2.0       # espacement de base entre requêtes MatchID ; 0 dans les
 BACKOFF_S = (15, 30, 30)  # attentes sur 422/429 — mesuré: seau ~5 req, recharge ~30 s
 AMBIGUITY_MARGIN = 0.05   # 2 candidats trop proches -> on s'abstient (homonymes)
 RESCUE_MIN_SCORE = 0.80   # plancher du repêchage "décès exact concorde" (mode source)
-
-
-def first_given(given: str) -> str:
-    """First given name, tree commas stripped ('Paul, Marcel' -> 'Paul'). Pure.
-
-    MatchID answers 422 on 'Paul,'.
-    """
-    return (given.replace(",", " ").split() or [""])[0]
-
-
-def event_iso(event: EventFact | None) -> str:
-    """ISO-ish date of an event: 'YYYY-MM-DD' if full, 'YYYY' if year only, ''. Pure."""
-    if event is None or not event.year:
-        return ""
-    dv = event.dateval or []
-    if len(dv) >= 3 and dv[0] and dv[1]:
-        return f"{dv[2]:04d}-{dv[1]:02d}-{dv[0]:02d}"
-    return f"{event.year:04d}"
 
 
 def is_candidate(person: PersonFacts, *, today_year: int) -> bool:

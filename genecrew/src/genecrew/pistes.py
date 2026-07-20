@@ -123,22 +123,44 @@ def consigner(client, piste: Piste, *, dry_run: bool = False) -> dict:
     return {"ecrite": True, "raison": "consignée"}
 
 
-def render_rapport_pistes(pistes: list[Piste], date: str, *, dry_run: bool) -> str:
+def render_rapport_pistes(pistes: list[Piste], date: str, *, dry_run: bool = False,
+                          ecriture: bool = True, echecs: int = 0) -> str:
     """Rapport Markdown. Les faibles n'existent QUE là — les perdre les perdrait.
 
-    `effective_dry_run` est appliqué ici comme dans `consigner` : sans lui, un appelant
-    passant `dry_run=False` alors que `GENECREW_DRY_RUN` impose la simulation ferait
-    annoncer « écritures appliquées » à un rapport dont aucune piste n'a été écrite.
-    Le mode affiché doit être le mode EFFECTIF, jamais celui demandé.
+    `ecriture` distingue deux appelants possibles de ce rendu partagé :
+
+    - `ecriture=True` (défaut) : l'appelant EST une commande qui écrit (ou pourrait
+      écrire) dans l'arbre — `dry_run`/`effective_dry_run` s'appliquent alors comme
+      dans `consigner`, et le mode affiché doit être le mode EFFECTIF, jamais celui
+      demandé, faute de quoi un appelant passant `dry_run=False` alors que
+      `GENECREW_DRY_RUN` impose la simulation annoncerait « écritures appliquées »
+      à un rapport dont aucune piste n'a été écrite.
+    - `ecriture=False` : l'appelant est une commande `propose` qui N'A AUCUN mode
+      d'écriture — `dry_run` est alors ignoré, et le rapport ne doit jamais employer
+      un vocabulaire de simulation (« dry-run ») qui laisserait croire qu'une
+      écriture réelle existe quelque part pour cette commande.
+
+    `echecs` compte les personnes pour lesquelles la source a échoué (erreur réseau,
+    504, …) plutôt que de n'avoir rien renvoyé. Sans lui, une panne de source sur
+    tout le lot produit exactement le même rapport (« Aucune piste ») qu'un arbre
+    sans aucun résultat — les deux sont indiscernables si le rapport ne les distingue
+    pas explicitement.
     """
-    dry_run = effective_dry_run(dry_run)
-    mode = "simulation (dry-run, aucune écriture)" if dry_run else "écritures appliquées"
+    if ecriture:
+        dry_run = effective_dry_run(dry_run)
+        mode = "simulation (dry-run, aucune écriture)" if dry_run else "écritures appliquées"
+        libelle_fortes = "Pistes fortes (écrites dans l'arbre)"
+    else:
+        mode = "lecture seule (cette commande n'écrit rien)"
+        libelle_fortes = "Pistes fortes (au moins deux facteurs concordants, aucune divergence)"
     fortes = [p for p in pistes if p.force == "forte"]
     faibles = [p for p in pistes if p.force == "faible"]
     lignes = [f"# Pistes de recherche — {date}", "",
               f"Mode : {mode}.", "",
-              f"- Pistes fortes (écrites dans l'arbre) : {len(fortes)}",
-              f"- Pistes faibles (ce rapport seulement) : {len(faibles)}", ""]
+              f"- {libelle_fortes} : {len(fortes)}",
+              f"- Pistes faibles (ce rapport seulement) : {len(faibles)}",
+              f"- Échecs de la source (personne non interrogée, ex. erreur réseau) : {echecs}",
+              ""]
     if not pistes:
         lignes += ["Aucune piste.", ""]
         return "\n".join(lignes)

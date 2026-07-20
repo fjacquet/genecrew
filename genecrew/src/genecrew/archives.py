@@ -62,21 +62,22 @@ def run_archives(client: GrampsClient, source: str, scope: str, output_dir: Path
     date = date or _date.today().isoformat()
     fetcher = FactsFetcher(client)
     toutes: list[Piste] = []
-    vues = 0
+    echecs = 0
     for lot in iter_people_batches(client, fetcher, scope, batch_size, limit):
         for person in lot:
-            vues += 1
             try:
                 if THROTTLE_S:
                     time.sleep(THROTTLE_S)
                 pistes = collecter_pistes(source, person)
             except Exception as exc:                       # noqa: BLE001
+                echecs += 1
                 logger.warning("%s : %s a échoué (%s)", person.gramps_id, source, exc)
                 continue
             toutes.extend(pistes)
 
     output_dir.mkdir(parents=True, exist_ok=True)
     chemin = output_dir / f"{date}_pistes_{source}_{scope.replace(':', '-')}.md"
-    chemin.write_text(render_rapport_pistes(toutes, date, dry_run=True), encoding="utf-8")
-    logger.info("%s pistes depuis %s (%s personnes vues)", len(toutes), source, vues)
+    chemin.write_text(render_rapport_pistes(toutes, date, ecriture=False, echecs=echecs),
+                      encoding="utf-8")
+    logger.info("%s pistes depuis %s (%s échecs)", len(toutes), source, echecs)
     return chemin

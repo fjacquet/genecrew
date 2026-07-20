@@ -44,13 +44,11 @@ def test_collecter_wikidata_traduit_les_lignes_sparql(mocker):
 def test_gallica_n_est_pas_une_source_exposee():
     """Livrée dans la bibliothèque mais pas branchée : son SRU rend des notices
     de collection, pas des articles. Voir docs/BACKLOG.md."""
-    import pytest
     with pytest.raises(ValueError, match="source inconnue"):
         collecter_pistes("gallica", _person())
 
 
 def test_source_inconnue_leve():
-    import pytest
     with pytest.raises(ValueError, match="source inconnue"):
         collecter_pistes("scriptorium", _person())
 
@@ -117,6 +115,33 @@ def test_run_archives_erreur_sur_une_personne_ninterrompt_pas_le_parcours(tmp_pa
     assert chemin.exists()
 
 
+def test_run_archives_compte_les_echecs_dans_le_rapport(tmp_path, mocker):
+    """Une panne de source (ex. 504) est comptée, pas juste journalisée en warning.
+
+    Sans ce compteur, un échec sur TOUTES les personnes du lot produirait le même
+    rapport « Aucune piste » qu'un arbre sans aucun résultat — les deux
+    deviendraient indiscernables à la lecture du rapport seul."""
+    def fake_collecter(source, person):
+        if person.gramps_id == "I0001":
+            raise RuntimeError("504 Gateway Timeout")
+        return []
+    mocker.patch("genecrew.archives.collecter_pistes", side_effect=fake_collecter)
+
+    def handler(request):
+        if request.url.path == "/api/token/":
+            return httpx.Response(200, json={"access_token": "t"})
+        page = int(request.url.params.get("page", 1))
+        if page == 1:
+            return httpx.Response(
+                200, json=[_raw_person("I0001", "H1"), _raw_person("I0002", "H2")])
+        return httpx.Response(200, json=[])
+
+    client = GrampsClient(CONFIG, transport=httpx.MockTransport(handler))
+    chemin = run_archives(client, "wikidata", "all", tmp_path, date="2026-07-20")
+    contenu = chemin.read_text(encoding="utf-8")
+    assert "Échecs de la source" in contenu and ": 1" in contenu
+
+
 def test_run_archives_n_ecrit_jamais_meme_avec_une_piste_forte(tmp_path, mocker):
     """Preuve de lecture seule : `propose` (docs/adr/0012-cli-grammaire-verbes.md)
     ne doit jamais écrire, y compris quand une piste forte est trouvée. Si
@@ -147,8 +172,13 @@ def test_run_archives_n_ecrit_jamais_meme_avec_une_piste_forte(tmp_path, mocker)
     contenu = chemin.read_text(encoding="utf-8")
     # La piste forte apparaît dans le rapport (compte à 1), mais aucune écriture
     # HTTP n'a atteint le transport — sinon le handler ci-dessus aurait levé.
-    assert "Pistes fortes (écrites dans l'arbre) : 1" in contenu
-    assert "simulation (dry-run, aucune écriture)" in contenu
+    # `propose` n'a AUCUN mode d'écriture : le rapport ne doit donc employer ni
+    # « écrites dans l'arbre » (une piste forte) ni un vocabulaire de simulation
+    # dry-run qui laisserait croire qu'une écriture réelle existe pour cette commande.
+    assert "Pistes fortes (au moins deux facteurs concordants, aucune divergence) : 1" in contenu
+    assert "lecture seule (cette commande n'écrit rien)" in contenu
+    assert "écrites dans l'arbre" not in contenu
+    assert "dry-run" not in contenu
 
 
 def test_consigner_n_est_plus_appele_depuis_archives():

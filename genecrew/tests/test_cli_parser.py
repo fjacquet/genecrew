@@ -83,12 +83,12 @@ def test_renamed_flags_land_on_the_expected_attributes():
 
 
 @pytest.mark.parametrize("cible", ["wikidata", "dhs"])
-def test_propose_accepte_les_trois_sources_d_archives(cible):
+def test_propose_accepte_les_deux_sources_d_archives(cible):
     args = build_parser().parse_args(["propose", cible, "--scope", "all"])
     assert args.command == "propose" and args.target == cible
 
-
-def test_propose_scriptorium_est_refuse():
-    # La source a été écartée : voir docs/BACKLOG.md.
-    with pytest.raises(SystemExit):
-        build_parser().parse_args(["propose", "scriptorium"])
+# Pas de test dédié au rejet de "scriptorium" : il ne prouverait rien de plus que
+# le rejet générique d'un mot inconnu, déjà couvert par `test_old_names_are_rejected`
+# et par argparse lui-même (choix fermé). "scriptorium" n'a jamais été une feuille
+# valide de `propose` — la source a été écartée avant d'être câblée, voir
+# docs/BACKLOG.md — donc son rejet n'est pas un comportement spécifique à verrouiller.

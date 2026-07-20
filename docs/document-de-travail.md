@@ -444,10 +444,16 @@ Chroniqueur), piloté par l'orchestrateur.
 - **Entrées** : personnes à lacunes (décès manquant, parents inconnus, périodes vides),
   détectées par l'audit. Crew : Historien + Chroniqueur.
 - **Tâches** : T1 identifier les lacunes par personne ; T2 interroger les API (MatchID pour
-  les décès France ≥ 1970 en recherche floue ; Gallica SRU pour la presse et les registres
-  matricules ; Wikidata ; DHS pour la Suisse ; Scriptorium pour la presse vaudoise ; recherche
-  web) ; T3 consigner : note `piste` par personne (URL, requête exacte rejouable, degré de
-  correspondance) + tag `ia-piste` ; T4 rapport de pistes classées par probabilité.
+  les décès France ≥ 1970 en recherche floue ; Wikidata ; DHS pour la Suisse ; Gallica et
+  Scriptorium évalués, voir `docs/BACKLOG.md` ; recherche web) ; T3 rapport Markdown de pistes,
+  fortes et faibles séparées, degré de correspondance et requête exacte rejouable pour chacune.
+- **État réel (2026-07-20)** : `propose wikidata`/`propose dhs` sont **lecture seule** —
+  aucune note ni tag n'est posé, conformément à la règle « proposer = lecture seule » (ADR
+  0012). Une version antérieure consignait les pistes fortes en note + tag `ia-piste` ; ce
+  chemin d'écriture existe encore dans le code (`genecrew/pistes.py` : `consigner`, `marqueur`,
+  …) mais n'a plus d'appelant — la mesure sur l'arbre réel n'a produit aucune piste forte à
+  consigner. Il est gelé, pas supprimé : une future commande `apply pistes` le réintroduira le
+  jour où une source en produit. Détail dans `docs/BACKLOG.md`.
 - **Règle de preuve** : une piste n'est jamais un fait — **aucune citation créée à ce stade**.
 
 ### 6.4 Workflow 4 — Fiabilisation et rédaction
@@ -557,7 +563,7 @@ transaction (ex. source + citation + note d'un même dossier).
 | --- | --- | --- | --- |
 | `ia-anomalie` | incohérence détectée (R1–R8) | audit | humain (ou audit suivant si résolue) |
 | `ia-a-verifier` | donnée non sourcée ou proposition en attente | audit, standardisation | humain |
-| `ia-piste` | piste de recherche disponible en note | pistes | humain |
+| `ia-piste` | piste de recherche disponible en note (chemin gelé, aucun appelant actif — voir `docs/BACKLOG.md`) | pistes | humain |
 | `ia-verifie` | fait recoupé, sourcé, confirmé | fiabilisation | — |
 
 Préfixe `ia-` réservé au pipeline ; création via `GrampsEnsureTagTool` (idempotent).
@@ -623,7 +629,7 @@ de sortie sur l'arbre réel.**
 | **1** | ✅ terminée | R1–R10 + D1–D3, `propose audit`, checkpoints, `crew audit` (ADR 0006) |
 | **2** | ✅ terminée | note/tag append-only, `effective_dry_run`, ADR 0001 |
 | **3** | ✅ **dépassée** | résolveurs FR/CH **et** DE/US (hors périmètre initial), ex-communes fusionnées avec placerefs datées, `merge places`, GPS ; casse des noms (ADR 0007), genre (ADR 0008/0009), lieux (ADR 0010). Restent non traités : normalisation des **dates textuelles** et des **titres de sources** |
-| **4** | 🟡 **en cours** | MatchID décès ✅ (critère de sortie atteint) ; contrat `Piste` ✅ (marqueur, idempotence, force dérivée, rapport fortes/faibles). Trois sources livrées : MatchID (décès), **`propose wikidata`** (seule source à produire des pistes fortes ; réserve de couverture — personnes notables seulement, rendement faible attendu sur un arbre ordinaire) et **`propose dhs`** (projection de Wikidata via la propriété P902, Suisse entière, 122 personnes de l'arbre concernées). Gallica reste dans la bibliothèque, volontairement sans feuille CLI (SRU = notices de collection, pas d'articles ; sous-projet à part, voir `docs/BACKLOG.md`) ; Scriptorium a été écarté (9 personnes, accès non documenté, voir `docs/BACKLOG.md`). **Mode d'emploi dans `docs/USER_GUIDE.md`. Critère de sortie non encore évalué** : « pistes jugées utiles par l'utilisateur » dépend d'une mesure sur l'arbre réel, pas encore faite — à confirmer avec le propriétaire de l'arbre avant de passer la phase à ✅ |
+| **4** | 🟡 **en cours** | MatchID décès ✅ (critère de sortie atteint) via `propose deaths`/`apply citations` — un circuit séparé qui produit des `PropositionAudit`, pas des `Piste` (`pistes_matchid` existe dans la bibliothèque mais n'a aucun appelant en production, voir `docs/BACKLOG.md`). Contrat `Piste` ✅ (marqueur, idempotence, force dérivée, rapport fortes/faibles). Deux sources `Piste` livrées sous `propose` : **`propose wikidata`** (seule source à produire des pistes fortes ; réserve de couverture — personnes notables seulement, rendement faible attendu sur un arbre ordinaire) et **`propose dhs`** (projection de Wikidata via la propriété P902, Suisse entière, 122 personnes de l'arbre concernées). Toutes deux **lecture seule** : aucune écriture, y compris pour les pistes fortes (chemin de consignation gelé, voir `docs/BACKLOG.md`). Gallica reste dans la bibliothèque, volontairement sans feuille CLI (SRU = notices de collection, pas d'articles ; sous-projet à part, voir `docs/BACKLOG.md`) ; Scriptorium a été écarté (9 personnes, accès non documenté, voir `docs/BACKLOG.md`). **Mode d'emploi dans `docs/USER_GUIDE.md`. Critère de sortie non encore évalué** : « pistes jugées utiles par l'utilisateur » dépend d'une mesure sur l'arbre réel, pas encore faite — à confirmer avec le propriétaire de l'arbre avant de passer la phase à ✅ |
 | **5** | 🟡 **partielle** | chaîne source→citation→rattachement ✅ avec confiance plafonnée à 2 (ADR 0011, `apply citations`, éprouvée sur les propositions militaires). **Manquent : notices biographiques et rapport familial** |
 | **6** | ⬜ non commencée | ni agent Archiviste, ni OCR, ni transcription par vision |
 
