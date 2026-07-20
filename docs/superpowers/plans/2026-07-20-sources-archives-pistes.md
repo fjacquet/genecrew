@@ -2,7 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Alimenter le contrat `Piste` (cct 0.20.0) par trois sources d'archives — Wikidata, le DHS (via P902) et Gallica — exposées par trois feuilles CLI `propose wikidata|dhs|gallica`.
+**Goal:** Alimenter le contrat `Piste` (cct 0.20.0) par Wikidata et le DHS (via P902), exposés par deux feuilles CLI `propose wikidata|dhs`.
+
+> **Gallica reporté en sous-projet (décision du 2026-07-20).** `pistes/gallica.py` est livré et testé (Task 5) mais **aucune feuille CLI ne l'expose** : mesuré contre l'API réelle, le SRU de Gallica rend des notices de collection, pas des articles. L'API adéquate — `services/ContentSearch`, qui rend des passages avec numéro de page — impose une conception à deux étapes. Voir `docs/BACKLOG.md`.
 
 **Architecture:** Un paquet `genealogy/pistes/` dans `crewai_custom_tools` regroupe une fonction **pure** par source (`pistes_<source>(person, resultats) -> list[Piste]`), sans aucun appel réseau — la collecte reste dans les outils existants (`WikidataSparqlTool`/`sparql_rows`, `GallicaSearchTool`/`parse_sru`). `piste_depuis_match` y déménage depuis genecrew. Côté genecrew, trois feuilles réutilisent tel quel `consigner()` et `render_rapport_pistes()`.
 
@@ -1100,7 +1102,7 @@ Expected: le tag `v0.21.0` existe sur le distant.
 - Create: `/Users/fjacquet/Projects/genecrew/genecrew/tests/test_archives.py`
 
 **Interfaces:**
-- Consumes: `pistes_wikidata`, `pistes_dhs`, `pistes_gallica`, `requete_wikidata`, `personne_eligible` (bibliothèque 0.21.0) ; `consigner(client, piste, *, dry_run)` et `render_rapport_pistes(pistes, date, *, dry_run)` (`genecrew.pistes`, déjà livrés).
+- Consumes: `pistes_wikidata`, `pistes_dhs`, `requete_wikidata` (bibliothèque 0.21.0) ; `consigner(client, piste, *, dry_run)` et `render_rapport_pistes(pistes, date, *, dry_run)` (`genecrew.pistes`, déjà livrés).
 - Produces: `run_archives(client, source, scope, output_dir, *, date, batch_size=25, limit=None, dry_run=False) -> Path` — rend le chemin du rapport Markdown.
 
 - [ ] **Step 1: Synchroniser la dépendance**
@@ -1123,7 +1125,7 @@ import pytest
 from genecrew.cli import build_parser
 
 
-@pytest.mark.parametrize("cible", ["wikidata", "dhs", "gallica"])
+@pytest.mark.parametrize("cible", ["wikidata", "dhs"])
 def test_propose_accepte_les_trois_sources_d_archives(cible):
     args = build_parser().parse_args(["propose", cible, "--scope", "all"])
     assert args.command == "propose" and args.target == cible
@@ -1157,11 +1159,6 @@ Dans `cli.py`, après la feuille `gender` du bloc `propose` :
     _add_batch(p)
     _add_date(p)
 
-    p = propose_sub.add_parser(
-        "gallica", help="Pistes Gallica — presse ; personnes déjà datées ET localisées")
-    _add_scope(p)
-    _add_batch(p)
-    _add_date(p)
 ```
 
 - [ ] **Step 5: Lancer le test du parseur**
@@ -1195,12 +1192,12 @@ def test_collecter_wikidata_traduit_les_lignes_sparql(mocker):
     assert pistes[0].force == "forte"
 
 
-def test_collecter_gallica_saute_une_personne_ineligible(mocker):
-    appel = mocker.patch("genecrew.archives.chercher_gallica", return_value=[])
-    person = _person()
-    person.birth.place_name = ""          # plus de lieu -> inéligible
-    assert collecter_pistes("gallica", person) == []
-    appel.assert_not_called()             # on n'interroge même pas l'API
+def test_gallica_n_est_pas_une_source_exposee():
+    """Livrée dans la bibliothèque mais pas branchée : son SRU rend des notices
+    de collection, pas des articles. Voir docs/BACKLOG.md."""
+    import pytest
+    with pytest.raises(ValueError, match="source inconnue"):
+        collecter_pistes("gallica", _person())
 
 
 def test_source_inconnue_leve():
@@ -1230,38 +1227,26 @@ import logging
 from datetime import date as _date
 from pathlib import Path
 
-import requests
 from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient
 from crewai_custom_tools.tools.genealogy.gramps.facts import FactsFetcher
 from crewai_custom_tools.tools.genealogy.models.domain import PersonFacts, Piste
 from crewai_custom_tools.tools.genealogy.pistes import (
-    personne_eligible,
     pistes_dhs,
-    pistes_gallica,
     pistes_wikidata,
-    requete_gallica,
     requete_wikidata,
 )
-from crewai_custom_tools.tools.web.gallica import SRU_ENDPOINT, USER_AGENT, parse_sru
 from crewai_custom_tools.tools.web.wikidata import sparql_rows
 
 from genecrew.pistes import consigner, render_rapport_pistes
 
 logger = logging.getLogger(__name__)
 
-SOURCES = ("wikidata", "dhs", "gallica")
-
-
-def chercher_gallica(cql: str, max_records: int = 10) -> list[dict]:
-    """Interroge Gallica en SRU et rend les enregistrements. Effet de bord isolé ici."""
-    response = requests.get(
-        SRU_ENDPOINT,
-        params={"operation": "searchRetrieve", "version": "1.2",
-                "query": cql, "maximumRecords": max_records},
-        headers={"User-Agent": USER_AGENT}, timeout=30,
-    )
-    response.raise_for_status()
-    return parse_sru(response.text).get("records", [])
+# Gallica est ABSENTE : mesuré contre l'API réelle, son SRU rend des notices de
+# COLLECTION, pas des articles — « ce nom est quelque part dans ce volume de 500
+# pages » n'est pas une piste. L'API adéquate (services/ContentSearch, qui rend des
+# passages avec numéro de page) impose une conception à deux étapes : sous-projet
+# séparé. `pistes/gallica.py` reste dans la bibliothèque, non exposé. Voir BACKLOG.md.
+SOURCES = ("wikidata", "dhs")
 
 
 def collecter_pistes(source: str, person: PersonFacts) -> list[Piste]:
@@ -1269,12 +1254,6 @@ def collecter_pistes(source: str, person: PersonFacts) -> list[Piste]:
     if source in ("wikidata", "dhs"):
         rows = sparql_rows(requete_wikidata(person))
         return pistes_wikidata(person, rows) if source == "wikidata" else pistes_dhs(person, rows)
-    if source == "gallica":
-        # Filtrer AVANT d'appeler : inutile d'interroger pour une personne
-        # dont on ne pourra rien contextualiser.
-        if not personne_eligible(person):
-            return []
-        return pistes_gallica(person, chercher_gallica(requete_gallica(person)))
     raise ValueError(f"source inconnue : {source}")
 
 
@@ -1328,7 +1307,6 @@ Dans `main.py`, ajouter les trois entrées à la table de dispatch, après `("pr
 ```python
         ("propose", "wikidata"): lambda: archives_cmd(args, "wikidata"),
         ("propose", "dhs"): lambda: archives_cmd(args, "dhs"),
-        ("propose", "gallica"): lambda: archives_cmd(args, "gallica"),
 ```
 
 et définir la fonction, à côté des autres `*_cmd` :
@@ -1359,10 +1337,10 @@ grep -n -A12 'def gender_cmd' genecrew/src/genecrew/main.py
 ```bash
 cd /Users/fjacquet/Projects/genecrew
 uv run genecrew propose --help
-uv run genecrew propose gallica --help
+uv run genecrew propose dhs --help
 ```
 
-Expected: les trois nouvelles cibles apparaissent sous `propose` ; `propose gallica --help` liste `--scope`, `--batch-size`, `--date`.
+Expected: les deux nouvelles cibles apparaissent sous `propose` ; `propose dhs --help` liste `--scope`, `--batch-size`, `--date`.
 
 - [ ] **Step 12: Suite complète et lint**
 
@@ -1463,7 +1441,6 @@ Expected: `gramps-mcp-grampsweb-1` et consorts. Sinon : `cd /Users/fjacquet/Proj
 cd /Users/fjacquet/Projects/genecrew
 uv run genecrew propose wikidata --scope all --limit 50 --dry-run
 uv run genecrew propose dhs --scope all --limit 50 --dry-run
-uv run genecrew propose gallica --scope all --limit 50 --dry-run
 ```
 
 Expected: trois rapports Markdown écrits sous `output/`. **Borner avec `--limit` est impératif** — un run complet interroge des API externes une fois par personne sur 2119 personnes.
