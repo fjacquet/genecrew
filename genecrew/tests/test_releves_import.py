@@ -5,6 +5,11 @@ import json
 import httpx
 import pytest
 from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient, GrampsConfig
+from crewai_custom_tools.tools.genealogy.gramps.write_tools import (
+    GrampsAttachTool,
+    GrampsCreateNoteTool,
+    GrampsEnsureTagTool,
+)
 
 from genecrew.deces_apply import source_title_for
 from genecrew.releves import Appariement
@@ -506,3 +511,57 @@ def test_net_hors_simulation_pose_note_et_tag(monkeypatch, mocker):
     # L'ancien EN PREMIER, le neuf ajouté : un remplacement rendrait ["n1"].
     assert vu["put"][0]["note_list"] == ["n0", "n1"]
     assert vu["put"][0]["tag_list"] == ["t0", "t1"]
+
+
+def _espionner_les_outils(mocker) -> dict:
+    """Enregistre les kwargs reçus par les trois outils d'écriture."""
+    appels: dict[str, dict] = {}
+    for classe in (GrampsCreateNoteTool, GrampsEnsureTagTool, GrampsAttachTool):
+        original = classe._run
+
+        def espion(self, *args, _classe=classe, _original=original, **kwargs):
+            appels[_classe.__name__] = kwargs
+            return _original(self, *args, **kwargs)
+
+        mocker.patch.object(classe, "_run", espion)
+    return appels
+
+
+def test_dry_run_est_propage_aux_trois_outils(monkeypatch, mocker):
+    """Défense en profondeur : l'invariant doit être LOCAL à chaque appel.
+
+    Sans `dry_run=dry_run`, les trois outils ne consultent que
+    `GENECREW_DRY_RUN`. Aujourd'hui la garde en amont de `run_import_releve`
+    couvre le cas, mais si elle bougeait, un `run_import_releve(dry_run=True)`
+    sous `GENECREW_DRY_RUN=false` écrirait pour de bon. Ce test ne peut pas
+    exercer ce chemin (la garde rend `raison="simulation"` avant l'écriture) :
+    il vérifie donc directement que l'argument PART, ce qui est exactement
+    l'invariant à protéger.
+    """
+    monkeypatch.setenv("GENECREW_DRY_RUN", "false")
+
+    def h(request):
+        chemin = request.url.path
+        if request.method == "POST" and chemin == "/api/notes/":
+            return httpx.Response(201, json=[{"new": {"handle": "n1"}}])
+        if request.method == "POST" and chemin == "/api/tags/":
+            return httpx.Response(201, json=[{"new": {"handle": "t1"}}])
+        if request.method == "PUT" and chemin == "/api/people/h1":
+            return httpx.Response(200, json={})
+        if chemin == "/api/tags/":
+            return httpx.Response(200, json=[])
+        if chemin == "/api/people/h1":
+            return httpx.Response(200, json={"gramps_id": "I0001", "handle": "h1"})
+        return _handler_arbre([_ROSE_ARBRE])(request)
+
+    client = _client(h)
+    mocker.patch(
+        "crewai_custom_tools.tools.genealogy.gramps.write_tools.get_client",
+        return_value=client)
+    appels = _espionner_les_outils(mocker)
+
+    out = run_import_releve(client, COLLAGE_ROSE, llm=_llm(), dry_run=False)
+    assert out["ecrit"] is True
+    assert appels["GrampsCreateNoteTool"]["dry_run"] is False
+    assert appels["GrampsEnsureTagTool"]["dry_run"] is False
+    assert appels["GrampsAttachTool"]["dry_run"] is False

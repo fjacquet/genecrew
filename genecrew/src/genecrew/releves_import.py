@@ -327,18 +327,24 @@ def run_import_releve(client: GrampsClient, texte: str, *, llm=None,
         out["raison"] = "simulation"
         return out
 
+    # `dry_run` est passé EXPLICITEMENT aux trois outils. La garde ci-dessus le
+    # rend redondant aujourd'hui, mais elle est distante : sans cet argument, un
+    # outil ne consulterait que `GENECREW_DRY_RUN` et un appel
+    # `run_import_releve(dry_run=True)` sous `GENECREW_DRY_RUN=false` écrirait
+    # pour de bon si la garde venait à bouger. L'invariant reste local.
     note = json.loads(GrampsCreateNoteTool()._run(
-        text=corps_note_releve(releve, appariement), note_type="Research"))
+        text=corps_note_releve(releve, appariement), note_type="Research",
+        dry_run=dry_run))
     if not note["success"]:
         out["raison"] = f"note refusée : {note['error']}"
         return out
-    tag = json.loads(GrampsEnsureTagTool()._run(name=TAG_RELEVE))
+    tag = json.loads(GrampsEnsureTagTool()._run(name=TAG_RELEVE, dry_run=dry_run))
     if not tag["success"]:
         out["raison"] = f"tag refusé : {tag['error']}"
         return out
     attache = json.loads(GrampsAttachTool()._run(
         handle=appariement.handle, note_handle=note["data"]["handle"],
-        tag_handle=tag["data"]["handle"]))
+        tag_handle=tag["data"]["handle"], dry_run=dry_run))
     if not attache["success"]:
         out["raison"] = f"rattachement refusé : {attache['error']}"
         return out
