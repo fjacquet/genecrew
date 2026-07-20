@@ -32,8 +32,24 @@ jobs:
 
       # README.md vit à la racine, hors de docs_dir : MkDocs ne le voit pas.
       # On le copie en page d'accueil au build ; la copie n'est jamais commitée.
+      #
+      # Le README est rendu depuis deux racines différentes : celle du dépôt
+      # sur GitHub (où les liens absolus vers github.com sont les seuls qui
+      # fonctionnent) et celle de docs/ une fois copié en page d'accueil du
+      # site publié. Depuis le site, un lien absolu vers une page qui y est
+      # elle-même publiée fait sortir le visiteur vers le Markdown brut de
+      # GitHub au lieu de le garder sur la page du site (thème, recherche,
+      # sommaire). On ne réécrit donc que les liens vers du contenu publié
+      # dans le site — USER_GUIDE.md et adr/ — jamais ceux vers CHANGELOG.md
+      # ou document-de-travail.md, qui restent hors site et pour lesquels
+      # l'URL absolue GitHub est le seul lien correct.
       - name: page d'accueil depuis le README
-        run: cp README.md docs/index.md
+        run: |
+          cp README.md docs/index.md
+          sed -i \
+            -e 's|https://github.com/fjacquet/genecrew/blob/main/docs/USER_GUIDE.md|USER_GUIDE.md|g' \
+            -e 's|https://github.com/fjacquet/genecrew/tree/main/docs/adr/|adr/|g' \
+            docs/index.md
 
       - name: build
         run: uvx --with mkdocs-material==9.7.7 mkdocs@1.6.1 build --strict
