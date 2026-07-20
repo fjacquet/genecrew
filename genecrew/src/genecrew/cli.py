@@ -85,6 +85,18 @@ def build_parser() -> argparse.ArgumentParser:
     _add_scope(p)
     _add_date(p)
 
+    p = propose_sub.add_parser(
+        "wikidata", help="Pistes Wikidata (personnes notables ; seules pistes fortes)")
+    _add_scope(p)
+    _add_batch(p)
+    _add_date(p)
+
+    p = propose_sub.add_parser(
+        "dhs", help="Pistes DHS — Dictionnaire historique de la Suisse (via Wikidata P902)")
+    _add_scope(p)
+    _add_batch(p)
+    _add_date(p)
+
     # --- apply : écrit dans Gramps ---
     apply_p = sub.add_parser("apply", help="Applique des corrections (écrit)")
     apply_sub = apply_p.add_subparsers(dest="target", required=True)

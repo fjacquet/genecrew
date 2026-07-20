@@ -80,3 +80,15 @@ def test_renamed_flags_land_on_the_expected_attributes():
     assert args.no_images is True
     args = build_parser().parse_args(["import", "place", "Bourges, Cher, France"])
     assert args.place == "Bourges, Cher, France"
+
+
+@pytest.mark.parametrize("cible", ["wikidata", "dhs"])
+def test_propose_accepte_les_trois_sources_d_archives(cible):
+    args = build_parser().parse_args(["propose", cible, "--scope", "all"])
+    assert args.command == "propose" and args.target == cible
+
+
+def test_propose_scriptorium_est_refuse():
+    # La source a été écartée : voir docs/BACKLOG.md.
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["propose", "scriptorium"])
