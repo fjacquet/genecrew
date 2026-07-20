@@ -10,14 +10,14 @@ from __future__ import annotations
 from collections import Counter
 from typing import Literal
 
-from crewai_custom_tools.tools.genealogy.models.domain import PersonFacts
+from crewai_custom_tools.tools.genealogy.models.domain import EventFact, PersonFacts
 from pydantic import BaseModel, Field
 
 from genecrew.pistes import _normaliser
 
 FacteurReleve = Literal[
-    "parent nommé", "date complète", "lieu", "patronyme rare",
-    "prénom", "année approximative",
+    "parent nommé", "deux parents nommés", "date complète", "lieu",
+    "patronyme rare", "prénom", "année approximative",
 ]
 """Vocabulaire fermé des facteurs qu'un appariement peut invoquer.
 
@@ -25,10 +25,19 @@ Clos volontairement, sur le procédé de `FacteurConcordance` : un relevé qui
 voudrait faire valoir « né vers 1821 » se fait refuser par pydantic plutôt que
 de gonfler son poids. L'année approximative y figure, mais comme facteur FAIBLE
 et distinct de la date — une année seule n'est jamais discriminante.
+
+« parent nommé » et « deux parents nommés » sont deux facteurs DISTINCTS,
+jamais les deux à la fois pour le même candidat : un père homonyme ne prouve
+presque rien (un JACQUET peut avoir un père Pierre par pur hasard dans une
+région où le patronyme est courant), alors qu'un couple de parents tous deux
+nommément concordants est une coïncidence beaucoup plus rare. Les confondre
+sous un même facteur reviendrait à accorder à l'homonymie isolée le poids
+d'une preuve bien plus forte.
 """
 
 POIDS: dict[str, int] = {
     "parent nommé": 5,
+    "deux parents nommés": 8,
     "date complète": 5,
     "lieu": 3,
     "patronyme rare": 3,
@@ -37,7 +46,8 @@ POIDS: dict[str, int] = {
 }
 
 FACTEURS_FORTS: frozenset[str] = frozenset(
-    {"parent nommé", "date complète", "lieu", "patronyme rare"})
+    {"parent nommé", "deux parents nommés", "date complète", "lieu",
+     "patronyme rare"})
 
 SEUIL_NET = 8
 """Poids minimal d'un verdict `net`. Atteignable par deux facteurs forts, jamais
@@ -146,3 +156,121 @@ def candidats_blocage(releve: ReleveIndexe,
     if not cle:
         return []
     return [p for p in people if _cle_blocage(p.surname) == cle]
+
+
+def _evenement_compare(person: PersonFacts, type_: str) -> EventFact | None:
+    return person.death if type_ == "Death" else person.birth
+
+
+def _date_iso(ev: EventFact | None) -> str:
+    """La date de l'événement en AAAA-MM-JJ, "" si elle n'est pas complète.
+
+    `EventFact` ne porte pas de date texte : la source est `dateval`, au format
+    Gramps `[jour, mois, année, slash]`, où 0 signale une composante inconnue.
+    Une date n'est COMPLÈTE que si les trois composantes sont non nulles — c'est
+    exactement ce qui sépare le facteur fort « date complète » du facteur faible
+    « année approximative ».
+
+    `modifier == 6` (date en texte libre) est écarté : elle n'est comparable ni
+    comme concordance ni comme divergence.
+    """
+    if ev is None or ev.modifier == 6 or len(ev.dateval) < 3:
+        return ""
+    jour, mois, annee = ev.dateval[0], ev.dateval[1], ev.dateval[2]
+    if not (jour and mois and annee):
+        return ""
+    return f"{annee:04d}-{mois:02d}-{jour:02d}"
+
+
+def facteurs_et_divergences(
+    releve: ReleveIndexe, person: PersonFacts, rarete: dict[str, float],
+    parents_par_handle: dict[str, list[str]],
+) -> tuple[list[str], list[str]]:
+    """Ce qui concorde et ce qui contredit, sans encore trancher."""
+    facteurs: list[str] = []
+    divergences: list[str] = []
+    ev = _evenement_compare(person, releve.evenement_type)
+
+    date_arbre = _date_iso(ev)
+    if releve.evenement_date and date_arbre:
+        if date_arbre == releve.evenement_date:
+            facteurs.append("date complète")
+        else:
+            divergences.append(f"date {date_arbre} ≠ relevé {releve.evenement_date}")
+
+    if releve.evenement_lieu and ev and ev.place:
+        if _normaliser(ev.place) == _normaliser(releve.evenement_lieu):
+            facteurs.append("lieu")
+        else:
+            divergences.append(f"lieu {ev.place} ≠ relevé {releve.evenement_lieu}")
+
+    if est_rare(releve.sujet_nom, rarete):
+        facteurs.append("patronyme rare")
+
+    if _normaliser(person.given) == _normaliser(releve.sujet_prenom):
+        facteurs.append("prénom")
+
+    annee_arbre = person.birth.year if person.birth else None
+    if releve.naissance_estimee and annee_arbre:
+        if abs(annee_arbre - releve.naissance_estimee) <= 2:
+            facteurs.append("année approximative")
+
+    parents_arbre = {_normaliser(n) for n in parents_par_handle.get(person.handle, [])}
+    parents_releve = {_normaliser(pl.nom) for pl in releve.personnes_liees
+                      if pl.role in ("père", "mère")}
+    concordants = parents_arbre & parents_releve
+    # Un seul parent qui concorde (un homonyme, une coïncidence sur un
+    # patronyme courant) n'est pas la même preuve qu'un couple qui concorde
+    # en entier — d'où deux facteurs distincts, jamais les deux ensemble : le
+    # cumuler reviendrait à compter la même preuve deux fois (5+8=13).
+    if len(concordants) >= 2:
+        facteurs.append("deux parents nommés")
+    elif len(concordants) == 1:
+        facteurs.append("parent nommé")
+
+    return facteurs, divergences
+
+
+def _verdict_candidat(facteurs: list[str], divergences: list[str]) -> tuple[str, int]:
+    """Poids et éligibilité d'UN candidat. La divergence est un veto."""
+    if divergences:
+        return "aucun", 0
+    poids = sum(POIDS[f] for f in facteurs)
+    if not (set(facteurs) & FACTEURS_FORTS):
+        return "aucun", poids       # un faible ne suffit jamais, même à plusieurs
+    return ("net" if poids >= SEUIL_NET else "gris"), poids
+
+
+def apparier(releve: ReleveIndexe, people: list[PersonFacts],
+             rarete: dict[str, float],
+             parents_par_handle: dict[str, list[str]]) -> Appariement:
+    """Le verdict, motivé. `gris` est un état EXPLICITE, pas un effet de seuil.
+
+    C'est ce qui borne la facture : le nombre de lignes qui partiront au LLM est
+    connu avant le moindre appel.
+    """
+    evalues = []
+    for p in candidats_blocage(releve, people):
+        facteurs, divergences = facteurs_et_divergences(
+            releve, p, rarete, parents_par_handle)
+        verdict, poids = _verdict_candidat(facteurs, divergences)
+        evalues.append((verdict, poids, p, facteurs, divergences))
+
+    retenus = [e for e in evalues if e[0] != "aucun"]
+    if not retenus:
+        div = [d for e in evalues for d in e[4]]
+        return Appariement(verdict="aucun", divergences=div)
+
+    retenus.sort(key=lambda e: e[1], reverse=True)
+    meilleur = retenus[0]
+    ex_aequo = [e for e in retenus if e[1] == meilleur[1]]
+
+    if len(ex_aequo) > 1:
+        return Appariement(verdict="gris", poids=meilleur[1],
+                           facteurs=meilleur[3],
+                           candidats=[e[2].gramps_id for e in ex_aequo])
+
+    verdict, poids, person, facteurs, _ = meilleur
+    return Appariement(verdict=verdict, gramps_id=person.gramps_id,
+                       handle=person.handle, facteurs=facteurs, poids=poids,
+                       candidats=[person.gramps_id])

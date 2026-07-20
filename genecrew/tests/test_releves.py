@@ -3,7 +3,7 @@
 from typing import get_args
 
 import pytest
-from crewai_custom_tools.tools.genealogy.models.domain import PersonFacts
+from crewai_custom_tools.tools.genealogy.models.domain import EventFact, PersonFacts
 from pydantic import ValidationError
 
 from genecrew.releves import (
@@ -13,6 +13,7 @@ from genecrew.releves import (
     FacteurReleve,
     PersonneLiee,
     ReleveIndexe,
+    apparier,
     candidats_blocage,
     est_rare,
     rarete_patronymes,
@@ -138,3 +139,114 @@ def test_blocage_ignore_les_personnes_a_patronyme_vide_quand_le_releve_en_a_un()
     régresser si `_cle_blocage` change un jour."""
     people = [_p("I1", "", "Rose"), _p("I2", "JACQUET", "Pierre")]
     assert [c.gramps_id for c in candidats_blocage(_releve(sujet_nom="JACQUET"), people)] == ["I2"]
+
+
+def _ev(type_, jour=0, mois=0, annee=0, lieu="", modifier=0):
+    """`EventFact` ne porte PAS de champ `date` : la source est `dateval`, au
+    format Gramps [jour, mois, année, slash]. 0 = composante inconnue."""
+    return EventFact(type=type_, dateval=[jour, mois, annee, False],
+                     year=annee or None, modifier=modifier, place=lieu,
+                     sortval=1 if annee else 0)
+
+
+def _mort(person, jour, mois, annee, lieu=""):
+    person.death = _ev("Death", jour, mois, annee, lieu)
+    return person
+
+
+ROSE = _releve(evenement_date="1894-12-10", evenement_lieu="Saint-Martin-d'Auxigny",
+               naissance_estimee=1821,
+               personnes_liees=[PersonneLiee(nom="Pierre JACQUET", role="père"),
+                                PersonneLiee(nom="Marie Anne VILLEPELLET", role="mère")])
+
+
+def test_deux_facteurs_forts_donnent_net():
+    p = _mort(_p("I1", "JACQUET", "Rose"), 10, 12, 1894, "Saint-Martin-d'Auxigny")
+    a = apparier(ROSE, [p], {"JACQUET": 0.75}, {})
+    assert a.verdict == "net"
+    assert "date complète" in a.facteurs and "lieu" in a.facteurs
+    assert a.gramps_id == "I1"
+
+
+def test_divergence_de_date_est_un_veto_pas_un_malus():
+    """Un empilement de concordances ne doit jamais écraser une contradiction."""
+    p = _mort(_p("I1", "JACQUET", "Rose"), 2, 3, 1901, "Saint-Martin-d'Auxigny")
+    a = apparier(ROSE, [p], {"JACQUET": 0.75}, {})
+    assert a.verdict == "aucun"
+    assert a.divergences
+
+
+def test_annee_seule_ne_fait_pas_une_date_complete():
+    """dateval [0, 0, 1894] est une année, pas une date : aucun facteur fort."""
+    p = _p("I1", "JACQUET", "Rose")
+    p.death = _ev("Death", annee=1894)
+    a = apparier(ROSE, [p], {"JACQUET": 0.75}, {})
+    assert "date complète" not in a.facteurs
+    assert a.divergences == []          # une année n'est pas non plus une divergence
+
+
+def test_date_texte_n_est_ni_concordance_ni_divergence():
+    """modifier==6 : date en texte libre, non comparable terme à terme."""
+    p = _p("I1", "JACQUET", "Rose")
+    p.death = _ev("Death", 10, 12, 1894, modifier=6)
+    a = apparier(ROSE, [p], {"JACQUET": 0.75}, {})
+    assert "date complète" not in a.facteurs
+    assert a.divergences == []
+
+
+def test_facteurs_faibles_seuls_ne_font_jamais_un_net():
+    p = _p("I1", "JACQUET", "Rose")          # ni date ni lieu : prénom + année seuls
+    p.birth = _ev("Birth", annee=1821, modifier=3)      # 3 = about
+    a = apparier(ROSE, [p], {"JACQUET": 0.75}, {})
+    assert a.verdict != "net"
+
+
+def test_parent_nomme_concordant_pese_lourd():
+    """Les DEUX parents du relevé (père et mère) concordent avec ceux de
+    l'arbre : c'est le facteur « deux parents nommés », pas « parent nommé »
+    — les deux ne coexistent jamais pour un même candidat (voir
+    `facteurs_et_divergences`), sous peine de compter la même preuve deux
+    fois."""
+    p = _p("I1", "JACQUET", "Rose")
+    a = apparier(ROSE, [p], {"JACQUET": 0.75},
+                 {"hI1": ["Pierre JACQUET", "Marie Anne VILLEPELLET"]})
+    assert "deux parents nommés" in a.facteurs
+    assert "parent nommé" not in a.facteurs
+    assert a.verdict == "net"
+
+
+def test_un_seul_parent_nomme_ne_suffit_pas_a_lui_seul():
+    """Garde-fou : un père homonyme, seul, ne prouve presque rien — un
+    patronyme courant peut très bien rattacher deux Pierre JACQUET sans
+    aucun lien de parenté réel. Sans ce test, un futur ajustement de poids
+    pourrait glisser vers un homonyme isolé suffisant pour écrire un
+    verdict `net` dans l'arbre ; ici, seul « parent nommé » (facteur faible
+    pris seul, sans date ni lieu) est émis, jamais « deux parents nommés »."""
+    p = _p("I1", "JACQUET", "Rose")
+    a = apparier(ROSE, [p], {"JACQUET": 0.75}, {"hI1": ["Pierre JACQUET"]})
+    assert "parent nommé" in a.facteurs
+    assert "deux parents nommés" not in a.facteurs
+    assert a.verdict != "net"
+
+
+def test_candidats_multiples_a_poids_egal_donnent_gris():
+    a1 = _mort(_p("I1", "JACQUET", "Rose"), 10, 12, 1894, "Saint-Martin-d'Auxigny")
+    a2 = _mort(_p("I2", "JACQUET", "Rose"), 10, 12, 1894, "Saint-Martin-d'Auxigny")
+    a = apparier(ROSE, [a1, a2], {"JACQUET": 0.75}, {})
+    assert a.verdict == "gris"
+    assert sorted(a.candidats) == ["I1", "I2"]
+    assert a.gramps_id is None
+
+
+def test_aucun_candidat_donne_aucun():
+    a = apparier(ROSE, [], {"JACQUET": 0.75}, {})
+    assert a.verdict == "aucun"
+    assert a.candidats == []
+
+
+def test_patronyme_rare_ajoute_un_facteur_fort():
+    p = _mort(_p("I1", "VILLEPELLET", "Marie"), 10, 12, 1894)
+    r = _releve(sujet_nom="VILLEPELLET", sujet_prenom="Marie",
+                evenement_date="1894-12-10")
+    a = apparier(r, [p], {"VILLEPELLET": 0.01}, {})
+    assert "patronyme rare" in a.facteurs
