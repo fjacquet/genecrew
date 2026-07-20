@@ -59,6 +59,11 @@ def test_source_title_routed_per_register():
     assert t.startswith("Gallica") and "nationale" in a
 
 
+def test_source_title_for_raises_on_unrecognized_register():
+    with pytest.raises(ValueError, match="Base Léonore"):
+        source_title_for("Base Léonore : dossier LH/123/45")
+
+
 def test_apply_militaires_prop_creates_mdh_source(tmp_path, mocker):
     mdh_prop = {**PROP, "preuve_detail":
                 "Mémoire des hommes (Guerre 1914-1918) : décès 1915-09-28 à Neuville "

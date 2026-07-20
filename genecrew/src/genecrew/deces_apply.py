@@ -3,7 +3,7 @@
 Une source Gramps par registre (INSEE, ou chaque base Mémoire des hommes), déduite de
 chaque proposition (`source_title_for`).
 
-`genecrew deces-apply --propositions <yaml relu>` — patron `lieux-merge` : jamais auto,
+`genecrew apply citations --yaml <yaml relu>` — patron `merge places` : jamais auto,
 la commande consomme le YAML que l'humain a relu. v1 : type `source` et confiance 2
 uniquement (ajout d'une citation à l'événement décès EXISTANT — append-only). Les types
 `date` (créer l'événement) restent manuels jusqu'à la v2. ADR 0011.
@@ -30,6 +30,7 @@ from genecrew.propositions import PropositionsLot
 SOURCE_TITLE = "INSEE — Fichier des personnes décédées"
 _SCORE_RE = re.compile(r"\s*\(score [^)]*\)\.?\s*$")
 _MDH_RE = re.compile(r"Mémoire des hommes \(([^)]+)\)")
+_INSEE_RE = re.compile(r"(?i)\binsee\b")
 
 
 def citation_page(preuve_detail: str, preuve_url: str) -> str:
@@ -42,14 +43,23 @@ def source_title_for(preuve_detail: str) -> tuple[str, str]:
     """(title, author) of the Gramps source a proposition should cite. Pure.
 
     One source per register: INSEE, a Mémoire des hommes base, or the Gallica press.
+    Each register is detected *positively* — an unrecognized `preuve_detail` raises
+    rather than silently falling back to INSEE (a wrong attribution written to Gramps).
     """
-    m = _MDH_RE.search(preuve_detail or "")
+    detail = preuve_detail or ""
+    m = _MDH_RE.search(detail)
     if m:
         return f"Mémoire des hommes — {m.group(1).strip()}", "Ministère des Armées"
-    if "gallica" in (preuve_detail or "").lower():
+    if "gallica" in detail.lower():
         return ("Gallica (BnF) — presse numérisée",
                 "Bibliothèque nationale de France")
-    return SOURCE_TITLE, "INSEE"
+    if _INSEE_RE.search(detail):
+        return SOURCE_TITLE, "INSEE"
+    raise ValueError(
+        f"source_title_for : registre non reconnu dans preuve_detail : {detail!r}. "
+        "Ajoutez sa route dans source_title_for() "
+        "(genecrew/src/genecrew/deces_apply.py) avant d'appliquer cette proposition."
+    )
 
 
 def _death_event_handle(person: dict) -> str | None:
