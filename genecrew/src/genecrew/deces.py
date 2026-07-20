@@ -21,6 +21,7 @@ from crewai_custom_tools.tools.genealogy.models.domain import EventFact, PersonF
 
 from genecrew.batching import iter_people_batches
 from genecrew.logging_setup import get_logger
+from genecrew.pistes import Piste
 from genecrew.propositions import PropositionAudit
 
 MIN_BIRTH_YEAR = 1850  # né avant → mort avant 1970 quasi certain, hors fichier
@@ -234,3 +235,41 @@ def run_deces(client: GrampsClient, scope: str, output_dir: Path, *, date: str,
         yaml.safe_dump({"propositions": [p.model_dump() for p in props]},
                        allow_unicode=True, sort_keys=False), encoding="utf-8")
     return report_path, yaml_path
+
+
+def _norm_nom(valeur: str) -> str:
+    import unicodedata
+    sans = "".join(c for c in unicodedata.normalize("NFD", valeur or "")
+                   if unicodedata.category(c) != "Mn")
+    return sans.strip().upper()
+
+
+def piste_depuis_match(person: PersonFacts, match: dict, url: str) -> Piste:
+    """Transforme un résultat MatchID en piste. N'écrit rien, ne conclut rien.
+
+    L'année de naissance seule ne compte PAS comme facteur : la règle du projet
+    veut qu'une année ne soit jamais discriminante. Il faut une date complète
+    (jour + mois + année) pour qu'elle constitue un second facteur à côté du nom.
+    """
+    concordances, divergences = [], []
+    nom_insee = (match.get("name") or {}).get("last", "")
+    if nom_insee and _norm_nom(nom_insee) == _norm_nom(person.surname):
+        concordances.append("nom")
+    naissance_insee = ((match.get("birth") or {}).get("date") or "")
+    # `EventFact` n'a pas de champ ISO : event_iso() rend "AAAA-MM-JJ" si la date est
+    # complète, "AAAA" si l'année est seule. C'est cette longueur qui distingue les deux,
+    # et c'est ce qui empêche une année seule de compter comme second facteur.
+    naissance_arbre = event_iso(person.birth)
+    if len(naissance_insee) == 8 and len(naissance_arbre) == 10:
+        iso_insee = f"{naissance_insee[:4]}-{naissance_insee[4:6]}-{naissance_insee[6:]}"
+        if iso_insee == naissance_arbre:
+            concordances.append("date complète")
+        else:
+            divergences.append("dates de naissance différentes")
+    return Piste(
+        gramps_id=person.gramps_id, handle=person.handle,
+        source="matchid", identite=str(match.get("id") or ""),
+        url=url or None,
+        requete=f"nom={person.surname}&prenom={first_given(person.given)}",
+        concordances=concordances, divergences=divergences,
+    )
