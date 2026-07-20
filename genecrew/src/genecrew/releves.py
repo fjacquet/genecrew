@@ -10,7 +10,7 @@ from __future__ import annotations
 from collections import Counter
 from typing import Literal
 
-from crewai_custom_tools.tools.genealogy.models.domain import EventFact, PersonFacts
+from crewai_custom_tools.tools.genealogy.models.domain import PersonFacts
 from pydantic import BaseModel, Field
 
 from genecrew.pistes import _normaliser

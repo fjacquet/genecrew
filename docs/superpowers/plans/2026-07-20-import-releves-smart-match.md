@@ -247,7 +247,7 @@ Ajouter à `genecrew/src/genecrew/releves.py` (l'import en tête du module) :
 ```python
 from collections import Counter
 
-from crewai_custom_tools.tools.genealogy.models.domain import EventFact, PersonFacts
+from crewai_custom_tools.tools.genealogy.models.domain import PersonFacts
 
 from genecrew.pistes import _normaliser
 
@@ -510,6 +510,14 @@ Run: `uv run python -m pytest genecrew/tests/test_releves.py -q`
 Expected: FAIL — `ImportError: cannot import name 'apparier'`
 
 - [ ] **Step 3: Write minimal implementation**
+
+Cette task est la première à manipuler des événements : **élargis l'import du domaine en tête de module** (jusqu'ici `PersonFacts` seul) :
+
+```python
+from crewai_custom_tools.tools.genealogy.models.domain import EventFact, PersonFacts
+```
+
+puis ajoute les fonctions :
 
 ```python
 def _evenement_compare(person: PersonFacts, type_: str) -> EventFact | None:
