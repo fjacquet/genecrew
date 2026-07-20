@@ -406,24 +406,68 @@ def test_parents_par_handle_passe_par_la_famille():
     assert index["hp"] == []
 
 
-def test_index_des_parents_borne_aux_candidats(monkeypatch):
-    """L'index parental ne se construit QUE pour les candidats du blocage.
+def _sans_deces_correlant(gramps_id, handle, *, prenom, nom, familles_parentales=()):
+    """`_personne`, dont le décès ne concorde avec AUCUN relevé.
 
-    `apparier` ne consulte cet index que pour les personnes retenues par
+    Par défaut `_personne` donne à quiconque la MÊME date et le MÊME lieu de
+    décès que `COLLAGE_ROSE` (10/12/1894, Saint-Martin-d'Auxigny) — pratique
+    pour les tests qui veulent que ça concorde, piégeux pour ceux qui ne le
+    veulent PAS. Sans cette variante, Rose toucherait elle-même « date
+    complète » et « lieu » (8 points à eux seuls), et un père homonyme
+    s'auto-qualifierait comme second candidat, avant même de parler de parents.
+
+    `modifier=3` (« vers ») vide `_date_iso` : le facteur « date complète » ne
+    se déclenche jamais, et — faute de date comparée — aucune divergence (veto)
+    n'est produite non plus. Même logique pour le lieu, VIDÉ plutôt que changé :
+    une valeur seulement différente déclencherait un veto au lieu de rien.
+    """
+    p = _personne(gramps_id, handle, prenom=prenom, nom=nom,
+                 familles_parentales=familles_parentales)
+    p["extended"]["events"][1]["date"]["modifier"] = 3
+    p["profile"]["death"]["place_name"] = ""
+    return p
+
+
+def test_index_des_parents_borne_aux_candidats(monkeypatch):
+    """L'index parental ne se construit QUE pour les candidats du blocage —
+    mais la résolution handle → nom des parents, elle, doit couvrir l'arbre
+    ENTIER : c'est ce que ce test vérifie, pas seulement le nombre de requêtes.
+
+    `apparier` ne consulte l'index que pour les personnes retenues par
     `candidats_blocage` ; l'indexer sur l'arbre entier faisait ~1 requête
     `/families/` par famille parentale de l'arbre (~1 000 sur 2 100 personnes)
     pour n'en servir qu'une poignée. Au-delà du coût, la stack Gramps Web a un
     limiteur de débit : `get_family_facts` n'avale que les 404, un 429
     avorterait l'import.
 
-    Ici un seul JACQUET (le patronyme du relevé) contre cinq DURAND ayant chacun
-    leur famille parentale : un seul GET `/families/` doit partir. Une
+    Rose a ses DEUX parents dans la fixture : un père Pierre JACQUET (même
+    patronyme, donc CANDIDAT au blocage) et une mère Marie Anne VILLEPELLET
+    (patronyme différent, donc HORS blocage) — le cas réaliste, une mère
+    portant souvent un patronyme différent de son enfant. C'est précisément ce
+    parent hors blocage que ce test surveille : si la résolution de son NOM se
+    limitait aux candidats — comme la construction de l'index elle-même s'y
+    limite légitimement —, son nom disparaîtrait de l'index, « deux parents
+    nommés » (8 points, `SEUIL_NET` à lui seul) tomberait à « parent nommé »
+    (5), et Rose basculerait silencieusement de `net` à `gris` : une
+    correspondance perdue sans qu'aucune assertion ne le remarque.
+
+    Les autres facteurs de Rose sont neutralisés (`_sans_deces_correlant`) pour
+    que son `net` ne puisse venir QUE du facteur parental : sans lui elle ne
+    totalise que prénom (1) + année approximative (1) = 2, bien en-deçà de
+    `SEUIL_NET` (8) ; avec « deux parents nommés », 2 + 8 = 10.
+
+    La propriété de comptage reste vérifiée : un seul JACQUET porteur d'une
+    famille parentale (Rose — son père homonyme n'en a pas) contre cinq DURAND
+    ayant chacun la leur : un seul GET `/families/` doit partir. Une
     implémentation qui réindexerait tout l'arbre en ferait six.
     """
     monkeypatch.delenv("GENECREW_DRY_RUN", raising=False)
     familles_vues: list[str] = []
 
-    rose = _personne("I0001", "h1", familles_parentales=["f1"])
+    rose = _sans_deces_correlant("I0001", "h1", prenom="Rose", nom="JACQUET",
+                                 familles_parentales=["f1"])
+    pere = _sans_deces_correlant("I0002", "hp", prenom="Pierre", nom="JACQUET")
+    mere = _personne("I0003", "hm", prenom="Marie Anne", nom="VILLEPELLET")
     etrangers = [_personne(f"I01{i}", f"hd{i}", prenom="Jean", nom="DURAND",
                            familles_parentales=[f"f1{i}"]) for i in range(5)]
     familles = {"f1": _FAMILLE_ROSE}
@@ -432,7 +476,7 @@ def test_index_des_parents_borne_aux_candidats(monkeypatch):
                               "father_handle": "", "mother_handle": "",
                               "child_ref_list": [], "extended": {"events": []}}
 
-    base = _handler_arbre([rose, *etrangers], familles)
+    base = _handler_arbre([rose, pere, mere, *etrangers], familles)
 
     def h(request):
         if request.url.path.startswith("/api/families/"):
@@ -441,10 +485,14 @@ def test_index_des_parents_borne_aux_candidats(monkeypatch):
 
     out = run_import_releve(_client(h), COLLAGE_ROSE, llm=_llm())
     assert familles_vues == ["f1"]
-    # Le verdict doit rester IDENTIQUE : `apparier` refait son propre blocage,
-    # et une personne hors blocage n'a de toute façon aucun facteur « parent ».
     assert out["appariement"].verdict == "net"
     assert out["appariement"].gramps_id == "I0001"
+    # Le facteur parental doit être RÉELLEMENT présent — pas seulement le
+    # verdict `net` atteint par un autre chemin — puisque c'est lui que ce
+    # test protège : voir `_sans_deces_correlant` pour ce qui a été neutralisé
+    # afin que ce soit garanti.
+    assert "deux parents nommés" in out["appariement"].facteurs
+    assert out["appariement"].poids == 10
 
 
 def test_type_evenement_non_gere_refuse_d_ecrire(monkeypatch):
