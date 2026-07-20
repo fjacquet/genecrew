@@ -532,33 +532,37 @@ def test_patronyme_rare_ajoute_un_facteur_fort():
     assert "patronyme rare" in a.facteurs
 
 
-# --- Lieux résolus en code INSEE ------------------------------------------
+# --- Lieux résolus en identifiant canonique --------------------------------
 #
 # Le moteur reste PUR : il ne résout rien lui-même, il reçoit de l'orchestration
-# un dictionnaire « lieu brut normalisé → code INSEE ». C'est ce qui rétablit un
-# veto SÛR sur les lieux : deux codes distincts sont démontrablement deux
-# communes différentes, là où deux chaînes différentes peuvent n'être qu'une
-# graphie.
+# un dictionnaire « lieu brut normalisé → identifiant canonique de commune ».
+# Cet identifiant est un code NATIONAL préfixé par le pays (« FR:18209»,
+# « CH:2701 », « DE:06531000 ») — jamais un code nu. Un code INSEE français et
+# un numéro OFS suisse peuvent partager la même chaîne numérique sans désigner
+# la même commune ; le préfixe pays est ce qui lève cette ambiguïté. C'est ce
+# qui rétablit un veto SÛR sur les lieux : deux identifiants distincts sont
+# démontrablement deux communes différentes, là où deux chaînes différentes
+# peuvent n'être qu'une graphie.
 
-def test_deux_codes_insee_egaux_donnent_le_facteur_lieu():
+def test_deux_identifiants_canoniques_egaux_donnent_le_facteur_lieu():
     """Les deux graphies diffèrent (tirets contre espaces) : sans résolution, le
-    repli sur la chaîne ne donnerait AUCUN facteur. C'est donc bien le code INSEE
-    qui produit le facteur ici, et rien d'autre."""
+    repli sur la chaîne ne donnerait AUCUN facteur. C'est donc bien
+    l'identifiant canonique qui produit le facteur ici, et rien d'autre."""
     p = _mort(_p("I1", "JACQUET", "Rose"), 10, 12, 1894, "Saint Martin d'Auxigny")
-    resolus = {"SAINT MARTIN D'AUXIGNY": "18197",
-               "SAINT-MARTIN-D'AUXIGNY": "18197"}
+    resolus = {"SAINT MARTIN D'AUXIGNY": "FR:18197",
+               "SAINT-MARTIN-D'AUXIGNY": "FR:18197"}
     a = apparier(ROSE, [p], {"JACQUET": 0.75}, {}, lieux_resolus=resolus)
     assert "lieu" in a.facteurs
     assert a.divergences == []
 
 
-def test_deux_codes_insee_differents_vetoent_meme_un_candidat_lourd():
+def test_deux_identifiants_canoniques_differents_vetoent_meme_un_candidat_lourd():
     """Le point du veto : deux communes DÉMONTRÉES distinctes annulent tout, y
     compris un candidat qui pèse largement au-dessus de `SEUIL_NET` — deux
     parents nommés (8) + prénom (1). Si la divergence n'était qu'un malus, ce
     candidat sortirait encore `net`."""
     p = _mort(_p("I1", "JACQUET", "Rose"), 10, 12, 1894, "Sancerre")
-    resolus = {"SANCERRE": "18241", "SAINT-MARTIN-D'AUXIGNY": "18197"}
+    resolus = {"SANCERRE": "FR:18241", "SAINT-MARTIN-D'AUXIGNY": "FR:18197"}
     r = _releve(evenement_lieu="Saint-Martin-d'Auxigny",
                 personnes_liees=ROSE.personnes_liees)
     a = apparier(r, [p], {"JACQUET": 0.75},
@@ -569,13 +573,51 @@ def test_deux_codes_insee_differents_vetoent_meme_un_candidat_lourd():
     assert "lieu" not in a.facteurs
 
 
+def test_meme_numero_national_deux_pays_differents_est_une_divergence():
+    """Le défaut qu'on corrige ici, verrouillé : un code INSEE français et un
+    numéro OFS suisse peuvent partager la même chaîne de chiffres sans désigner
+    la même commune. Deux identifiants qui ne partagent que le numéro, pas le
+    préfixe pays, DOIVENT diverger — jamais produire le facteur « lieu ». Sans
+    ce test, une implémentation qui comparerait les numéros après avoir dépouillé
+    le préfixe (un « nettoyage » a priori inoffensif) fabriquerait exactement la
+    fausse concordance que ce correctif élimine."""
+    p = _mort(_p("I1", "JACQUET", "Rose"), 10, 12, 1894, "Sancerre")
+    resolus = {"SANCERRE": "CH:18209", "SAINT-MARTIN-D'AUXIGNY": "FR:18209"}
+    r = _releve(evenement_lieu="Saint-Martin-d'Auxigny",
+                personnes_liees=ROSE.personnes_liees)
+    a = apparier(r, [p], {"JACQUET": 0.75},
+                 {"hI1": ["Pierre JACQUET", "Marie Anne VILLEPELLET"]},
+                 lieux_resolus=resolus)
+    assert a.verdict == "aucun"
+    assert a.divergences
+    assert "lieu" not in a.facteurs
+
+
+def test_identifiant_sans_prefixe_pays_est_traite_comme_non_resolu():
+    """Garde-fou structurel : une valeur SANS préfixe pays (pas de `:`) ne
+    respecte pas le contrat, donc elle est IGNORÉE — le lieu retombe au statut
+    non résolu et la comparaison se réplie sur l'égalité de chaîne, jamais sur
+    un veto. Le repli est sûr (il ne produit jamais de veto) ; faire confiance à
+    un code nu ne l'est pas, puisque c'est exactement le défaut corrigé ici
+    (deux codes nationaux de pays différents peuvent coïncider). Ici le côté
+    « Sancerre » porte un code nu qui, sans le garde-fou, entrerait en
+    comparaison avec le code préfixé du relevé et produirait une divergence —
+    ce test tombe si le garde-fou est retiré."""
+    p = _mort(_p("I1", "JACQUET", "Rose"), 10, 12, 1894, "Sancerre")
+    resolus = {"SANCERRE": "18241", "SAINT-MARTIN-D'AUXIGNY": "FR:18197"}
+    a = apparier(ROSE, [p], {"JACQUET": 0.75}, {}, lieux_resolus=resolus)
+    assert a.divergences == []
+    assert "lieu" not in a.facteurs         # chaînes "Sancerre" ≠ "Saint-Martin-d'Auxigny"
+    assert a.verdict == "gris"              # date complète (5) + prénom (1) = 6
+
+
 def test_un_seul_lieu_resolu_retombe_sur_la_chaine_sans_veto():
     """Le lieu du relevé est résolu, celui de l'arbre ne l'est pas : il n'y a
     aucune mesure comparable, donc pas de veto possible. Absent de la mesure ne
     veut pas dire contredit."""
     p = _mort(_p("I1", "JACQUET", "Rose"), 10, 12, 1894, "Sancerre")
     a = apparier(ROSE, [p], {"JACQUET": 0.75}, {},
-                 lieux_resolus={"SAINT-MARTIN-D'AUXIGNY": "18197"})
+                 lieux_resolus={"SAINT-MARTIN-D'AUXIGNY": "FR:18197"})
     assert a.divergences == []
     assert "lieu" not in a.facteurs
     assert a.verdict == "gris"          # date complète (5) + prénom (1) = 6
@@ -587,7 +629,7 @@ def test_un_seul_lieu_resolu_accorde_le_facteur_si_les_chaines_concordent():
     facteur passerait inaperçu."""
     p = _mort(_p("I1", "JACQUET", "Rose"), 10, 12, 1894, "Saint-Martin-d'Auxigny")
     a = apparier(ROSE, [p], {"JACQUET": 0.75}, {},
-                 lieux_resolus={"SAINT-MARTIN-D'AUXIGNY": "18197"})
+                 lieux_resolus={"SAINT-MARTIN-D'AUXIGNY": "FR:18197"})
     assert "lieu" in a.facteurs
     assert a.divergences == []
 
@@ -597,7 +639,7 @@ def test_aucun_lieu_resolu_chaines_differentes_ne_veto_pas():
     chaîne n'est ni facteur ni divergence."""
     p = _mort(_p("I1", "JACQUET", "Rose"), 10, 12, 1894, "Sancerre")
     a = apparier(ROSE, [p], {"JACQUET": 0.75}, {},
-                 lieux_resolus={"BOURGES": "18033"})
+                 lieux_resolus={"BOURGES": "FR:18033"})
     assert a.divergences == []
     assert "lieu" not in a.facteurs
 

@@ -284,39 +284,69 @@ def _commune(ev: EventFact | None) -> str:
     return ev.place.split(",")[0].strip()
 
 
+def _identifiant_resolu(lieux_resolus: dict[str, str],
+                        lieu_normalise: str) -> str | None:
+    """Lit `lieux_resolus`, en imposant le contrat de préfixe pays.
+
+    Une valeur SANS préfixe pays (pas de `:`, par exemple un code INSEE nu comme
+    `"18209"`) est IGNORÉE : elle vaut `None`, exactement comme si le lieu
+    n'avait jamais été résolu. C'est un garde-fou STRUCTUREL, vérifiable par le
+    code, pas un simple commentaire qu'on espère voir relu.
+
+    La raison : un code national seul ne désigne pas une commune de façon
+    univoque entre pays. Un code INSEE français `18209` et un numéro OFS suisse
+    `18209` sont deux chaînes ÉGALES sans être la même commune — les comparer
+    nus fabriquerait une concordance entre deux communes de deux pays
+    différents, pousserait vers le facteur « lieu », et de là vers un verdict
+    `net` : une ÉCRITURE FAUSSE dans l'arbre. Retomber sur le statut « non
+    résolu » est en revanche toujours sûr : `_comparer_lieux` n'en tire jamais
+    de veto, seulement un repli sur l'égalité de chaîne (voir sa branche 3). Le
+    repli est sûr ; faire confiance à un code nu ne l'est pas.
+    """
+    code = lieux_resolus.get(lieu_normalise)
+    if code and ":" in code:
+        return code
+    return None
+
+
 def _comparer_lieux(lieu_releve: str, commune_arbre: str,
                     lieux_resolus: dict[str, str]) -> tuple[bool, str]:
     """Concordance des lieux : `(facteur, divergence)`.
 
     Règle à TROIS branches, dans cet ordre :
 
-    1. Les DEUX lieux sont résolus en code INSEE et les codes sont ÉGAUX →
-       facteur « lieu ». C'est plus fort que l'égalité de chaîne : « Saint Martin
-       d'Auxigny » et « Saint-Martin-d'Auxigny » rendent le même code, et la
-       graphie cesse de faire perdre un facteur.
-    2. Les DEUX sont résolus et les codes DIFFÈRENT → divergence, donc veto.
-       C'est légitime, et c'est le seul cas où ça l'est : deux codes INSEE
-       distincts désignent démontrablement deux communes distinctes, pas deux
-       façons d'écrire la même.
-    3. Au moins un des deux n'est PAS résolu → repli sur l'égalité de la chaîne
-       normalisée : facteur si elles concordent, RIEN si elles diffèrent. Jamais
-       de veto.
+    1. Les DEUX lieux sont résolus en identifiant canonique de commune — un
+       code national PRÉFIXÉ par le pays (`"FR:18209"`, `"CH:2701"`,
+       `"DE:06531000"`) — et les identifiants sont ÉGAUX → facteur « lieu ».
+       C'est plus fort que l'égalité de chaîne : « Saint Martin d'Auxigny » et
+       « Saint-Martin-d'Auxigny » rendent le même identifiant, et la graphie
+       cesse de faire perdre un facteur.
+    2. Les DEUX sont résolus et les identifiants DIFFÈRENT → divergence, donc
+       veto. C'est légitime, et c'est le seul cas où ça l'est : deux
+       identifiants canoniques distincts désignent démontrablement deux
+       communes distinctes, pas deux façons d'écrire la même — y compris
+       quand seul le préfixe pays diffère (`"FR:18209"` contre `"CH:18209"`) :
+       ce ne sont PAS deux graphies de la même commune, ce sont deux communes.
+    3. Au moins un des deux n'est PAS résolu — absent de `lieux_resolus`, OU
+       présent mais sans préfixe pays valide, voir `_identifiant_resolu` — →
+       repli sur l'égalité de la chaîne normalisée : facteur si elles
+       concordent, RIEN si elles diffèrent. Jamais de veto.
 
     Le pourquoi de la troisième branche est exactement celui d'`est_rare` face à
     un patronyme absent de l'arbre : **absent de la mesure ne veut pas dire
     contredit**. Un lieu non résolu, c'est une comparaison qui n'a pas eu lieu —
-    l'orchestration n'a pas su le géocoder, ou le lieu est écrit d'une façon que
-    le résolveur ignore. Accorder un veto là-dessus écarterait de vraies
-    correspondances sur du vide, et un candidat écarté ne revient jamais devant
-    le relecteur.
+    l'orchestration n'a pas su le géocoder, le lieu est écrit d'une façon que le
+    résolveur ignore, ou la valeur reçue ne respecte pas le contrat de préfixe.
+    Accorder un veto là-dessus écarterait de vraies correspondances sur du
+    vide, et un candidat écarté ne revient jamais devant le relecteur.
 
     La fonction reste PURE : le dictionnaire `lieux_resolus` arrive tout
     construit de l'orchestration, aucune résolution réseau n'a lieu ici.
     """
     if not (lieu_releve and commune_arbre):
         return False, ""
-    code_releve = lieux_resolus.get(_normaliser(lieu_releve))
-    code_arbre = lieux_resolus.get(_normaliser(commune_arbre))
+    code_releve = _identifiant_resolu(lieux_resolus, _normaliser(lieu_releve))
+    code_arbre = _identifiant_resolu(lieux_resolus, _normaliser(commune_arbre))
     if code_releve and code_arbre:
         if code_releve == code_arbre:
             return True, ""
@@ -337,9 +367,11 @@ def facteurs_et_divergences(
     vérificateur de types plutôt que par un `KeyError` dans `POIDS` — ou, pire,
     par un poids silencieusement faux.
 
-    `lieux_resolus` associe un lieu brut NORMALISÉ (via `_normaliser`) à son code
-    INSEE. Optionnel : absent, la comparaison de lieux se réduit à son repli sur
-    les chaînes, c'est-à-dire au comportement d'avant. Voir `_comparer_lieux`.
+    `lieux_resolus` associe un lieu brut NORMALISÉ (via `_normaliser`) à son
+    identifiant canonique de commune — un code national préfixé par le pays
+    (ex. `"FR:18209"`), jamais un code nu, voir `_identifiant_resolu`. Optionnel :
+    absent, la comparaison de lieux se réduit à son repli sur les chaînes,
+    c'est-à-dire au comportement d'avant. Voir `_comparer_lieux`.
     """
     lieux_resolus = lieux_resolus or {}
     facteurs: list[FacteurReleve] = []
@@ -353,9 +385,10 @@ def facteurs_et_divergences(
         else:
             divergences.append(f"date {date_arbre} ≠ relevé {releve.evenement_date}")
 
-    # Trois branches, détaillées dans `_comparer_lieux` : codes INSEE égaux →
-    # facteur ; codes INSEE différents → veto (deux communes démontrées
-    # distinctes) ; lieu non résolu d'un côté ou de l'autre → repli sur la
+    # Trois branches, détaillées dans `_comparer_lieux` : identifiants
+    # canoniques égaux → facteur ; identifiants différents → veto (deux
+    # communes démontrées distinctes, y compris sur un simple écart de
+    # préfixe pays) ; lieu non résolu d'un côté ou de l'autre → repli sur la
     # chaîne, sans jamais de veto sur une non-mesure.
     facteur_lieu, divergence_lieu = _comparer_lieux(
         releve.evenement_lieu, _commune(ev), lieux_resolus)
@@ -449,10 +482,11 @@ def apparier(releve: ReleveIndexe, people: list[PersonFacts],
              lieux_resolus: dict[str, str] | None = None) -> Appariement:
     """Le verdict, motivé.
 
-    `lieux_resolus` (lieu brut normalisé → code INSEE) est construit par
-    l'orchestration et traversé tel quel jusqu'à `_comparer_lieux` : c'est ce qui
-    permet de vetoer sur une commune franchement AUTRE sans renoncer à la pureté
-    du moteur, qui ne résout toujours rien lui-même.
+    `lieux_resolus` (lieu brut normalisé → identifiant canonique de commune,
+    préfixé par le pays — ex. `"FR:18209"`, `"CH:2701"`, `"DE:06531000"`) est
+    construit par l'orchestration et traversé tel quel jusqu'à `_comparer_lieux` :
+    c'est ce qui permet de vetoer sur une commune franchement AUTRE sans
+    renoncer à la pureté du moteur, qui ne résout toujours rien lui-même.
 
     `gris` a deux sources distinctes, et il faut les tenir pour telles : c'est
     un effet de seuil quand un candidat unique reste sous `SEUIL_NET`
