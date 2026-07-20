@@ -8,6 +8,7 @@ Voir docs/superpowers/specs/2026-07-20-sources-archives-pistes-design.md.
 from __future__ import annotations
 
 import logging
+import time
 from datetime import date as _date
 from pathlib import Path
 
@@ -21,9 +22,12 @@ from crewai_custom_tools.tools.genealogy.pistes import (
 )
 from crewai_custom_tools.tools.web.wikidata import sparql_rows
 
+from genecrew.batching import iter_people_batches
 from genecrew.pistes import consigner, render_rapport_pistes
 
 logger = logging.getLogger(__name__)
+
+THROTTLE_S = 2.0  # espacement entre requêtes vers query.wikidata.org ; 0 dans les tests
 
 # Gallica est ABSENTE : mesuré contre l'API réelle, son SRU rend des notices de
 # COLLECTION, pas des articles — « ce nom est quelque part dans ce volume de 500
@@ -51,16 +55,12 @@ def run_archives(client: GrampsClient, source: str, scope: str, output_dir: Path
     fetcher = FactsFetcher(client)
     toutes: list[Piste] = []
     vues = 0
-    page = 1
-    while True:
-        lot = fetcher.list_people_facts(page=page, pagesize=batch_size)
-        if not lot:
-            break
+    for lot in iter_people_batches(client, fetcher, scope, batch_size, limit):
         for person in lot:
-            if limit is not None and vues >= limit:
-                break
             vues += 1
             try:
+                if THROTTLE_S:
+                    time.sleep(THROTTLE_S)
                 pistes = collecter_pistes(source, person)
             except Exception as exc:                       # noqa: BLE001
                 logger.warning("%s : %s a échoué (%s)", person.gramps_id, source, exc)
@@ -68,9 +68,6 @@ def run_archives(client: GrampsClient, source: str, scope: str, output_dir: Path
             for piste in pistes:
                 consigner(client, piste, dry_run=dry_run)
             toutes.extend(pistes)
-        if limit is not None and vues >= limit:
-            break
-        page += 1
 
     output_dir.mkdir(parents=True, exist_ok=True)
     chemin = output_dir / f"{date}_pistes_{source}_{scope.replace(':', '-')}.md"
