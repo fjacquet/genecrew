@@ -212,7 +212,7 @@ __all__ = ["find_duplicates", "normalize_name"]
 cd /Users/fjacquet/Projects/crewai_custom_tools && uv run python -m pytest tests/test_genealogy_phonetics.py tests/test_genealogy_duplicates.py -q && uv run ruff check src/
 ```
 
-Attendu : `28 passed` — les 23 nouveaux (20 cas paramétrés + 3 tests) **et les 5 de R10**, dont `test_normalize_strips_accents_and_case` qui importe `normalize_name` depuis `duplicates` et prouve que la réexportation fonctionne. Puis `All checks passed!`.
+Attendu : `29 passed` — les 23 nouveaux (20 cas paramétrés + 3 tests) **et les 6 de R10**, dont `test_normalize_strips_accents_and_case` qui importe `normalize_name` depuis `duplicates` et prouve que la réexportation fonctionne. Puis `All checks passed!`.
 
 - [ ] **Step 5: Commit**
 
@@ -522,7 +522,7 @@ Aucun cycle possible : la Task 1 a rendu `phonetics` autonome, la dépendance ne
 cd /Users/fjacquet/Projects/crewai_custom_tools && uv run python -m pytest tests/test_genealogy_blocking.py tests/test_genealogy_duplicates.py -q && uv run ruff check src/
 ```
 
-Attendu : `13 passed` (8 nouveaux + 5 de R10, qui doivent rester verts), `All checks passed!`.
+Attendu : `14 passed` (8 nouveaux + 6 de R10, qui doivent rester verts), `All checks passed!`.
 
 - [ ] **Step 5: Commit**
 
@@ -882,7 +882,7 @@ from crewai_custom_tools.tools.genealogy.models.domain import (
 cd /Users/fjacquet/Projects/crewai_custom_tools && uv run python -m pytest tests/test_genealogy_merge_tiers.py tests/test_genealogy_blocking.py tests/test_genealogy_duplicates.py -q && uv run ruff check src/
 ```
 
-Attendu : `29 passed` (16 d'étagement + 8 de blocking + 5 de R10), `All checks passed!`.
+Attendu : `30 passed` (16 d'étagement + 8 de blocking + 6 de R10), `All checks passed!`.
 
 Si `test_piege_pagan_contre_pagani` échoue en rendant `auto` : c'est que la comparaison de nom laisse passer `pagan` ≠ `pagani`. Vérifier que `_regle_auto` compare bien par **égalité stricte** et n'appelle aucun `SequenceMatcher`.
 
