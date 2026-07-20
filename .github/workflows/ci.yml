@@ -77,6 +77,23 @@ jobs:
         working-directory: genecrew
         run: uv run ruff check .
 
+  docs:
+    name: construction de la doc (vérification)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v8.3.2
+        with:
+          enable-cache: true
+
+      # Même recette que .github/workflows/docs.yml (qui déploie sur Pages),
+      # via scripts/build-docs.sh : on ne fait que construire, sans déployer.
+      # Bloquant (pas de continue-on-error) — un lien cassé ou un README qui
+      # ne passe plus MkDocs --strict doit arrêter la PR ici, avant que le
+      # déploiement échoue sur main sans que personne ne soit prévenu.
+      - name: build
+        run: scripts/build-docs.sh
+
   security:
     name: sécurité (informatif)
     runs-on: ubuntu-latest
