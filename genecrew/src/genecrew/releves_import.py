@@ -244,6 +244,21 @@ def _parents_par_handle(fetcher: FactsFetcher, people: list[PersonFacts],
     collecté (arbre partiel, borné par `--limit` un jour) est simplement ignoré
     — mieux vaut un facteur non tiré qu'un aller-retour réseau par candidat.
 
+    LIMITE CONNUE — ces « parents » ne sont PAS forcément les parents
+    biologiques, malgré ce que le nom du facteur laisse croire.
+    `parent_family_list` de Gramps liste TOUTES les familles où la personne
+    figure comme enfant, quel que soit le type de lien : biologique, adopté,
+    beau-fils/belle-fille, famille d'accueil. Le qualificatif existe côté Gramps
+    (dans les `child_ref` de la famille) mais `FamilyFacts` ne le transporte pas,
+    donc on ne peut pas filtrer ici sans modifier la bibliothèque voisine.
+
+    Conséquence à connaître avant de faire confiance à un verdict : un parent
+    adoptif, ou le nouveau conjoint d'une mère remariée, alimente le facteur
+    « deux parents nommés » — lequel pèse 8, soit `SEUIL_NET` à lui seul. Un
+    relevé qui nommerait les parents adoptifs peut donc atteindre `net` sur un
+    fondement partiellement faux. À revoir le jour où `FamilyFacts` portera le
+    type de filiation.
+
     Construit ici, côté orchestration : le moteur d'appariement le reçoit tout
     fait, ce qui lui permet de rester pur et testable sans réseau.
     """
