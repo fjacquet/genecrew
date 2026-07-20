@@ -418,7 +418,15 @@ def test_type_evenement_non_gere_refuse_d_ecrire(monkeypatch):
 # --- l'écriture, quand tout concorde ----------------------------------------
 
 def test_net_hors_simulation_pose_note_et_tag(monkeypatch, mocker):
-    """Le chemin nominal : note créée, tag garanti, les deux rattachés."""
+    """Le chemin nominal : note créée, tag garanti, les deux AJOUTÉS.
+
+    La personne du mock porte DÉJÀ une note et un tag. C'est l'essentiel du
+    test : l'append-only est un invariant structurel du projet — on annote, on
+    n'écrase jamais ce qu'une personne porte déjà. Sur une personne vierge, un
+    code qui remplacerait les listes par `[nouveau]` rendrait exactement le même
+    PUT qu'un code qui ajoute : le test ne prouverait rien. Ici, l'assertion
+    exige l'ANCIEN en premier et le neuf ajouté derrière.
+    """
     monkeypatch.setenv("GENECREW_DRY_RUN", "false")
     vu = {"notes": [], "tags": [], "put": []}
 
@@ -436,7 +444,10 @@ def test_net_hors_simulation_pose_note_et_tag(monkeypatch, mocker):
         if chemin == "/api/tags/":
             return httpx.Response(200, json=[])
         if chemin == "/api/people/h1":
-            return httpx.Response(200, json={"gramps_id": "I0001", "handle": "h1"})
+            # Personne NON vierge : une note et un tag préexistants, que
+            # l'écriture doit conserver.
+            return httpx.Response(200, json={"gramps_id": "I0001", "handle": "h1",
+                                             "note_list": ["n0"], "tag_list": ["t0"]})
         return _handler_arbre([_ROSE_ARBRE])(request)
 
     client = _client(h)
@@ -451,5 +462,6 @@ def test_net_hors_simulation_pose_note_et_tag(monkeypatch, mocker):
     assert COLLAGE_ROSE.strip() in vu["notes"][0]["text"]["string"]
     assert vu["notes"][0]["text"]["string"].startswith("[genecrew:releve:")
     assert vu["tags"][0]["name"] == TAG_RELEVE
-    assert vu["put"][0]["note_list"] == ["n1"]
-    assert vu["put"][0]["tag_list"] == ["t1"]
+    # L'ancien EN PREMIER, le neuf ajouté : un remplacement rendrait ["n1"].
+    assert vu["put"][0]["note_list"] == ["n0", "n1"]
+    assert vu["put"][0]["tag_list"] == ["t0", "t1"]
