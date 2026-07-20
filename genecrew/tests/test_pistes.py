@@ -156,3 +156,31 @@ def test_le_corps_ne_conclut_pas(mocker):
     corps = next(r[2]["text"]["string"] for r in records
                  if r[0] == "POST" and "/notes/" in r[1])
     assert "Une piste n'est pas un fait" in corps
+
+
+def test_rapport_separe_fortes_et_faibles():
+    from genecrew.pistes import render_rapport_pistes
+    md = render_rapport_pistes([_piste(), _piste(force="faible", identite="zzz")],
+                               "2026-07-20", dry_run=False)
+    assert "Pistes fortes" in md and "Pistes faibles" in md
+    assert "écritures appliquées" in md
+
+
+def test_rapport_dit_le_mode_simulation():
+    from genecrew.pistes import render_rapport_pistes
+    md = render_rapport_pistes([_piste()], "2026-07-20", dry_run=True)
+    assert "simulation" in md
+
+
+def test_rapport_contient_les_faibles_absentes_de_l_arbre():
+    # Les faibles n'existent QUE là : si le rapport les perd, elles sont perdues.
+    from genecrew.pistes import render_rapport_pistes
+    md = render_rapport_pistes([_piste(force="faible", identite="zzz",
+                                       concordances=["nom"])], "2026-07-20", dry_run=False)
+    assert "zzz" in md
+
+
+def test_rapport_sans_piste_le_dit():
+    from genecrew.pistes import render_rapport_pistes
+    md = render_rapport_pistes([], "2026-07-20", dry_run=False)
+    assert "Aucune piste" in md

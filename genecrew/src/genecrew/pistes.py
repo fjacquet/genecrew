@@ -137,3 +137,32 @@ def consigner(client, piste: Piste, *, dry_run: bool = False) -> dict:
     if not attache["success"]:
         return {"ecrite": False, "raison": f"rattachement refusé : {attache['error']}"}
     return {"ecrite": True, "raison": "consignée"}
+
+
+def render_rapport_pistes(pistes: list[Piste], date: str, *, dry_run: bool) -> str:
+    """Rapport Markdown. Les faibles n'existent QUE là — les perdre les perdrait."""
+    mode = "simulation (dry-run, aucune écriture)" if dry_run else "écritures appliquées"
+    fortes = [p for p in pistes if p.force == "forte"]
+    faibles = [p for p in pistes if p.force == "faible"]
+    lignes = [f"# Pistes de recherche — {date}", "",
+              f"Mode : {mode}.", "",
+              f"- Pistes fortes (écrites dans l'arbre) : {len(fortes)}",
+              f"- Pistes faibles (ce rapport seulement) : {len(faibles)}", ""]
+    if not pistes:
+        lignes += ["Aucune piste.", ""]
+        return "\n".join(lignes)
+    for titre, lot in (("Pistes fortes", fortes), ("Pistes faibles", faibles)):
+        lignes += [f"## {titre}", ""]
+        if not lot:
+            lignes += ["Aucune.", ""]
+            continue
+        lignes += ["| Personne | Source | Identité | Concordances | Divergences | URL |",
+                   "|---|---|---|---|---|---|"]
+        for p in lot:
+            url = p.url or "— (permalien absent de la source)"
+            lignes.append(f"| {p.gramps_id} | {p.source} | {p.identite} | "
+                          f"{', '.join(p.concordances) or '—'} | "
+                          f"{', '.join(p.divergences) or '—'} | {url} |")
+        lignes.append("")
+    lignes += ["> Une piste n'est pas un fait : aucune citation n'a été créée.", ""]
+    return "\n".join(lignes)
