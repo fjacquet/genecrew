@@ -51,10 +51,12 @@ commune vivante ambiguë ne bascule pas sur le chemin ex-commune — c'est le co
 ### Task 1 : Accès SPARQL réutilisable
 
 **Files:**
+
 - Modify: `crewai_custom_tools/src/crewai_custom_tools/tools/web/wikidata.py`
 - Test: `crewai_custom_tools/tests/test_genealogy_wikidata_sparql.py` (créer)
 
 **Interfaces:**
+
 - Produces: `sparql_rows(query: str, *, timeout: float = 30.0) -> list[dict[str, str]]` — exécute une requête SPARQL et rend les lignes aplaties `{variable: valeur}`. Lève sur erreur HTTP. C'est le point monkeypatché par les tests de la Task 2.
 
 Le module contient déjà `WikidataSparqlTool` (outil CrewAI) avec `SPARQL_ENDPOINT` et
@@ -179,10 +181,12 @@ libre monkeypatchable."
 ### Task 2 : Faits d'ex-commune depuis Wikidata
 
 **Files:**
+
 - Create: `crewai_custom_tools/src/crewai_custom_tools/tools/genealogy/geo/france_ex_communes.py`
 - Test: `crewai_custom_tools/tests/test_genealogy_geo_france_ex_communes.py` (créer)
 
 **Interfaces:**
+
 - Consumes: `sparql_rows(query) -> list[dict]` (Task 1).
 - Produces:
   - `ExCommuneFacts` — modèle pydantic : `dissolved: str | None`, `successor_insee: str | None`, `lat: str | None`, `long: str | None`.
@@ -426,11 +430,13 @@ d'abord, comme GeoJSON. 0 ou >1 entité -> None, on ne date pas."
 ### Task 3 : Résolution complète de l'ex-commune
 
 **Files:**
+
 - Modify: `crewai_custom_tools/src/crewai_custom_tools/tools/genealogy/geo/france_ex_communes.py`
 - Modify: `crewai_custom_tools/src/crewai_custom_tools/tools/genealogy/geo/france.py` (extraction du filtre partagé)
 - Modify: `crewai_custom_tools/tests/test_genealogy_geo_france_ex_communes.py`
 
 **Interfaces:**
+
 - Consumes: `wikidata_ex_commune(insee) -> ExCommuneFacts | None` (Task 2) ; `map_commune(payload, parsed) -> ResolvedPlace` et `_norm(s) -> str` (existants).
 - Produces:
   - `pick_exact_by_name(results: list, parsed: ParsedPlace) -> list` — dans `france.py`, extrait de `_resolve_fr_by_name` sans changement de comportement, désormais partagé par les deux résolveurs.
@@ -764,10 +770,12 @@ GPS Wikidata (bourg) préféré au centroïde de l'API, ~700 m d'écart mesuré.
 ### Task 4 : Branchement dans le registre
 
 **Files:**
+
 - Modify: `crewai_custom_tools/src/crewai_custom_tools/tools/genealogy/geo/registry.py:15-19`
 - Modify: `crewai_custom_tools/tests/test_genealogy_geo_registry.py`
 
 **Interfaces:**
+
 - Consumes: `resolve_fr_ex_commune(parsed)` (Task 3).
 - Produces: rien de nouveau — `resolve_place` garde sa signature.
 
@@ -972,11 +980,13 @@ git commit -m "chore: version 0.19.0 — résolveur des ex-communes françaises"
 ### Task 6 : Scope `place:<ID>` côté genecrew
 
 **Files:**
+
 - Modify: `genecrew/src/genecrew/scope.py:10-18` (`parse_scope`) et `:21-44` (`resolve_handles`)
 - Modify: `genecrew/src/genecrew/batching.py:37-56` (`iter_places`)
 - Test: `genecrew/tests/test_scope.py`, `genecrew/tests/test_places_batching.py`
 
 **Interfaces:**
+
 - Produces: `parse_scope("place:P0080") == ("place", "P0080")` ; `iter_places(client, "place:P0080", batch_size, limit)` rend un lot unique.
 
 - [ ] **Step 1: Synchroniser la bibliothèque**
@@ -1165,6 +1175,7 @@ uv run genecrew apply places --scope place:P0080 --dry-run
 ```
 
 Lire le rapport produit sous `output/lieux/`. Vérifier :
+
 - `Mode : simulation (dry-run, aucune écriture)` ;
 - `Lieux écrits : 1` ;
 - la ligne du tableau porte `Saint-Agnant-sous-les-Côtes`, `Municipality`,
@@ -1205,6 +1216,7 @@ print('alt  :', [a.get('value') for a in p.get('alt_names') or []])
 ```
 
 Attendu :
+
 - nom `Saint-Agnant-sous-les-Côtes`, type `Municipality`, code **`55451`** — le champ était
   **vide** avant l'opération (vérifié en base), il n'y avait pas de code erroné à écraser ;
 - GPS `48.842142 / 5.622588` ;

@@ -25,6 +25,7 @@ puis les personas naîtront équipés.
 ## 3. Les 6 outils
 
 ### Analyse pure (`tools/genealogy/analysis/tools.py`)
+
 - **`genealogy_check_person`** — entrée `handle` → FactsFetcher + `check_person` + règles
   famille sur ses familles parentes → anomalies JSON (règle, gravité, message). Permet à un
   agent de re-vérifier une personne à la demande.
@@ -32,11 +33,13 @@ puis les personas naîtront équipés.
   borne dure : jamais l'O(n²) plein arbre depuis un agent) → paires candidates scorées (R10).
 
 ### Résolveur de lieux (`geo/tools.py`)
+
 - **`genealogy_resolve_place`** — entrée chaîne brute (« Bourges, Cher, France ») →
   `parse_pname` + `registry.resolve_place` → hiérarchie, GPS WGS84, score, source, action
   (`ecrire`/`proposition`/`indecidable`). Expose le moteur FR/CH/DE/US/monde déjà validé.
 
 ### APIs externes gratuites
+
 - **`wikidata_sparql`** (`tools/web/wikidata.py`) — POST/GET `query.wikidata.org/sparql`,
   `format=json`, User-Agent dédié ; renvoie les bindings aplatis, tronqués à `limit`.
 - **`gallica_search`** (`tools/web/gallica.py`) — SRU 1.2 `gallica.bnf.fr/SRU`

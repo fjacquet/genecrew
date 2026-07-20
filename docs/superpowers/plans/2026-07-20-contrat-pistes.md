@@ -32,11 +32,13 @@ La CI de `genecrew` checkoute le dépôt voisin sur le **tag** `v<version>` lu d
 ### Task 1 : Le modèle `Piste` dans la bibliothèque
 
 **Files:**
+
 - Modify: `crewai_custom_tools/src/crewai_custom_tools/tools/genealogy/models/domain.py`
 - Test: `crewai_custom_tools/tests/test_genealogy_domain.py`
 - Modify (release): `crewai_custom_tools/pyproject.toml`, `crewai_custom_tools/src/crewai_custom_tools/__init__.py`, `crewai_custom_tools/CHANGELOG.md`
 
 **Interfaces:**
+
 - Produces: `Piste` — modèle pydantic aux champs `gramps_id: str`, `handle: str`, `source: str`, `identite: str`, `identite_derivee: bool = False`, `url: str | None = None`, `requete: str`, `concordances: list[str]`, `divergences: list[str]`, `force: Literal["forte", "faible"]`.
 
 Le dépôt bibliothèque est sur `main` (propre, poussé). **Crée une branche `feat/modele-piste` depuis `main`** — c'est la seule task autorisée à créer une branche.
@@ -164,10 +166,12 @@ git push origin v0.19.3
 ### Task 2 : La règle de force, le marqueur et la clé dérivée
 
 **Files:**
+
 - Create: `genecrew/src/genecrew/pistes.py`
 - Test: `genecrew/tests/test_pistes.py` (créer)
 
 **Interfaces:**
+
 - Consumes: `Piste` (Task 1).
 - Produces:
   - `evaluer_force(concordances: list[str], divergences: list[str]) -> Literal["forte", "faible"]`
@@ -354,10 +358,12 @@ salé à chaque exécution, et normalise casse et accents avant hachage."
 ### Task 3 : Idempotence et écriture
 
 **Files:**
+
 - Modify: `genecrew/src/genecrew/pistes.py`
 - Modify: `genecrew/tests/test_pistes.py`
 
 **Interfaces:**
+
 - Consumes: `marqueur()` (Task 2), `Piste` (Task 1).
 - Produces:
   - `marqueurs_existants(client, gramps_id: str) -> set[str]` — les marqueurs déjà posés sur une personne
@@ -608,10 +614,12 @@ produit une note qui le DIT, sans jamais fabriquer d'URL."
 ### Task 4 : Le rapport
 
 **Files:**
+
 - Modify: `genecrew/src/genecrew/pistes.py`
 - Modify: `genecrew/tests/test_pistes.py`
 
 **Interfaces:**
+
 - Consumes: `Piste` (Task 1).
 - Produces: `render_rapport_pistes(pistes: list[Piste], date: str, *, dry_run: bool) -> str` — Markdown pur, fonction sans effet de bord.
 
@@ -719,10 +727,12 @@ prétend jamais avoir écrit ce qui a été simulé."
 ### Task 5 : Brancher MatchID
 
 **Files:**
+
 - Modify: `genecrew/src/genecrew/deces.py`
 - Test: `genecrew/tests/test_deces_pistes.py` (créer)
 
 **Interfaces:**
+
 - Consumes: `Piste`, `evaluer_force` (Tasks 1–2).
 - Produces: `piste_depuis_match(person, match: dict, url: str) -> Piste` dans `deces.py`.
 

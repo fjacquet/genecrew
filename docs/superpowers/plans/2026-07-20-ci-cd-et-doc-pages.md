@@ -56,10 +56,12 @@ garde de cohérence, elle, est du shell et se teste localement — c'est la part
 est plausible, donc c'est elle qu'on éprouve avant de pousser.
 
 **Files:**
+
 - Create: `.github/workflows/ci.yml`
 - Modify: `docs/BACKLOG.md` (ajouter la note sur Python 3.11 non vérifié)
 
 **Interfaces:**
+
 - Consumes: rien (première tâche).
 - Produces: rien que la Task 2 consomme — les deux workflows sont indépendants.
 
@@ -220,6 +222,7 @@ jobs:
 ```bash
 python3 -c "import yaml,sys; yaml.safe_load(open('.github/workflows/ci.yml')); print('YAML valide')"
 ```
+
 Expected: `YAML valide`
 
 - [ ] **Step 5: Reproduire localement ce que fera le job sécurité**
@@ -227,6 +230,7 @@ Expected: `YAML valide`
 ```bash
 uvx semgrep@1.170.0 scan --config=p/python --config=p/secrets --metrics=off genecrew/src/
 ```
+
 Expected: aucun constat (mesuré le 2026-07-20 : scan propre). Si des constats
 apparaissent, les rapporter — ne pas les corriger dans cette tâche, le job est informatif.
 
@@ -283,12 +287,14 @@ Contrairement au workflow, le site **se construit en local** : c'est là qu'on v
 les exclusions fonctionnent, avant de dépendre d'un run distant.
 
 **Files:**
+
 - Create: `mkdocs.yml` (racine du dépôt)
 - Create: `.github/workflows/docs.yml`
 - Modify: `.gitignore` (ignorer `site/` et `docs/index.md`)
 - Modify: `README.md` (badges CI et documentation)
 
 **Interfaces:**
+
 - Consumes: rien de la Task 1 — les deux workflows sont indépendants.
 - Produces: rien.
 
@@ -351,6 +357,7 @@ et les ADR étant numérotés ils se rangent naturellement.
 cp README.md docs/index.md
 uvx --with mkdocs-material==9.7.7 mkdocs@1.6.1 build --strict
 ```
+
 Expected: build réussi, sans warning (`--strict` transforme tout warning en échec).
 
 Puis vérifier que les exclusions ont bien mordu :
@@ -362,6 +369,7 @@ test -d site/swagger && echo "ÉCHEC : swagger publié" || echo "ok swagger excl
 test -e site/index.html && echo "ok accueil présent" || echo "ÉCHEC : pas d'accueil"
 ls site/adr/ | wc -l | xargs echo "pages ADR publiées :"
 ```
+
 Expected: trois `ok … exclu`, `ok accueil présent`, et **12** pages ADR.
 
 Si `--strict` échoue sur un lien mort, rapporter le lien exact : il pointe probablement vers
@@ -384,6 +392,7 @@ Vérifier que la copie n'est pas suivie :
 ```bash
 git status --porcelain docs/index.md site
 ```
+
 Expected: aucune sortie.
 
 - [ ] **Step 4: Écrire `.github/workflows/docs.yml`**
@@ -450,6 +459,7 @@ jobs:
 ```bash
 python3 -c "import yaml; yaml.safe_load(open('.github/workflows/docs.yml')); print('YAML valide')"
 ```
+
 Expected: `YAML valide`
 
 - [ ] **Step 6: Ajouter les badges au README**
@@ -488,6 +498,7 @@ curl -s -o /dev/null -w "%{http_code}\n" https://fjacquet.github.io/genecrew/
 curl -s https://fjacquet.github.io/genecrew/adr/0012-cli-grammaire-verbes/ | grep -c "grammaire de verbes"
 curl -s -o /dev/null -w "%{http_code}\n" https://fjacquet.github.io/genecrew/document-de-travail/
 ```
+
 Expected: `200` pour l'accueil, au moins `1` occurrence pour l'ADR 0012, et **`404`** pour le
 document de travail — c'est la preuve que l'exclusion tient en production, pas seulement en
 local.

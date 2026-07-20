@@ -37,9 +37,11 @@ réutilisées par toutes les crews suivantes.
 ## 4. Composants
 
 ### A. `crewai_custom_tools` — outils d'écriture append-only (manquants)
+
 `src/crewai_custom_tools/tools/genealogy/gramps/write_tools.py` (append) +
 `tests/test_genealogy_note_tag_tools.py`. Patrons réutilisés du fichier : `effective_dry_run`,
 `get_client`, `_created_handle` (POST = array), GET→modify→PUT de `GrampsUpdateNameTool`.
+
 - `GrampsCreateNoteTool` — POST `/api/notes/` (`text`, `type`), handle client uuid, gated dry-run
   → handle synthétique. Modèle : `GrampsCreatePlaceTool`.
 - `GrampsEnsureTagTool` — **idempotent** : cherche un tag par `name` (GET `/api/tags/`), le crée
@@ -49,12 +51,14 @@ réutilisées par toutes les crews suivantes.
   (invariant qui refuse tout autre changement). Gated dry-run.
 
 ### B. `genecrew` — exposer les findings déterministes
+
 `genecrew/src/genecrew/audit.py` : extraire la collecte en `collect_audit_findings(client, scope,
 *, batch_size, limit) -> tuple[list[Anomaly], list[DuplicateCandidate], list[PersonFacts]]` ;
 `run_audit` l'appelle puis rend le rapport (CLI inchangé). La crew consomme les `Anomaly`
 **structurés en mémoire** (pas de parsing du `.md`).
 
 ### C. `genecrew` — la vraie crew (remplace le template)
+
 - `config/agents.yaml` (réécrit) : `detective` (Corrélateur ; consigne : n'écrit jamais, recoupe
   via lecture Gramps + Wikipedia) + `chroniqueur` (rédige les annotations, append-only, marqueur).
   LLM = `MODEL` env (OpenRouter/glm-5.2).
@@ -65,6 +69,7 @@ réutilisées par toutes les crews suivantes.
   sur le chroniqueur, `Process.sequential`.
 
 ### D. `genecrew` — orchestration + CLI
+
 - `src/genecrew/crew_audit.py` (créer) : `run_crew_audit(client, scope, output_dir, *, date,
   batch_size=25, limit=None, dry_run=False)` — findings (B) → lots → `Genecrew().crew().kickoff(
   inputs=…)` par lot → agrège les annotations (dry-run : listées, non écrites) → rapport MD + YAML ;
@@ -72,11 +77,13 @@ réutilisées par toutes les crews suivantes.
 - `main.py` : sous-commande `genecrew crew-audit --scope --limit --batch-size --dry-run --date`.
 
 ## 5. Garde-fous
+
 Dry-run par défaut ; write tools structurellement absents du Détective ; append-only (invariant) ;
 marqueur `[genecrew:audit:<date>:detective]` ; `--limit` pour borner le coût LLM ; compte Editor
 dédié = prérequis ops de l'écriture réelle.
 
 ## 6. Tests & validation
+
 - Par **classe** (`httpx.MockTransport`, offline) : les 3 write tools (create note/tag ;
   `EnsureTag` idempotent ; `Attach` append-only refuse tout autre champ ; dry-run n'écrit rien) ;
   wiring crew avec **LLM mocké** ; orchestration **dry-run** (aucune écriture HTTP, rapport produit).
@@ -88,5 +95,6 @@ dédié = prérequis ops de l'écriture réelle.
   mesuré, écritures = annotations encadrées seulement.
 
 ## 7. Exécution
+
 Inline (limite de 200 subagents de session atteinte) : TDD direct, commits par composant, branche
 dédiée par dépôt (`feat/crew-audit` côté genecrew, `feat/crew-write-tools` côté cct).

@@ -38,6 +38,7 @@ OpenDataSoft v2.1 export API.
 ### Task 1 : Parser reconnaît l'AGS 8 chiffres (+ `ParsedPlace.ags`)
 
 **Files:**
+
 - Modify: `src/crewai_custom_tools/tools/genealogy/models/domain.py` (ParsedPlace)
 - Modify: `src/crewai_custom_tools/tools/genealogy/standardize/places.py`
 - Test: `tests/test_genealogy_places_parse.py`
@@ -71,29 +72,37 @@ Attendu : FAIL (`ParsedPlace` n'a pas `ags` / `AttributeError`).
 - [ ] **Step 3 — implémenter**
 
 `models/domain.py`, dans `ParsedPlace`, ajouter le champ (après `insee`/`postal`) :
+
 ```python
     ags: str | None = None
 ```
 
 `standardize/places.py` : ajouter la regex (près des autres) :
+
 ```python
 AGS_RE = re.compile(r"^\d{8}$")             # Amtlicher Gemeindeschlüssel (Allemagne)
 ```
+
 Dans `parse_pname`, après la détection `postal_idx`/`postal`, ajouter :
+
 ```python
     ags_idx = next((i for i, s in enumerate(segments) if AGS_RE.match(s)), None)
     ags = segments[ags_idx] if ags_idx is not None else None
 ```
+
 Ajouter `ags_idx` à l'ensemble `used` (pour exclure l'AGS du tail) :
+
 ```python
     used = {country_idx, insee_idx, postal_idx, commune_idx, ags_idx}
 ```
+
 Et passer `ags=ags` au `return ParsedPlace(...)`.
 
 - [ ] **Step 4 — run GREEN**
 `uv run python -m pytest tests/test_genealogy_places_parse.py -q` → PASS (nouveaux + existants).
 
 - [ ] **Step 5 — commit**
+
 ```bash
 cd /Users/fjacquet/Projects/crewai_custom_tools
 git add src/crewai_custom_tools/tools/genealogy/models/domain.py \
@@ -107,6 +116,7 @@ git commit -m "feat(genealogy): parse 8-digit AGS as authoritative German code, 
 ### Task 2 : Gazetteer allemand embarqué + script de provisioning
 
 **Files:**
+
 - Create: `scripts/build_de_gazetteer.py`
 - Create: `src/crewai_custom_tools/tools/genealogy/data/de_communes.csv`
 - Test: `tests/test_genealogy_geo_allemagne.py` (un test de parsing du build)
@@ -179,6 +189,7 @@ if __name__ == "__main__":
 ```
 
 - [ ] **Step 2 — build-parse test (RED→GREEN)** — dans `tests/test_genealogy_geo_allemagne.py` :
+
 ```python
 def test_build_parse_rows_derives_ags_and_point():
     import sys
@@ -191,6 +202,7 @@ def test_build_parse_rows_derives_ags_and_point():
     assert rows == [{"ags": "14627060", "name": "Großenhain", "land": "Sachsen",
                      "lat": "51.3237", "long": "13.5230"}]
 ```
+
 Run: `uv run python -m pytest tests/test_genealogy_geo_allemagne.py -q -k build_parse` (RED: module absent → écrire le script → GREEN).
 
 - [ ] **Step 3 — provisionner `data/de_communes.csv`**
@@ -201,6 +213,7 @@ lieux Allemagne de l'arbre, dont `06635021,Waldeck,Hessen,51.2049,9.0653`, plus 
 `09162000,München,Bayern,48.14,11.58`) et le noter dans le commit.
 
 - [ ] **Step 4 — commit**
+
 ```bash
 cd /Users/fjacquet/Projects/crewai_custom_tools
 git add scripts/build_de_gazetteer.py \
@@ -214,6 +227,7 @@ git commit -m "feat(genealogy): embedded German municipality gazetteer + build s
 ### Task 3 : Résolveur `geo/allemagne.py` + routage registry
 
 **Files:**
+
 - Create: `src/crewai_custom_tools/tools/genealogy/geo/allemagne.py`
 - Modify: `src/crewai_custom_tools/tools/genealogy/geo/registry.py`
 - Test: `tests/test_genealogy_geo_allemagne.py`
@@ -223,6 +237,7 @@ git commit -m "feat(genealogy): embedded German municipality gazetteer + build s
 `load_de_gazetteer()`, `_norm_de`.
 
 - [ ] **Step 1 — tests (RED)** — `tests/test_genealogy_geo_allemagne.py` :
+
 ```python
 from crewai_custom_tools.tools.genealogy.models.domain import ParsedPlace
 
@@ -268,6 +283,7 @@ def test_norm_de_umlaut_and_eszett():
     assert _norm_de("Großenhain") == _norm_de("Grossenhain")
     assert _norm_de("München") == _norm_de("Muenchen")
 ```
+
 (Remplacer `rp.land_ok()` par une assertion concrète : `assert rp.code == "06635021"` — la
 version Hesse, pas Thuringe.)
 
@@ -275,6 +291,7 @@ version Hesse, pas Thuringe.)
 `uv run python -m pytest tests/test_genealogy_geo_allemagne.py -q` → FAIL (module `allemagne` absent).
 
 - [ ] **Step 3 — implémenter** `geo/allemagne.py` :
+
 ```python
 """Germany resolver: authoritative AGS / (name, Land) -> embedded BKG VG250 gazetteer."""
 from __future__ import annotations
@@ -364,6 +381,7 @@ def resolve_de(parsed: ParsedPlace, table: dict | None = None) -> ResolvedPlace 
 ```
 
 `geo/registry.py` : importer et router :
+
 ```python
 from crewai_custom_tools.tools.genealogy.geo.allemagne import resolve_de
 ...
@@ -381,6 +399,7 @@ _BY_COUNTRY = {
 `uv run ruff check` propre sur les fichiers touchés.
 
 - [ ] **Step 5 — commit**
+
 ```bash
 cd /Users/fjacquet/Projects/crewai_custom_tools
 git add src/crewai_custom_tools/tools/genealogy/geo/allemagne.py \

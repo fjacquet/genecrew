@@ -31,6 +31,7 @@ espaces). Seuil défaut **0.95**. Le score ES de MatchID n'est qu'informatif (ja
 ## 3. Composants
 
 ### cct (`feat/deces-scoring`, → 0.15.0)
+
 - `tools/genealogy/matchid.py` : extraire `search_deces(last_name, first_name="",
   birth_date="", limit=10) -> list[dict]` (le `_run` du BaseTool l'appelle — un seul code
   HTTP) ; ajouter les fonctions **pures** `score_deces_match(surname, given, birth_iso,
@@ -40,6 +41,7 @@ espaces). Seuil défaut **0.95**. Le score ES de MatchID n'est qu'informatif (ja
   année seule vs date exacte.
 
 ### genecrew (`feat/deces-enrichissement`)
+
 - `src/genecrew/propositions.py` (créer) : `PropositionAudit`/`PropositionsLot` migrent ici
   depuis `crew.py` (module neutre, sans import crewai) ; `crew.py` ré-importe.
 - `src/genecrew/deces.py` (créer) : `run_deces(client, scope, output_dir, *, date,
@@ -53,10 +55,12 @@ espaces). Seuil défaut **0.95**. Le score ES de MatchID n'est qu'informatif (ja
   contradiction) ; sous le seuil → rien ; rapport/YAML.
 
 ## 4. Validation réelle
+
 `uv run genecrew deces --scope all --limit 300` (couvre I0300 Odette Rippert, cas connu :
 décès 19/12/2021 Bourges, acte 1511). Critère : la retrouve avec le bon type de proposition,
 zéro faux positif choquant dans le rapport, coût LLM = 0.
 
 ## 5. Hors périmètre
+
 Écriture des sources/citations (Phase 5) ; règles D internes (événement-des-parents,
 coquille de siècle — tranche suivante) ; notes/tags déterministes.

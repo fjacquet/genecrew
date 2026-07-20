@@ -39,6 +39,7 @@ n'est nécessaire pour le tester : on parse des listes d'arguments et on inspect
 vérifier qu'un flag apparaît dans `--help` — ils sont remplacés par ce test unique.
 
 **Files:**
+
 - Create: `genecrew/src/genecrew/cli.py`
 - Create: `genecrew/tests/test_cli_parser.py`
 - Delete: `genecrew/tests/test_cli_apply_all.py`, `genecrew/tests/test_cli_audit.py`,
@@ -47,6 +48,7 @@ vérifier qu'un flag apparaît dans `--help` — ils sont remplacés par ce test
   `genecrew/tests/test_cli_names.py`
 
 **Interfaces:**
+
 - Consumes: rien (première tâche).
 - Produces: `genecrew.cli.build_parser() -> argparse.ArgumentParser`. Le `Namespace`
   résultant porte toujours `args.command` (str) et, sauf pour `stats`, `args.target` (str).
@@ -360,11 +362,13 @@ couvrent en plus le rejet des 16 anciens noms."
 ### Task 2: `main.py` — dispatch sur `(command, target)`
 
 **Files:**
+
 - Modify: `genecrew/src/genecrew/main.py` — supprimer les lignes 358-537 (bloc parseur +
   dispatch dans `main()`), réécrire `main()` ; ajuster 3 fonctions `*_cmd` pour les flags
   renommés ; corriger le docstring de `run()` (`main.py:34`).
 
 **Interfaces:**
+
 - Consumes: `genecrew.cli.build_parser()` (Task 1).
 - Produces: `genecrew.main.main()` opérationnel sur la nouvelle grammaire. Les 16 fonctions
   `*_cmd(args)` gardent leur nom actuel — aucune n'est renommée.
@@ -561,6 +565,7 @@ uv run genecrew propose --help
 uv run genecrew apply citations --help
 uv run genecrew lieux-apply --dry-run   # doit ÉCHOUER
 ```
+
 Expected: les trois premières commandes affichent l'aide ; la quatrième sort en code 2 avec
 `invalid choice: 'lieux-apply'`.
 
@@ -583,6 +588,7 @@ Table de correspondance complète dans docs/adr/0012-cli-grammaire-verbes.md."
 ### Task 3: documentation vivante et ADR 0012
 
 **Files:**
+
 - Create: `docs/adr/0012-cli-grammaire-verbes.md`
 - Modify: `CLAUDE.md` (9 occurrences d'anciens noms)
 - Modify: `README.md` (5 occurrences)
@@ -591,6 +597,7 @@ Table de correspondance complète dans docs/adr/0012-cli-grammaire-verbes.md."
   ce chantier, déjà commité), `.superpowers/sdd/*`, `output/rapports/*`
 
 **Interfaces:**
+
 - Consumes: la surface finale livrée par les Tasks 1-2.
 - Produces: rien de programmatique.
 
@@ -601,6 +608,7 @@ Créer `docs/adr/0012-cli-grammaire-verbes.md` en suivant le format des ADR exis
 titre, statut, date, contexte, décision, conséquences).
 
 L'ADR doit porter :
+
 - le constat d'accrétion (16 sous-commandes, 5 préfixes `lieux-*`, croissance linéaire
   avec les sources de données) ;
 - les deux preuves que la surface plate mentait sur le code (dispatch identique
@@ -630,6 +638,7 @@ Vérifier ensuite qu'aucun ancien nom ne subsiste :
 ```bash
 grep -nE "genecrew (audit|names|gender|gender-apply|apply-all|lieux|lieux-apply|lieux-merge|lieux-wiki|deces|deces-apply|militaires|militaires-apply|lieu-import|crew-audit)\b" CLAUDE.md
 ```
+
 Expected: aucune sortie
 
 - [ ] **Step 3: Mettre à jour `README.md` et `docs/USER_GUIDE.md`**
@@ -640,6 +649,7 @@ enchaînements de commandes pour que le récit reste cohérent, pas seulement le
 ```bash
 grep -nE "genecrew (audit|names|gender|gender-apply|apply-all|lieux|lieux-apply|lieux-merge|lieux-wiki|deces|deces-apply|militaires|militaires-apply|lieu-import|crew-audit)\b" README.md docs/USER_GUIDE.md
 ```
+
 Expected: aucune sortie
 
 - [ ] **Step 4: Vérifier qu'aucune archive n'a été touchée**
@@ -647,6 +657,7 @@ Expected: aucune sortie
 ```bash
 git status --porcelain docs/superpowers/plans docs/superpowers/specs .superpowers output
 ```
+
 Expected: aucune sortie (les archives datées sont intactes)
 
 - [ ] **Step 5: Suite complète et lint**

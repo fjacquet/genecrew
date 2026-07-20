@@ -50,10 +50,12 @@ Pydantic (modèles `domain.py`), geo.api.gouv.fr, swisstopo GeoAdmin SearchServe
 ### Task 1 : Parser — un nom nu tronqué à droite est une commune, pas un pays (D1)
 
 **Files:**
+
 - Modify: `crewai_custom_tools/src/crewai_custom_tools/tools/genealogy/standardize/places.py`
 - Test: `crewai_custom_tools/tests/test_genealogy_places_parse.py`
 
 **Interfaces:**
+
 - Consumes: `normalize_country`, `_COUNTRY` (déjà dans le module).
 - Produces: `parse_pname(raw: str) -> ParsedPlace` — comportement inchangé sauf : quand aucune
   commune n'est trouvée et que le segment « pays » n'est pas un pays connu, ce segment devient
@@ -149,10 +151,12 @@ Claude-Session: https://claude.ai/code/session_01EGpms5iNHmbNbvp28nimYu"
 ### Task 2 : `best_similarity` — similarité « cœur » monotone (D2, fondation)
 
 **Files:**
+
 - Modify: `crewai_custom_tools/src/crewai_custom_tools/tools/genealogy/geo/score.py`
 - Test: `crewai_custom_tools/tests/test_genealogy_places_score.py`
 
 **Interfaces:**
+
 - Consumes: `similarity` (déjà présent).
 - Produces: `best_similarity(asked: str, returned: str) -> float` — meilleure similarité entre
   `asked` et une forme-cœur de `returned` (label entier, sans suffixe parenthésé, jetons).
@@ -237,10 +241,12 @@ Claude-Session: https://claude.ai/code/session_01EGpms5iNHmbNbvp28nimYu"
 ### Task 3 : Résolveur suisse — score sur le nom-cœur, argmax, communes seules (D2)
 
 **Files:**
+
 - Modify: `crewai_custom_tools/src/crewai_custom_tools/tools/genealogy/geo/suisse.py`
 - Test: `crewai_custom_tools/tests/test_genealogy_geo_suisse.py`
 
 **Interfaces:**
+
 - Consumes: `best_similarity` (Task 2), `is_ambiguous`.
 - Produces: `map_swiss(payload, parsed)` — score = `best_similarity(commune, label_cœur)`,
   choisit le **meilleur** résultat (argmax) et non `results[0]` ; `resolve_ch` ajoute
@@ -349,10 +355,12 @@ Claude-Session: https://claude.ai/code/session_01EGpms5iNHmbNbvp28nimYu"
 ### Task 4 : Résolveur Nominatim — score sur le nom-cœur, sans `importance` (D2)
 
 **Files:**
+
 - Modify: `crewai_custom_tools/src/crewai_custom_tools/tools/genealogy/geo/nominatim.py`
 - Test: `crewai_custom_tools/tests/test_genealogy_geo_nominatim.py`
 
 **Interfaces:**
+
 - Consumes: `best_similarity` (Task 2), `is_ambiguous`.
 - Produces: `map_nominatim(results, parsed)` — score = `best_similarity(commune,
   display_name.split(",")[0])` (plus de multiplication par `importance`). Argmax + ResolvedPlace
@@ -425,10 +433,12 @@ Claude-Session: https://claude.ai/code/session_01EGpms5iNHmbNbvp28nimYu"
 ### Task 5 : Résolveur France par nom — autoritaire, filtre nom exact, garde homonymes (D3)
 
 **Files:**
+
 - Modify: `crewai_custom_tools/src/crewai_custom_tools/tools/genealogy/geo/france.py`
 - Test: `crewai_custom_tools/tests/test_genealogy_geo_france.py`
 
 **Interfaces:**
+
 - Consumes: `_norm` (de `geo/score.py`), `_http_get`, `map_commune` (déjà dans france.py),
   `_FIELDS`.
 - Produces: `resolve_fr(parsed)` — code INSEE prioritaire (inchangé) ; sinon résolution par
@@ -589,10 +599,12 @@ Claude-Session: https://claude.ai/code/session_01EGpms5iNHmbNbvp28nimYu"
 
 - [ ] **Validation réelle depuis genecrew** (la leçon « valider sur le vrai arbre ») :
   après `uv sync` si besoin, depuis `/Users/fjacquet/Projects/genecrew` :
+
   ```bash
   GENECREW_DRY_RUN=true uv run genecrew lieux --scope all
   GENECREW_DRY_RUN=true uv run genecrew lieux-apply --scope all --dry-run
   ```
+
   Attendu : le rapport `lieux` montre des lignes `ecrire` non nulles pour la France (par nom)
   et la Suisse (score corrigé) — ordre de grandeur ~25 CH + jusqu'à ~39 FR selon les
   homonymes ; le rapport `lieux-apply` (dry-run) montre « Lieux écrits » > 0 (simulés), **0

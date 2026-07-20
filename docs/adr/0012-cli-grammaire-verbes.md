@@ -77,7 +77,7 @@ pas d'un simple renommage — est celle de `deces-apply`/`militaires-apply` en
 `apply citations` (2 → 1), justifiée ci-dessus par `deces_apply.py:118`.
 
 | ancien | nouveau |
-|---|---|
+| --- | --- |
 | `stats` | `stats` |
 | `audit` | `propose audit` |
 | `lieux` | `propose places` |

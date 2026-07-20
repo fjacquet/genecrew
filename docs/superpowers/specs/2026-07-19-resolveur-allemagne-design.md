@@ -28,7 +28,7 @@ résout ce cas de façon autoritaire.
 Bundesamt für Kartographie und Geodäsie), ~11 000 communes. Champs utiles :
 
 | Champ OpenDataSoft | Exemple | Usage |
-|---|---|---|
+| --- | --- | --- |
 | `gem_code` | `146270060060` (ARS, 12 chiffres) | → **AGS 8 chiffres** = `ars[:5] + ars[-3:]` (= `14627060`) |
 | `gem_name_short` | `["Großenhain"]` | nom sans préfixe Stadt/Gemeinde (prendre `[0]`) |
 | `lan_name` | `["Sachsen"]` | Land (prendre `[0]`) |
@@ -65,7 +65,7 @@ identifie le Land (01 Schleswig-Holstein … 06 Hessen … 16 Thüringen).
 délimiteur, gère les champs tableau `["…"]` et le point `{lat,lon}`), dérive l'AGS
 (`ars[:5]+ars[-3:]`), écrit `data/de_communes.csv` avec colonnes `ags,name,land,lat,long`
 (un rang par commune). Si le sandbox bloque le téléchargement : commiter un placeholder (en-tête
-+ quelques communes réelles, dont Waldeck/Hessen) et le noter — le résolveur et les tests
+- quelques communes réelles, dont Waldeck/Hessen) et le noter — le résolveur et les tests
 n'en dépendent pas (fixtures injectées).
 
 ### §2 — Parser : reconnaître l'AGS 8 chiffres (`standardize/places.py`, `models/domain.py`)
@@ -123,6 +123,7 @@ d'extraits de l'arbre :
   restent verts.
 
 ### Validation réelle
+
 Depuis `genecrew`, `lieux --scope all --dry-run` : mesurer combien des **12 lieux Allemagne** de
 l'arbre passent en autoritaire (dont Waldeck+AGS → Waldeck/Hesse, coordonnées correctes) ; zéro
 écriture indue ; les homonymes sans Land restent propositions.

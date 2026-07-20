@@ -63,7 +63,7 @@ Donne le **rattachement** (`chefLieu`) et le **code INSEE propre**. La recherche
 ### Wikidata (`Q25398054`, « former commune in France »)
 
 | Propriété | Valeur | Usage |
-|---|---|---|
+| --- | --- | --- |
 | `P576` date de dissolution | `+1972-12-31`, **précision 11 (jour)** | **dernier jour d'existence** ; la borne est le lendemain |
 | `P1366` remplacé par | `Q286407` (Apremont-la-Forêt) | recoupement du successeur |
 | `P374` code INSEE | `55451` | recoupement de l'identité |
@@ -153,7 +153,7 @@ convertit chaque `_date_qualifier` en objet `Date` Gramps avec son `modifier`
 Les deux sources divergent d'environ **700 m en longitude** :
 
 | Source | Latitude | Longitude |
-|---|---|---|
+| --- | --- | --- |
 | `geo.api.gouv.fr` `centre` | 48.8427 | **5.6317** |
 | Wikidata `P625` | 48.842142 | **5.622588** |
 | Nominatim/OSM | 48.8427464 | 5.6227392 |
@@ -216,7 +216,7 @@ qu'elle route silencieusement les événements vers la mauvaise branche de la hi
 ### 6.2 Les deux chaînes émises
 
 | Chaîne | `date_qualifier` | `levels` |
-|---|---|---|
+| --- | --- | --- |
 | historique | `avant 1973-01-01` | France, Grand Est, Meuse |
 | moderne | `après 1973-01-01` | France, Grand Est, Meuse, Apremont-la-Forêt |
 
@@ -279,7 +279,7 @@ patron déjà en place pour France/Suisse/Allemagne) :
 ## 10. Portée et livraison
 
 | Dépôt | Changement |
-|---|---|
+| --- | --- |
 | `crewai_custom_tools` | `geo/france_ex_communes.py` (nouveau) ; une ligne de branchement dans `resolve_fr` ; helper ex-commune dans `tools/web/wikidata.py` ; tests offline |
 | `genecrew` | `parse_scope` + `iter_places` : scope `place:<ID>` ; test |
 

@@ -52,7 +52,7 @@ Le flag `--sans-images` de `lieux-wiki` devient `--no-images` par la même règl
 16 feuilles → **15**, la disparition étant la fusion démontrée plus haut.
 
 | ancien | nouveau |
-|---|---|
+| --- | --- |
 | `stats` | `stats` |
 | `audit` | `propose audit` |
 | `lieux` | `propose places` |
@@ -80,7 +80,7 @@ Aucun flag ne change de sémantique. Deux renommages seulement, imposés par la 
 - `--sans-images` → `--no-images`.
 
 | commande | flags |
-|---|---|
+| --- | --- |
 | `stats` | — |
 | `propose audit` | `--scope --limit --batch-size --date` |
 | `propose places` | `--scope --limit --batch-size --min-score --date` |

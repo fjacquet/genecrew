@@ -59,7 +59,7 @@ Deux workflows indépendants, qui ne partagent rien.
 Déclencheurs : `pull_request`, et `push` sur `main`.
 
 | job | contenu | bloquant |
-|---|---|---|
+| --- | --- | --- |
 | `test` | double checkout, `setup-uv`, `uv sync --locked`, `uv run python -m pytest genecrew/tests/ -q` | **oui** |
 | `test` | `uv run ruff check .` | **oui** |
 | `security` | semgrep sur le code du dépôt | **non** (`continue-on-error`) |
@@ -123,14 +123,14 @@ Générateur : **MkDocs Material** — installable par `uv` comme le reste, rend
 français, et une navigation qui met les 12 ADR en valeur.
 
 | publié | source |
-|---|---|
+| --- | --- |
 | accueil | `README.md` (racine du dépôt) |
 | guide | `docs/USER_GUIDE.md` |
 | PRD, BACKLOG | `docs/PRD.md`, `docs/BACKLOG.md` |
 | décisions | `docs/adr/*.md` (12) |
 
 | **exclu** | raison |
-|---|---|
+| --- | --- |
 | `docs/superpowers/**` | plans et specs **datés** |
 | `docs/document-de-travail.md` | 36 Ko de notes de travail |
 

@@ -84,7 +84,7 @@ identifiant interne, opaque, dont le seul rôle est de reconnaître une piste d�
 distinction doit rester explicite dans le code comme dans la note :
 
 | | URL fabriquée | Clé dérivée |
-|---|---|---|
+| --- | --- | --- |
 | Rôle | se présente comme preuve | reconnaître un doublon |
 | Visible par l'utilisateur | oui, cliquable | non, dans le marqueur |
 | Si elle est fausse | lien mort donné pour une source | doublon, sans plus |
@@ -220,7 +220,7 @@ illustrer la mention d'absence de permalien, qui s'applique aussi aux pistes for
 ## 8. Où ça s'écrit
 
 | Force | Arbre Gramps | Rapport Markdown |
-|---|---|---|
+| --- | --- | --- |
 | `forte` | note `Research` + tag `ia-piste` sur la personne | oui |
 | `faible` | **rien** | oui |
 
@@ -235,7 +235,7 @@ via `effective_dry_run`. Le rapport annonce le mode **effectif**, donc il ne pr�
 ## 9. Découpage des modules
 
 | Fichier | Responsabilité |
-|---|---|
+| --- | --- |
 | `crewai_custom_tools/.../models/domain.py` | le modèle `Piste` (les sources de bibliothèque l'émettront) |
 | `genecrew/src/genecrew/pistes.py` | la règle de force (pure), le marqueur, la lecture d'idempotence, l'écriture note+tag, le rendu du rapport |
 | `genecrew/src/genecrew/deces.py` | émet des `Piste` en plus de ses propositions existantes |
