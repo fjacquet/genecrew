@@ -384,9 +384,47 @@ def _person(surname="Dupont", given="Jean", dateval=None, place_name="Montbélia
                        surname=surname, given=given, sex="M", birth=birth)
 
 
-def test_requete_contient_le_nom_et_est_rejouable():
+def test_requete_passe_par_le_service_indexe_pas_par_un_filtre():
+    # Un FILTER(CONTAINS(...)) sur rdfs:label balaie les ~10 M d'humains de
+    # Wikidata et rend 504 après 65 s — mesuré. La recherche DOIT être indexée.
     q = requete_wikidata(_person())
     assert "Dupont" in q and "SELECT" in q.upper()
+    assert "EntitySearch" in q and "wikibase:mwapi" in q
+    assert "CONTAINS" not in q.upper()
+
+
+def test_roy_ne_correspond_pas_a_leroy():
+    """Le faux positif qui motive la comparaison par mots entiers."""
+    person = _person(surname="Roy", given="Silvain")
+    rows = [{"item": "http://www.wikidata.org/entity/Q99", "itemLabel": "Silvain Leroy",
+             "birthDate": "1677-07-15T00:00:00Z", "birthPlaceLabel": "Montbéliard"}]
+    assert "nom" not in pistes_wikidata(person, rows)[0].concordances
+
+
+def test_prenom_en_liste_a_virgules_correspond_au_prenom_d_usage():
+    # 20 % de l'arbre : 'Marcel, Hubert, Andre' = trois prénoms, pas un composé.
+    person = _person(surname="Soulat", given="Marcel, Hubert, Andre")
+    rows = [{"item": "http://www.wikidata.org/entity/Q99", "itemLabel": "Marcel Soulat",
+             "birthDate": "1677-07-15T00:00:00Z", "birthPlaceLabel": "Montbéliard"}]
+    assert "nom" in pistes_wikidata(person, rows)[0].concordances
+
+
+def test_trait_d_union_eclate_correspond_a_la_forme_espacee():
+    # Cas réel vérifié : la recherche 'Guillaume-Henri Dufour' rend le libellé
+    # Wikidata 'Guillaume Henri Dufour'. Sans éclatement, vrai positif perdu.
+    person = _person(surname="Dufour", given="Guillaume-Henri")
+    rows = [{"item": "http://www.wikidata.org/entity/Q99",
+             "itemLabel": "Guillaume Henri Dufour",
+             "birthDate": "1677-07-15T00:00:00Z", "birthPlaceLabel": "Montbéliard"}]
+    assert "nom" in pistes_wikidata(person, rows)[0].concordances
+
+
+def test_accents_ne_font_pas_diverger_les_prenoms():
+    # L'arbre porte 'Andre' comme 'André' : norm_nom les rejoint.
+    person = _person(surname="Soulat", given="Andre")
+    rows = [{"item": "http://www.wikidata.org/entity/Q99", "itemLabel": "André Soulat",
+             "birthDate": "1677-07-15T00:00:00Z", "birthPlaceLabel": "Montbéliard"}]
+    assert "nom" in pistes_wikidata(person, rows)[0].concordances
 
 
 def test_piste_forte_nom_date_complete_et_lieu():
@@ -446,18 +484,47 @@ peut en tirer plusieurs facteurs distincts. Réserve connue : Wikidata ne décri
 que des personnes notables, le rendement sur un arbre ordinaire sera faible.
 """
 
+import re
+
 from crewai_custom_tools.tools.genealogy.models.domain import PersonFacts, Piste
 from crewai_custom_tools.tools.genealogy.pistes.matchid import event_iso, norm_nom
 
+# La recherche passe par le service INDEXÉ (mwapi/EntitySearch), jamais par un
+# FILTER(CONTAINS(…)) sur rdfs:label : mesuré, ce dernier balaie les ~10 M d'humains
+# de Wikidata et rend 504 Gateway Timeout après 65 s sur le point d'accès public.
+# La version ci-dessous répond en ~0,9 s. Vérifiée en direct, pas supposée.
 _SPARQL = """SELECT ?item ?itemLabel ?birthDate ?birthPlaceLabel ?p902 WHERE {{
-  ?item wdt:P31 wd:Q5 ;
-        rdfs:label ?label .
-  FILTER(CONTAINS(LCASE(?label), LCASE("{nom}")))
+  SERVICE wikibase:mwapi {{
+    bd:serviceParam wikibase:api "EntitySearch" .
+    bd:serviceParam wikibase:endpoint "www.wikidata.org" .
+    bd:serviceParam mwapi:search "{nom}" .
+    bd:serviceParam mwapi:language "fr" .
+    bd:serviceParam mwapi:limit 25 .
+    ?item wikibase:apiOutputItem mwapi:item .
+  }}
+  ?item wdt:P31 wd:Q5 .
   OPTIONAL {{ ?item wdt:P569 ?birthDate . }}
   OPTIONAL {{ ?item wdt:P19 ?birthPlace . }}
   OPTIONAL {{ ?item wdt:P902 ?p902 . }}
   SERVICE wikibase:label {{ bd:serviceParam wikibase:language "fr,de,en". }}
 }} LIMIT 25"""
+
+_SEPARATEURS = re.compile(r"[,\-\s]+")
+
+
+def mots(valeur: str) -> set[str]:
+    """Découpe un nom en mots normalisés : virgules, espaces ET traits d'union.
+
+    Mesuré sur l'arbre : 79 % des prénoms sont simples, 20 % sont des LISTES
+    séparées par des virgules ('Marcel, Hubert, Andre' = trois prénoms distincts,
+    pas un composé), 1 % portent un trait d'union ('Georges-Frédéric').
+
+    Le trait d'union est éclaté volontairement : Wikidata répond
+    'Guillaume Henri Dufour' à une recherche 'Guillaume-Henri Dufour' — vérifié.
+    Sans éclatement, ce vrai positif serait perdu. Le patronyme devant lui aussi
+    correspondre, la permissivité sur le prénom ne coûte rien.
+    """
+    return {norm_nom(m) for m in _SEPARATEURS.split(valeur or "") if m.strip()}
 
 
 def requete_wikidata(person: PersonFacts) -> str:
@@ -484,8 +551,14 @@ def pistes_wikidata(person: PersonFacts, resultats: list[dict]) -> list[Piste]:
         concordances: list[str] = []
         divergences: list[str] = []
 
-        label = row.get("itemLabel", "")
-        if label and norm_nom(person.surname) in norm_nom(label):
+        # Comparaison par MOTS ENTIERS des deux côtés, jamais par sous-chaîne :
+        # `norm_nom(surname) in norm_nom(label)` ferait correspondre « Roy » à
+        # « LEROY » et fabriquerait des pistes fortes fausses — or une piste forte
+        # est ÉCRITE dans l'arbre, une faible reste dans le rapport.
+        # On exige le patronyme ET au moins un prénom commun.
+        mots_label = mots(row.get("itemLabel", ""))
+        if mots_label and mots(person.surname) <= mots_label and (
+                mots(person.given) & mots_label):
             concordances.append("nom")
 
         # wdt:P569 rend un dateTime complet quelle que soit la précision réelle ;
@@ -516,13 +589,14 @@ Ajouter aux ré-exports de `pistes/__init__.py` :
 
 ```python
 from crewai_custom_tools.tools.genealogy.pistes.wikidata import (
+    mots,
     pistes_wikidata,
     q_item,
     requete_wikidata,
 )
 ```
 
-et à `__all__` : `"pistes_wikidata", "q_item", "requete_wikidata"`.
+et à `__all__` : `"mots", "pistes_wikidata", "q_item", "requete_wikidata"`.
 
 - [ ] **Step 4: Lancer les tests**
 
