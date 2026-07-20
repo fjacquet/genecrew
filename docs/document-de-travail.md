@@ -623,7 +623,7 @@ de sortie sur l'arbre réel.**
 | **1** | ✅ terminée | R1–R10 + D1–D3, `propose audit`, checkpoints, `crew audit` (ADR 0006) |
 | **2** | ✅ terminée | note/tag append-only, `effective_dry_run`, ADR 0001 |
 | **3** | ✅ **dépassée** | résolveurs FR/CH **et** DE/US (hors périmètre initial), ex-communes fusionnées avec placerefs datées, `merge places`, GPS ; casse des noms (ADR 0007), genre (ADR 0008/0009), lieux (ADR 0010). Restent non traités : normalisation des **dates textuelles** et des **titres de sources** |
-| **4** | 🟡 **en cours** | MatchID décès ✅ (critère de sortie atteint) ; contrat `Piste` ✅ (marqueur, idempotence, force dérivée, rapport fortes/faibles). **Manquent : Gallica, Wikidata comme outil, DHS, Scriptorium** — l'Historien est l'agent dont l'outillage reste le plus vide |
+| **4** | 🟡 **en cours** | MatchID décès ✅ (critère de sortie atteint) ; contrat `Piste` ✅ (marqueur, idempotence, force dérivée, rapport fortes/faibles). `GallicaSearchTool` (SRU) et `WikidataSparqlTool` existent dans `tools/web/`, mais **génériques** : ils ne savent pas construire une requête à partir d'une personne, ni émettre de `Piste`. **Manquent : la couche généalogique par-dessus ces deux outils, et le DHS et Scriptorium en entier** |
 | **5** | 🟡 **partielle** | chaîne source→citation→rattachement ✅ avec confiance plafonnée à 2 (ADR 0011, `apply citations`, éprouvée sur les propositions militaires). **Manquent : notices biographiques et rapport familial** |
 | **6** | ⬜ non commencée | ni agent Archiviste, ni OCR, ni transcription par vision |
 
