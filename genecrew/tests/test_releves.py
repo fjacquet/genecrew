@@ -141,7 +141,8 @@ def test_blocage_ignore_les_personnes_a_patronyme_vide_quand_le_releve_en_a_un()
     assert [c.gramps_id for c in candidats_blocage(_releve(sujet_nom="JACQUET"), people)] == ["I2"]
 
 
-def _ev(type_, jour=0, mois=0, annee=0, lieu="", modifier=0, dateval=None):
+def _ev(type_, jour=0, mois=0, annee=0, lieu="", modifier=0, dateval=None,
+        quality=0):
     """`EventFact` ne porte PAS de champ `date` : la source est `dateval`, au
     format Gramps [jour, mois, année, slash]. 0 = composante inconnue.
 
@@ -153,7 +154,7 @@ def _ev(type_, jour=0, mois=0, annee=0, lieu="", modifier=0, dateval=None):
     échoue sur toutes les vraies données.
     """
     return EventFact(type=type_, dateval=dateval or [jour, mois, annee, False],
-                     year=annee or None, modifier=modifier,
+                     year=annee or None, modifier=modifier, quality=quality,
                      place=f"{lieu}, Cher, France" if lieu else "",
                      place_name=lieu,
                      sortval=1 if annee else 0)
@@ -351,6 +352,36 @@ def test_intervalle_de_dates_n_est_pas_une_date_complete():
     assert "date complète" not in a.facteurs
     assert a.divergences == []
     assert "lieu" in a.facteurs
+
+
+def test_date_calculee_n_est_pas_une_date_complete():
+    """`quality==2` (calculée) : la date n'a pas été lue dans un acte, elle a été
+    RECONSTRUITE — typiquement une naissance déduite d'un « Âge : 73 ans » au
+    décès, ce que porte précisément le relevé de référence de ce projet.
+
+    Le piège est que `quality` est ORTHOGONAL à `modifier` : une date calculée
+    porte `modifier == 0` (elle n'est ni « vers », ni « avant », ni un
+    intervalle) ET un `dateval` complet. Elle traverse donc intégralement le
+    garde sur `modifier` et produirait le facteur FORT « date complète » (5
+    points) sur une date qu'aucune source n'a jamais affirmée."""
+    p = _mort(_p("I1", "JACQUET", "Rose"), 10, 12, 1894, "Saint-Martin-d'Auxigny")
+    p.death.quality = 2
+    a = apparier(ROSE, [p], {"JACQUET": 0.75}, {})
+    assert "date complète" not in a.facteurs
+    assert "lieu" in a.facteurs          # le candidat reste éligible
+
+
+def test_date_calculee_divergente_n_est_pas_un_veto():
+    """Symétrique du précédent, et c'est le sens le plus grave des deux : une
+    date reconstruite qui diffère du relevé produirait une DIVERGENCE, donc un
+    veto — et un candidat vetoé ne revient jamais devant le relecteur humain.
+    Un arrondi d'âge au décès suffirait à faire disparaître silencieusement la
+    bonne personne."""
+    p = _mort(_p("I1", "JACQUET", "Rose"), 2, 3, 1901, "Saint-Martin-d'Auxigny")
+    p.death.quality = 2
+    a = apparier(ROSE, [p], {"JACQUET": 0.75}, {})
+    assert a.divergences == []
+    assert a.verdict != "aucun"
 
 
 def test_annee_approximative_exige_une_date_exacte_ou_about():

@@ -209,20 +209,36 @@ def _date_iso(ev: EventFact | None) -> str:
     exactement ce qui sépare le facteur fort « date complète » du facteur faible
     « année approximative ».
 
-    Seul `modifier == 0` (date EXACTE) est accepté. La sémantique Gramps est
-    `0 exact, 1 before, 2 after, 3 about, 4 range, 5 span, 6 text` : dans tous
-    les autres cas la source ne s'engage pas sur le jour exact. En tirer le
-    facteur fort « date complète » — ou pire un veto s'il diffère — affirmerait
-    une précision que le document ne donne pas, et c'est exactement ce qui
-    inscrirait une fausseté dans l'arbre.
+    DEUX champs qualifient la date, et il faut exiger les deux — ils sont
+    ORTHOGONAUX dans Gramps, aucun n'implique l'autre :
 
-    Le cas des intervalles (4) et durées (5) est le plus traître : Gramps y met
-    DEUX dates dans `dateval` (huit éléments), si bien qu'un garde de longueur
-    ne suffit pas — les trois premières composantes se lisent comme une date
-    exacte alors qu'elles ne sont qu'une borne. Filtrer sur `modifier` couvre
-    ce cas comme les autres.
+    - `modifier` (`0 exact, 1 before, 2 after, 3 about, 4 range, 5 span,
+      6 text`) dit la FORME de la date : la source s'engage-t-elle sur un jour
+      précis, ou seulement sur une borne, un « vers », un texte libre ?
+    - `quality` (`0 normal, 1 estimated, 2 calculated`) dit sa PROVENANCE : la
+      date a-t-elle été lue dans un acte, ou reconstruite par le généalogiste ?
+
+    Ne filtrer que sur `modifier` laisse passer le cas le plus courant de date
+    non attestée : une naissance CALCULÉE depuis un âge au décès (« Âge :
+    73 ans ») porte `modifier == 0` — elle n'est ni approximative ni bornée,
+    elle est simplement déduite — ET un `dateval` complet. Elle traverserait le
+    garde et vaudrait le facteur fort « date complète » (5 points) sur une date
+    qu'aucune source n'affirme ; pire, si elle diffère du relevé elle
+    produirait une DIVERGENCE, donc un veto, et un candidat vetoé ne revient
+    jamais devant le relecteur humain.
+
+    On exige donc `modifier == 0` ET `quality == 0`. Dans tous les autres cas,
+    en tirer le facteur fort — ou un veto — affirmerait une précision que le
+    document ne donne pas, et c'est exactement ce qui inscrirait une fausseté
+    dans l'arbre.
+
+    Le cas des intervalles (4) et durées (5) est le plus traître côté
+    `modifier` : Gramps y met DEUX dates dans `dateval` (huit éléments), si
+    bien qu'un garde de longueur ne suffit pas — les trois premières
+    composantes se lisent comme une date exacte alors qu'elles ne sont qu'une
+    borne. Filtrer sur `modifier` couvre ce cas comme les autres.
     """
-    if ev is None or ev.modifier != 0 or len(ev.dateval) < 3:
+    if ev is None or ev.modifier != 0 or ev.quality != 0 or len(ev.dateval) < 3:
         return ""
     jour, mois, annee = ev.dateval[0], ev.dateval[1], ev.dateval[2]
     if not (jour and mois and annee):
@@ -334,11 +350,23 @@ def facteurs_et_divergences(
     if _normaliser(person.given) == _normaliser(releve.sujet_prenom):
         facteurs.append("prénom")
 
-    # Même exigence, plus lâche d'un cran : une année n'est comparable à ±2 que
-    # si la source la donne (0 = exact) ou l'approche (3 = about). « Avant
-    # 1821 » (1), « après » (2) ou un intervalle (4/5) ne désignent aucune
-    # année en particulier — les compter reviendrait à fabriquer une
-    # concordance à partir d'une borne.
+    # Même exigence sur `modifier`, plus lâche d'un cran : une année n'est
+    # comparable à ±2 que si la source la donne (0 = exact) ou l'approche
+    # (3 = about). « Avant 1821 » (1), « après » (2) ou un intervalle (4/5) ne
+    # désignent aucune année en particulier — les compter reviendrait à
+    # fabriquer une concordance à partir d'une borne.
+    #
+    # CHOIX EXPLICITE sur `quality`, à l'inverse de `_date_iso` : on ne le
+    # filtre PAS ici. Une année estimée (1) ou calculée (2) reste un signal
+    # FAIBLE acceptable, et pour deux raisons. D'abord, le facteur ne pèse
+    # qu'un point et n'est pas fort : il ne peut à lui seul ni faire un `net`
+    # ni provoquer un veto, donc l'accepter à tort ne fait pas écrire dans
+    # l'arbre. Ensuite, une naissance calculée depuis un âge au décès est
+    # précisément le genre de donnée que la fenêtre ±2 de
+    # `FENETRE_ANNEE_APPROX` est faite pour absorber — l'écarter reviendrait à
+    # jeter le seul indice disponible sur les personnes dont on n'a que l'âge.
+    # Le raisonnement de `_date_iso` ne s'applique pas : ce qui y est en jeu,
+    # c'est un facteur fort et un veto.
     naissance = person.birth
     if naissance is not None and naissance.modifier in (0, 3):
         annee_arbre = naissance.year
