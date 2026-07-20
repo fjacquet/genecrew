@@ -32,6 +32,40 @@ Suivis non bloquants notés au fil de l'eau (revues, usage). Aucun n'est urgent 
 - **Label `raison` à 3 valeurs** — le rapport des « indécidables » (gender inference) fond
   « unisexe » et « rare » en un seul libellé ; les séparer (unisexe / rare / non couvert).
 
+## Relecture des propositions militaires
+
+- **Permalien Mémoire des hommes absent de 68,8 % du gazetteer** — mesuré le 2026-07-20 sur
+  `militaires.sqlite` : `lien_ark` est vide pour 1 798 071 des 2 613 297 lignes. Le trou est
+  structurel, pas aléatoire : seule la base *Guerre 1914-1918* en porte (39 % de ses lignes) ;
+  *1939-1945* (413 621), *Indochine* (48 476), *Algérie/Maroc/Tunisie* (27 668), *Théâtres
+  d'opérations extérieurs* (20 226) et toutes les autres sont à **100 % sans lien**.
+
+  **L'URL n'est pas reconstructible** — vérifié, pas supposé : pour SOULAT Hoche, le permalien
+  réel est `ark:40699/m00523be48140748`, alors que la ligne ne porte que
+  `reference: arko_fiche_66deb7075d3e1` et un `source_fichier` mentionnant
+  `arko_default_69a9869206744`. Trois identifiants sans relation dérivable. Fabriquer une URL
+  par motif produirait des liens morts écrits dans Gramps *comme preuves* — le pire résultat
+  possible pour une base généalogique.
+
+  Conséquence : le pipeline exige une relecture humaine mais ne fournit la preuve cliquable que
+  dans un tiers des cas. À traiter, par ordre de coût croissant :
+  1. Faire dire au rapport de `propose military`, quand `preuve_url` est vide : « permalien
+     absent de la source — chercher sur memoiredeshommes.defense.gouv.fr par nom + date de
+     décès », plutôt que de laisser une colonne vide sans explication.
+  2. Prévoir un champ où l'humain colle le permalien trouvé (le flux fonctionne déjà : le
+     `preuve_url` du YAML part dans la page de citation Gramps — fait pour les frères Soulat).
+  3. Étudier si l'API/moteur de recherche de Mémoire des hommes permet de résoudre
+     `nom + date de décès` → ark. À vérifier contre le site réel, jamais par déduction.
+
+## Discoverabilité de la grammaire de verbes
+
+- **`propose military` → `apply citations`, asymétrie non devinable** — cas réel : l'utilisateur a
+  tenté `apply military`, puis le chemin du YAML en positionnel. La table de correspondance vit
+  dans l'ADR 0012, c'est-à-dire nulle part au moment où on en a besoin. Deux remèdes : terminer
+  le rapport de `propose military`/`propose deaths` par la commande exacte de la suite
+  (`→ après relecture : genecrew apply citations --yaml <ce fichier>`), et/ou mentionner dans
+  l'aide d'`apply` que `deaths` et `military` s'appliquent tous deux via `citations`.
+
 ## Garde-fous apply gender (optionnels)
 
 - **Warn `--min-ratio < 0.95`** — le plancher interne d'`infer_sex` (0.95) domine, donc un
