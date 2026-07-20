@@ -19,6 +19,8 @@ from genecrew.releves_import import (
     code_fonds,
     corps_note_releve,
     deja_importe,
+    ecrire_citation,
+    handle_evenement,
     marqueur_releve,
     parse_releve,
     run_import_releve,
@@ -512,7 +514,8 @@ def test_type_evenement_non_gere_refuse_d_ecrire(monkeypatch):
 # --- l'écriture, quand tout concorde ----------------------------------------
 
 def test_net_hors_simulation_pose_note_et_tag(monkeypatch, mocker):
-    """Le chemin nominal : note créée, tag garanti, les deux AJOUTÉS.
+    """Le chemin nominal complet : note créée, tag garanti, les deux AJOUTÉS,
+    PUIS la citation posée sur le décès existant.
 
     La personne du mock porte DÉJÀ une note et un tag. C'est l'essentiel du
     test : l'append-only est un invariant structurel du projet — on annote, on
@@ -520,9 +523,14 @@ def test_net_hors_simulation_pose_note_et_tag(monkeypatch, mocker):
     code qui remplacerait les listes par `[nouveau]` rendrait exactement le même
     PUT qu'un code qui ajoute : le test ne prouverait rien. Ici, l'assertion
     exige l'ANCIEN en premier et le neuf ajouté derrière.
+
+    Le décès de Rose EXISTE dans l'arbre (handle `ev1`), donc la citation se
+    pose : `raison == "importée"`. Le mock ne sert QUE l'endpoint PLURIEL
+    `/api/events/ev1` — un `object_type="event"` singulier tomberait ici en 404,
+    ce qui verrouille la forme réelle de la route contre une régression.
     """
     monkeypatch.setenv("GENECREW_DRY_RUN", "false")
-    vu = {"notes": [], "tags": [], "put": []}
+    vu = {"notes": [], "tags": [], "put": [], "citations": [], "event_put": []}
 
     def h(request):
         chemin = request.url.path
@@ -537,6 +545,25 @@ def test_net_hors_simulation_pose_note_et_tag(monkeypatch, mocker):
             return httpx.Response(200, json={})
         if chemin == "/api/tags/":
             return httpx.Response(200, json=[])
+        # --- la citation : source garantie, citation créée, rattachée à ev1 ---
+        if (chemin == "/api/people/" and "gramps_id" in request.url.params
+                and request.url.params.get("extend") == "event_ref_list"):
+            return httpx.Response(200, json=[{
+                "gramps_id": "I0001", "handle": "h1",
+                "extended": {"events": [{"handle": "ev1", "type": "Death"}]}}])
+        if request.method == "GET" and chemin == "/api/sources/":
+            return httpx.Response(200, json=[])
+        if request.method == "POST" and chemin == "/api/sources/":
+            return httpx.Response(201, json=[{"handle": "s1"}])
+        if request.method == "POST" and chemin == "/api/citations/":
+            vu["citations"].append(json.loads(request.content))
+            return httpx.Response(201, json=[{"handle": "c1"}])
+        if request.method == "GET" and chemin == "/api/events/ev1":
+            return httpx.Response(200, json={"_class": "Event", "handle": "ev1",
+                                             "citation_list": []})
+        if request.method == "PUT" and chemin == "/api/events/ev1":
+            vu["event_put"].append(json.loads(request.content))
+            return httpx.Response(200, json={})
         if chemin == "/api/people/h1":
             # Personne NON vierge : une note et un tag préexistants, que
             # l'écriture doit conserver.
@@ -559,6 +586,10 @@ def test_net_hors_simulation_pose_note_et_tag(monkeypatch, mocker):
     # L'ancien EN PREMIER, le neuf ajouté : un remplacement rendrait ["n1"].
     assert vu["put"][0]["note_list"] == ["n0", "n1"]
     assert vu["put"][0]["tag_list"] == ["t0", "t1"]
+    # La citation : posée, confiance Normal (2), rattachée à l'événement plural.
+    assert out["citation"]["posee"] is True
+    assert vu["citations"][0]["confidence"] == 2
+    assert vu["event_put"][0]["citation_list"] == ["c1"]
 
 
 @pytest.mark.parametrize("casse", ["tags", "attache"])
@@ -653,3 +684,65 @@ def test_dry_run_est_propage_aux_trois_outils(monkeypatch, mocker):
     assert appels["GrampsCreateNoteTool"]["dry_run"] is False
     assert appels["GrampsEnsureTagTool"]["dry_run"] is False
     assert appels["GrampsAttachTool"]["dry_run"] is False
+
+
+# --- la citation sur l'événement visé ---------------------------------------
+#
+# `_arbre_avec_evenement` rend la forme réelle d'un événement exposé sur une
+# personne via `extend=event_ref_list` : sous `extended.events`, chaque événement
+# est un dict complet dont `type` est une CHAÎNE (miroir de `facts._event_from_raw`,
+# qui lit `raw.get("type", "")`) et qui porte son propre `handle`.
+
+def _arbre_avec_evenement(type_="Death", handle="e1"):
+    def h(request):
+        if request.url.path == "/api/people/":
+            return httpx.Response(200, json=[{
+                "gramps_id": "I0001", "handle": "h1",
+                "extended": {"events": [{"handle": handle, "type": type_}]},
+            }])
+        return httpx.Response(200, json=[])
+    return _client(h)
+
+
+def test_handle_evenement_trouve_le_deces():
+    assert handle_evenement(_arbre_avec_evenement(), "I0001", "Death") == "e1"
+
+
+def test_handle_evenement_rend_none_si_absent():
+    assert handle_evenement(_arbre_avec_evenement("Birth"), "I0001", "Death") is None
+
+
+def test_citation_non_posee_si_l_evenement_manque(monkeypatch):
+    monkeypatch.setenv("GENECREW_DRY_RUN", "false")
+    r = parse_releve(COLLAGE_ROSE, llm=_LLMStub(json.dumps(_JSON_ATTENDU)))
+    app = Appariement(verdict="net", gramps_id="I0001", handle="h1")
+    out = ecrire_citation(_arbre_avec_evenement("Birth"), r, app)
+    assert out["posee"] is False
+    assert "absent" in out["raison"]
+
+
+def test_citation_porte_la_reference_et_une_confiance_normal(monkeypatch):
+    """Un relevé est une source dérivée : jamais `High`, ou on ferait passer
+    un dépouillement pour l'acte original."""
+    monkeypatch.setenv("GENECREW_DRY_RUN", "false")
+    vus = {}
+
+    class _Citation:
+        def _run(self, **kw):
+            vus.update(kw)
+            return json.dumps({"success": True, "data": {"handle": "c1"}})
+
+    monkeypatch.setattr("genecrew.releves_import.GrampsCreateCitationTool", _Citation)
+    monkeypatch.setattr("genecrew.releves_import.GrampsEnsureSourceTool",
+                        lambda: type("T", (), {"_run": lambda s, **k: json.dumps(
+                            {"success": True, "data": {"handle": "s1"}})})())
+    monkeypatch.setattr("genecrew.releves_import.GrampsAttachCitationTool",
+                        lambda: type("T", (), {"_run": lambda s, **k: json.dumps(
+                            {"success": True, "data": {}})})())
+
+    r = parse_releve(COLLAGE_ROSE, llm=_LLMStub(json.dumps(_JSON_ATTENDU)))
+    app = Appariement(verdict="net", gramps_id="I0001", handle="h1")
+    out = ecrire_citation(_arbre_avec_evenement(), r, app)
+    assert out["posee"] is True
+    assert "106710046161418286" in vus["page"]
+    assert vus["confidence"] == 2
