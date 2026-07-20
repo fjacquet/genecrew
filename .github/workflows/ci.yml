@@ -23,24 +23,12 @@ jobs:
         with:
           path: genecrew
 
-      # uv.lock verrouille `source = { editable = "../crewai_custom_tools" }`.
-      # Le dépôt s'appelle crewai-custom-tools (tiret) mais DOIT atterrir dans un
-      # répertoire à souligné, sinon la résolution du lock échoue.
-      - name: checkout crewai-custom-tools
-        uses: actions/checkout@v7
-        with:
-          repository: fjacquet/crewai-custom-tools
-          ref: main
-          path: crewai_custom_tools
-
-      - uses: astral-sh/setup-uv@v8.3.2
-        with:
-          enable-cache: true
-
-      # `uv sync --locked` échoue sur une dérive de version, mais son message ne
-      # nomme ni la dépendance en cause ni le fait que la PR n'y est pour rien.
-      # Cette étape le dit à sa place.
-      - name: cohérence uv.lock / bibliothèque voisine
+      # uv.lock n'a pas de parseur standard : on lit la version attendue par
+      # une regex ciblée sur le bloc [[package]] crewai-custom-tools. Cette
+      # version pilote à la fois le tag sur lequel épingler le clone du
+      # voisin (étape suivante) et la sentinelle de dérive plus bas.
+      - name: version attendue par uv.lock
+        id: lock-version
         working-directory: genecrew
         run: |
           LOCK_V=$(python3 -c "
@@ -49,23 +37,78 @@ jobs:
           m = re.search(r'name = \"crewai-custom-tools\"\nversion = \"([^\"]+)\"', t)
           print(m.group(1) if m else '')
           ")
-          LIB_V=$(python3 -c "
-          import tomllib, pathlib
-          with pathlib.Path('../crewai_custom_tools/pyproject.toml').open('rb') as f:
-              data = tomllib.load(f)
-          print(data.get('project', {}).get('version', ''))
-          ")
-          echo "uv.lock attend : ${LOCK_V:-INTROUVABLE}"
-          echo "voisin main    : ${LIB_V:-INTROUVABLE}"
-          if [ -z "$LOCK_V" ] || [ -z "$LIB_V" ]; then
-            echo "::error::Version illisible — le format de uv.lock ou du pyproject voisin a changé."
+          if [ -z "$LOCK_V" ]; then
+            echo "::error::Version illisible — le format de uv.lock a changé."
             exit 1
           fi
-          if [ "$LOCK_V" != "$LIB_V" ]; then
-            echo "::error::crewai-custom-tools main est en $LIB_V, uv.lock attend $LOCK_V."
-            echo "::error::Ce n'est pas un défaut de cette PR."
-            echo "::error::Corriger : uv sync && git add uv.lock && git commit"
+          echo "uv.lock attend : $LOCK_V"
+          echo "version=$LOCK_V" >> "$GITHUB_OUTPUT"
+
+      # actions/checkout échouerait sur un tag manquant avec un message peu
+      # parlant ("couldn't find remote ref"). On vérifie ici pour donner une
+      # explication utile avant que le checkout suivant échoue à sa place.
+      - name: vérifier l'existence du tag chez le voisin
+        run: |
+          TAG="v${{ steps.lock-version.outputs.version }}"
+          if [ -z "$(git ls-remote --tags https://github.com/fjacquet/crewai-custom-tools "refs/tags/$TAG")" ]; then
+            echo "::error::Le tag $TAG n'existe pas chez fjacquet/crewai-custom-tools."
+            echo "::error::Soit le voisin ne l'a pas encore poussé, soit uv.lock référence une version jamais publiée."
             exit 1
+          fi
+          echo "tag $TAG trouvé chez le voisin"
+
+      # uv.lock verrouille `source = { editable = "../crewai_custom_tools" }`.
+      # Le dépôt s'appelle crewai-custom-tools (tiret) mais DOIT atterrir dans un
+      # répertoire à souligné, sinon la résolution du lock échoue.
+      #
+      # Épinglé sur le tag correspondant à uv.lock (le voisin a repris ses tags
+      # de version) plutôt que sur main : la CI devient reproductible — une PR
+      # verte le reste — et la dérive de *contenu* du voisin sans changement de
+      # version cesse d'affecter silencieusement les résultats. La contrepartie
+      # (savoir que la bibliothèque a avancé) est couverte plus bas par une
+      # sentinelle non bloquante contre le main du voisin, pour que la
+      # reproductibilité ne coûte pas la visibilité.
+      - name: checkout crewai-custom-tools
+        uses: actions/checkout@v7
+        with:
+          repository: fjacquet/crewai-custom-tools
+          ref: v${{ steps.lock-version.outputs.version }}
+          path: crewai_custom_tools
+
+      - uses: astral-sh/setup-uv@v8.3.2
+        with:
+          enable-cache: true
+
+      # Sentinelle informative : le clone ci-dessus est épinglé sur le tag du
+      # lock, donc le comparer à lui-même serait tautologique. On compare
+      # plutôt à main du voisin (récupéré sans jeton, dépôt public) pour ne
+      # pas perdre la visibilité sur la dérive. Jamais bloquant : un ::warning::
+      # seulement, et tolérant même si le curl échoue (réseau, dépôt renommé) —
+      # ça ne doit jamais ressembler à une régression de cette PR.
+      - name: dérive de la bibliothèque voisine (informatif)
+        continue-on-error: true
+        run: |
+          MAIN_TOML=$(curl -fsSL https://raw.githubusercontent.com/fjacquet/crewai-custom-tools/main/pyproject.toml || true)
+          if [ -z "$MAIN_TOML" ]; then
+            echo "dérive : pyproject.toml du voisin injoignable (réseau ou dépôt renommé) — vérification ignorée."
+            exit 0
+          fi
+          LIB_V=$(python3 -c "
+          import tomllib, sys
+          data = tomllib.loads(sys.stdin.read())
+          print(data.get('project', {}).get('version', ''))
+          " <<< "$MAIN_TOML" || true)
+          LOCK_V="${{ steps.lock-version.outputs.version }}"
+          echo "uv.lock attend : $LOCK_V"
+          echo "voisin main    : ${LIB_V:-INTROUVABLE}"
+          if [ -z "$LIB_V" ]; then
+            echo "dérive : version illisible dans le pyproject.toml du voisin — vérification ignorée."
+            exit 0
+          fi
+          if [ "$LOCK_V" != "$LIB_V" ]; then
+            echo "::warning::crewai-custom-tools a avancé sur main ($LIB_V) au-delà du tag épinglé par cette CI (v$LOCK_V)."
+            echo "::warning::Cette PR teste contre le tag épinglé, pas contre main."
+            echo "::warning::Pour se mettre à jour : uv sync && git add uv.lock && git commit"
           fi
 
       - name: installation
