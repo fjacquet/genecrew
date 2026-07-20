@@ -1,14 +1,19 @@
-# Sources d'archives en ligne : Wikidata, DHS, Gallica
+# Sources d'archives en ligne : Wikidata et le DHS
 
 > Conception validée le 2026-07-20. Deuxième sous-projet de la **Phase 4 — Pistes de recherche**
 > (`document-de-travail.md` §6.3). Il consomme le contrat livré par
 > [le contrat de consignation des pistes](2026-07-20-contrat-pistes-design.md) (cct 0.20.0) et
-> l'alimente par **trois** sources d'archives. Aucune citation n'est créée : une piste n'est jamais
+> l'alimente par **deux** sources d'archives. Aucune citation n'est créée : une piste n'est jamais
 > un fait.
 >
-> **Scriptorium a été écarté** en cours de conception, sur mesure et non sur intuition : il ne
-> couvre que la presse vaudoise, soit **9 personnes** de l'arbre, et son accès programmatique
-> n'est pas documenté. Voir §3.4 et `docs/BACKLOG.md`.
+> **Deux sources sur quatre ont été écartées en cours de route, sur mesure et non sur intuition.**
+> **Scriptorium** ne couvre que la presse vaudoise, soit **9 personnes** de l'arbre, et son accès
+> programmatique n'est pas documenté (§3.4). **Gallica** a été reporté en sous-projet après
+> implémentation : son SRU rend des notices de collection, pas des articles — la source dirait
+> « ce nom est quelque part dans ce volume de 500 pages ». L'API adéquate existe
+> (`services/ContentSearch`, qui rend des passages avec numéro de page) mais impose une
+> conception à deux étapes. Le code de `pistes/gallica.py` est livré et testé, mais **non
+> exposé**. Voir `docs/BACKLOG.md`.
 
 ## 1. Contexte
 

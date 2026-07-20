@@ -63,6 +63,27 @@ Suivis non bloquants notés au fil de l'eau (revues, usage). Aucun n'est urgent 
 
 ## Sources de pistes écartées
 
+- **Gallica — reporté en sous-projet le 2026-07-20**, et il y a de quoi le rouvrir.
+
+  Ce qui ne marche pas : le **SRU** de Gallica rend des notices de **collection**, pas des
+  articles. Mesuré sur l'API réelle — tous les index (`gallica all`, `text all`, `dc.creator`)
+  rendent le document ; le champ `date` est une année ou une **plage** (`1892-1944`), jamais une
+  date complète ; les titres sont des noms de périodiques (`Le Journal (Paris. 1892)`), où
+  chercher un patronyme n'a pas de sens. Une piste dirait « ce nom apparaît quelque part dans ce
+  volume de 500 pages » : inexploitable en généalogie, quel que soit le réglage des concordances.
+
+  **Ce qui marche, et qui est le point de départ du sous-projet** : `services/ContentSearch`,
+  testé le 2026-07-20. Interrogé avec un `ark` et un terme, il rend les **passages** avec leur
+  numéro de page et le terme surligné (`countResults=52`, `PAG_6`, `PAG_7` sur l'essai). `ark` +
+  page donne un **permalien réel et citable** — exactement ce qui manque au SRU.
+
+  Le coût : une conception à **deux étapes** (recherche documentaire, puis un `ContentSearch` par
+  document), donc un appel réseau par document trouvé, et un texte issu de l'OCR, bruité. C'est
+  ce qui en fait un sous-projet plutôt qu'une tâche.
+
+  `crewai_custom_tools…pistes/gallica.py` est **livré, pur et testé** (33 tests) mais **aucune
+  feuille CLI ne l'expose**. Il reste comme base pour le sous-projet.
+
 - **Scriptorium (presse vaudoise, BCUL) — écarté le 2026-07-20**, sur mesure et non sur intuition.
   Mesuré sur `samples/data.gramps` (2119 personnes) : la Suisse pèse 25 lieux / 224 événements /
   **122 personnes**, mais elle est massivement **alémanique**. Le territoire de Scriptorium, le
