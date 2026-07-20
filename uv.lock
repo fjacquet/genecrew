@@ -505,7 +505,7 @@ wheels = [
 
 [[package]]
 name = "crewai-custom-tools"
-version = "0.17.0"
+version = "0.18.0"
 source = { editable = "../crewai_custom_tools" }
 dependencies = [
     { name = "beautifulsoup4" },
