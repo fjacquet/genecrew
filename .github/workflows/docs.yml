@@ -39,16 +39,28 @@ jobs:
       # site publié. Depuis le site, un lien absolu vers une page qui y est
       # elle-même publiée fait sortir le visiteur vers le Markdown brut de
       # GitHub au lieu de le garder sur la page du site (thème, recherche,
-      # sommaire). On ne réécrit donc que les liens vers du contenu publié
-      # dans le site — USER_GUIDE.md et adr/ — jamais ceux vers CHANGELOG.md
-      # ou document-de-travail.md, qui restent hors site et pour lesquels
-      # l'URL absolue GitHub est le seul lien correct.
+      # sommaire). On ne réécrit donc que les liens dont la cible est une PAGE
+      # du site — USER_GUIDE.md et BACKLOG.md. Restent en URL absolue :
+      #   - CHANGELOG.md          : hors de docs/, jamais publié
+      #   - document-de-travail   : exclu du site par exclude_docs
+      #   - adr/                  : c'est un RÉPERTOIRE, pas une page. MkDocs ne
+      #     génère pas de site/adr/index.html, donc un lien interne « adr/ »
+      #     serait mort (404). Les 12 ADR restent atteignables par la navigation
+      #     latérale. Le jour où docs/adr/index.md existera, ce lien pourra
+      #     devenir interne.
+      #
+      # Le critère est « la cible est-elle une page du site ? », pas « le lien
+      # est-il absolu ? ». Attention : `mkdocs build --strict` ne rattrape PAS
+      # un lien interne mort de ce type — il le signale en INFO, pas en warning.
+      # Pour vérifier après avoir ajouté une page, comparer les deux listes :
+      #   find site -name index.html
+      #   grep -o 'https://github.com/fjacquet/genecrew/[a-z]*/main/[^)]*' README.md
       - name: page d'accueil depuis le README
         run: |
           cp README.md docs/index.md
           sed -i \
             -e 's|https://github.com/fjacquet/genecrew/blob/main/docs/USER_GUIDE.md|USER_GUIDE.md|g' \
-            -e 's|https://github.com/fjacquet/genecrew/tree/main/docs/adr/|adr/|g' \
+            -e 's|https://github.com/fjacquet/genecrew/blob/main/docs/BACKLOG.md|BACKLOG.md|g' \
             docs/index.md
 
       - name: build

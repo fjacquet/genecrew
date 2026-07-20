@@ -23,7 +23,7 @@ vérifiées**. La généalogie est une discipline de preuve — *« c'est un dev
 
 - **`genecrew`** (ce dépôt) — CLI argparse + orchestration Python. Le paquet CrewAI garde son layout
   standard sous `genecrew/src/genecrew/` ; les métadonnées sont à la racine.
-- **[`crewai_custom_tools`](../crewai_custom_tools)** (dépôt frère, dépendance éditable) — toute la
+- **[`crewai_custom_tools`](https://github.com/fjacquet/crewai-custom-tools)** (dépôt frère, dépendance éditable) — toute la
   **logique généalogie** : client Gramps (httpx + JWT), modèles, règles d'audit R1–R10 + D1–D3,
   inférence de genre (table INSEE+OFS), outils d'écriture (casse, genre, lieux, citations de
   registres).
