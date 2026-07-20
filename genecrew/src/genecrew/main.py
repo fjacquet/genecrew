@@ -185,6 +185,22 @@ def gender_apply_cmd(args) -> None:
     print(f"Rapport : {report}")
 
 
+def archives_cmd(args, source: str) -> None:
+    """Pistes depuis une source d'archives en ligne. Lecture seule : n'écrit rien."""
+    from pathlib import Path
+
+    from crewai_custom_tools.tools.genealogy.gramps.client import get_client
+
+    from genecrew.archives import run_archives
+
+    client = get_client()
+    output_dir = Path(os.environ.get("GENECREW_OUTPUT_DIR", "output"))
+    date = args.date or __import__("datetime").date.today().isoformat()
+    chemin = run_archives(client, source, args.scope, output_dir, date=date,
+                          batch_size=args.batch_size, limit=args.limit)
+    print(f"Rapport : {chemin}")
+
+
 def apply_all_cmd(args) -> None:
     """Apply casing, gender and places, then propose deaths; print all report paths.
 
@@ -380,6 +396,8 @@ def main() -> None:
         ("propose", "deaths"): lambda: deces_cmd(args),
         ("propose", "military"): lambda: militaires_cmd(args),
         ("propose", "gender"): lambda: gender_cmd(args),
+        ("propose", "wikidata"): lambda: archives_cmd(args, "wikidata"),
+        ("propose", "dhs"): lambda: archives_cmd(args, "dhs"),
         ("apply", "case"): lambda: names_cmd(args),
         ("apply", "gender"): lambda: gender_apply_cmd(args),
         ("apply", "places"): lambda: lieux_apply_cmd(args),

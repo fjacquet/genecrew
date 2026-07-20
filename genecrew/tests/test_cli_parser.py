@@ -80,3 +80,15 @@ def test_renamed_flags_land_on_the_expected_attributes():
     assert args.no_images is True
     args = build_parser().parse_args(["import", "place", "Bourges, Cher, France"])
     assert args.place == "Bourges, Cher, France"
+
+
+@pytest.mark.parametrize("cible", ["wikidata", "dhs"])
+def test_propose_accepte_les_deux_sources_d_archives(cible):
+    args = build_parser().parse_args(["propose", cible, "--scope", "all"])
+    assert args.command == "propose" and args.target == cible
+
+# Pas de test dédié au rejet de "scriptorium" : il ne prouverait rien de plus que
+# le rejet générique d'un mot inconnu, déjà couvert par `test_old_names_are_rejected`
+# et par argparse lui-même (choix fermé). "scriptorium" n'a jamais été une feuille
+# valide de `propose` — la source a été écartée avant d'être câblée, voir
+# docs/BACKLOG.md — donc son rejet n'est pas un comportement spécifique à verrouiller.

@@ -20,10 +20,12 @@ Suivis non bloquants notés au fil de l'eau (revues, usage). Aucun n'est urgent 
   n'est pas validé par `args_schema`). Durcissement sur une écriture de fait. (Revue finale cct.)
 - **`@api_tool` retry 429** — les outils Gramps lèvent des `httpx` alors que le retry teste des
   `requests.HTTPError` → le retry sur 429 ne se déclenche jamais pour Gramps. (Différé depuis Phase 1a.)
-- **`>=3.11` promis mais jamais vérifié** — `pyproject.toml` déclare
-  `requires-python = ">=3.11,<3.13"` ; la CI ne teste que 3.12 (pas de matrice, choix
-  assumé au 2026-07-20). Soit ajouter `3.11` à une matrice `strategy.matrix.python`, soit
-  restreindre la déclaration à `>=3.12`. En l'état, la promesse est invérifiée.
+- **Ouvrir genecrew à Python 3.13 ?** — le plancher est passé à `>=3.12` le 2026-07-20
+  (décision : « on ne regarde que Python 3.12+ »), ce qui a résolu l'incohérence précédente :
+  `>=3.11` était déclaré sans jamais être testé. Reste la **borne haute `<3.13`**, qui est un
+  choix du projet et **non une contrainte de dépendance** — vérifié, aucun paquet du `uv.lock`
+  ne la réclame. La bibliothèque `crewai_custom_tools` teste et passe sur 3.13. Ouvrir genecrew
+  à 3.13 demande donc surtout de le vérifier, pas de lever un blocage.
 
 ## Rapports / contrats
 
@@ -63,6 +65,27 @@ Suivis non bloquants notés au fil de l'eau (revues, usage). Aucun n'est urgent 
 
 ## Sources de pistes écartées
 
+- **Gallica — reporté en sous-projet le 2026-07-20**, et il y a de quoi le rouvrir.
+
+  Ce qui ne marche pas : le **SRU** de Gallica rend des notices de **collection**, pas des
+  articles. Mesuré sur l'API réelle — tous les index (`gallica all`, `text all`, `dc.creator`)
+  rendent le document ; le champ `date` est une année ou une **plage** (`1892-1944`), jamais une
+  date complète ; les titres sont des noms de périodiques (`Le Journal (Paris. 1892)`), où
+  chercher un patronyme n'a pas de sens. Une piste dirait « ce nom apparaît quelque part dans ce
+  volume de 500 pages » : inexploitable en généalogie, quel que soit le réglage des concordances.
+
+  **Ce qui marche, et qui est le point de départ du sous-projet** : `services/ContentSearch`,
+  testé le 2026-07-20. Interrogé avec un `ark` et un terme, il rend les **passages** avec leur
+  numéro de page et le terme surligné (`countResults=52`, `PAG_6`, `PAG_7` sur l'essai). `ark` +
+  page donne un **permalien réel et citable** — exactement ce qui manque au SRU.
+
+  Le coût : une conception à **deux étapes** (recherche documentaire, puis un `ContentSearch` par
+  document), donc un appel réseau par document trouvé, et un texte issu de l'OCR, bruité. C'est
+  ce qui en fait un sous-projet plutôt qu'une tâche.
+
+  `crewai_custom_tools…pistes/gallica.py` est **livré, pur et testé** (33 tests) mais **aucune
+  feuille CLI ne l'expose**. Il reste comme base pour le sous-projet.
+
 - **Scriptorium (presse vaudoise, BCUL) — écarté le 2026-07-20**, sur mesure et non sur intuition.
   Mesuré sur `samples/data.gramps` (2119 personnes) : la Suisse pèse 25 lieux / 224 événements /
   **122 personnes**, mais elle est massivement **alémanique**. Le territoire de Scriptorium, le
@@ -80,6 +103,30 @@ Suivis non bloquants notés au fil de l'eau (revues, usage). Aucun n'est urgent 
   À noter, la dissymétrie avec le **DHS**, retenu lui : même origine géographique, mais il couvre
   la Suisse entière (122 personnes contre 9) et ne coûte qu'une projection de la propriété
   Wikidata P902. Voir `docs/superpowers/specs/2026-07-20-sources-archives-pistes-design.md`.
+
+## Chemin d'écriture des pistes — gelé, pas oublié
+
+- **Tout le chemin d'écriture des pistes est orphelin en production, délibérément.**
+  `propose wikidata`/`propose dhs` (`genecrew/src/genecrew/archives.py`) sont redevenues
+  lecture seule : la mesure du 2026-07-20 sur l'arbre réel n'a produit **aucune** piste forte,
+  et `consigner()` n'écrit que celles-là — le chemin d'écriture était donc mort dans les faits.
+  Voir ADR 0012 pour le raisonnement complet.
+
+  Restent dans le code, **non supprimées, toujours testées** :
+  - `genecrew/src/genecrew/pistes.py` : `consigner`, `marqueur`, `cle_derivee`,
+    `marqueurs_existants`, et la constante `TAG_PISTE` — plus aucun appelant en production
+    depuis que `propose` est redevenu lecture seule.
+  - `crewai_custom_tools…pistes/matchid.py` : `pistes_matchid` — n'a jamais eu d'appelant en
+    production (le décès passe par `propose deaths`/`genecrew/deces.py`, qui émet des
+    `PropositionAudit`, pas des `Piste`).
+
+  **Ce n'est pas un oubli à nettoyer.** Le propriétaire de l'arbre a choisi de geler ce chemin
+  plutôt que de le supprimer, en attendant qu'une source produise un jour des pistes fortes —
+  moment où une commande `apply pistes` (déjà nommée dans l'ADR 0012, pas encore implémentée)
+  les consommera. **Condition de réveil** : une source de pistes (Gallica/`services/ContentSearch`,
+  une autre projection Wikidata, …) mesurée comme produisant des pistes fortes sur l'arbre réel.
+  D'ici là, ce code reste du code mort assumé — ne pas le supprimer en passant, et ne pas
+  s'étonner qu'il n'ait aucun appelant.
 
 ## Discoverabilité de la grammaire de verbes
 

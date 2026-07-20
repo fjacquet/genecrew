@@ -40,13 +40,29 @@ prolifération de mots de tête :
 
 ```
 genecrew stats
-genecrew propose  {audit | places | deaths | military | gender}   # lecture seule → rapport + YAML
+genecrew propose  {audit | places | deaths | military | gender | wikidata | dhs}  # lecture seule → rapport (+ YAML pour audit|places|deaths|military)
 genecrew apply    {case | gender | places | citations | all}      # écrit
 genecrew merge    places --yaml <fusions relues>                  # jamais auto
 genecrew enrich   wiki                                            # append-only
 genecrew import   place "<adresse>"                               # one-shot
 genecrew crew     audit                                           # LLM (escalade)
 ```
+
+`propose wikidata` et `propose dhs` (chantier 2026-07-20, pistes de recherche) ont ajouté deux
+feuilles à `propose` après cet ADR, exactement selon la doctrine qu'il pose : aucun nouveau mot
+de tête, une feuille de plus sous le verbe existant. Elles ne produisent pas de YAML à relire — le
+cycle proposer→appliquer ne s'y applique pas : une piste n'est jamais un fait, donc rien n'entre
+dans `apply citations` depuis ces deux commandes. Ces deux feuilles produisent un rapport
+Markdown, **sans aucune écriture**, conformément à la règle « proposer = lecture seule » (voir
+`docs/USER_GUIDE.md`, section « Pistes depuis les archives en ligne »). Une version antérieure de
+ce chantier consignait les pistes **fortes** en note append-only, sous sa propre garde
+`GENECREW_DRY_RUN` ; ce chemin d'écriture a été retiré une fois la mesure faite sur l'arbre réel :
+elle n'a produit **aucune** piste forte, et `consigner()` n'écrivait que celles-là — le chemin
+était donc mort dans les faits, en plus d'être rangé sous le mauvais verbe (`propose` n'écrit
+jamais). Les fonctions de consignation restent dans le code, gelées et testées, en attendant
+qu'une source produise un jour des pistes fortes (voir `docs/BACKLOG.md`). Une troisième source
+(Gallica) existe dans la bibliothèque mais n'a délibérément aucune feuille CLI ; une quatrième
+(Scriptorium) a été écartée sur mesure. Détail des deux dans `docs/BACKLOG.md`.
 
 Ajouter une base de données devient `propose <base>` — une feuille de plus sous un verbe
 existant, jamais un nouveau mot de tête. Le YAML relu qui sort d'un `propose` passe par
