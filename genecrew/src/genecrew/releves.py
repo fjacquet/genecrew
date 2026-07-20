@@ -55,6 +55,17 @@ par un empilement de faibles (voir `apparier`)."""
 
 SEUIL_RARETE = 0.02
 
+MARGE_EX_AEQUO = 2
+"""Écart de poids en deçà duquel deux candidats sont tenus pour ex aequo.
+
+Départager sur l'égalité EXACTE des poids est un piège dans un arbre qui
+contient des doublons : deux personnes partageant date et lieu de décès pèsent
+9 et 8 dès que l'une des deux a son prénom orthographié autrement. Élire la
+première, c'est écrire dans l'arbre sur la foi d'un point de prénom, entre deux
+candidats appuyés par la même preuve. Un point d'écart n'est pas une décision —
+c'est du bruit, et ça se relit à la main.
+"""
+
 FENETRE_ANNEE_APPROX = 2
 """Écart d'années toléré pour le facteur faible « année approximative ».
 
@@ -326,7 +337,11 @@ def apparier(releve: ReleveIndexe, people: list[PersonFacts],
 
     retenus.sort(key=lambda e: e[1], reverse=True)
     meilleur = retenus[0]
-    ex_aequo = [e for e in retenus if e[1] == meilleur[1]]
+    # « Comparables », pas « égaux » : tout candidat à moins de MARGE_EX_AEQUO
+    # du meilleur reste en lice, et s'ils sont plusieurs le verdict est gris
+    # avec la liste COMPLÈTE — le relecteur doit voir le concurrent, pas
+    # seulement le gagnant.
+    ex_aequo = [e for e in retenus if meilleur[1] - e[1] <= MARGE_EX_AEQUO]
 
     if len(ex_aequo) > 1:
         return Appariement(verdict="gris", poids=meilleur[1],

@@ -364,6 +364,36 @@ def test_candidats_multiples_a_poids_egal_donnent_gris():
     assert a.gramps_id is None
 
 
+def test_candidats_a_poids_proches_donnent_gris_pas_un_gagnant():
+    """La spec dit « poids COMPARABLES », pas « poids égaux ». Deux personnes
+    partageant date ET lieu de décès — exactement ce que ce projet cherche par
+    ailleurs sous le nom de doublons — donnent 9 et 8 dès que l'une des deux a
+    son prénom orthographié autrement. Départager sur l'égalité exacte élirait
+    la première, donc écrirait dans l'arbre, sur la foi d'UN point de prénom,
+    entre deux personnes appuyées par la même preuve. Pire : la branche `net`
+    ne renvoyait que le gagnant, si bien que le relecteur humain n'aurait
+    jamais su qu'il y avait un concurrent à un point."""
+    a1 = _mort(_p("I1", "JACQUET", "Rose"), 10, 12, 1894, "Saint-Martin-d'Auxigny")
+    a2 = _mort(_p("I2", "JACQUET", "Roze"), 10, 12, 1894, "Saint-Martin-d'Auxigny")
+    a = apparier(ROSE, [a1, a2], {"JACQUET": 0.75}, {})
+    assert a.poids == 9 and a.verdict == "gris"
+    assert sorted(a.candidats) == ["I1", "I2"]
+    assert a.gramps_id is None
+
+
+def test_candidat_hors_marge_ne_brouille_pas_le_gagnant():
+    """Symétrique : la marge ne doit pas transformer tout concurrent en
+    ex aequo, sans quoi plus aucun `net` ne sortirait jamais. Un candidat
+    nettement en dessous (prénom seul, écarté faute de facteur fort) laisse le
+    gagnant seul."""
+    a1 = _mort(_p("I1", "JACQUET", "Rose"), 10, 12, 1894, "Saint-Martin-d'Auxigny")
+    a2 = _p("I2", "JACQUET", "Rose")
+    a = apparier(ROSE, [a1, a2], {"JACQUET": 0.75}, {})
+    assert a.verdict == "net"
+    assert a.gramps_id == "I1"
+    assert a.candidats == ["I1"]
+
+
 def test_aucun_candidat_donne_aucun():
     a = apparier(ROSE, [], {"JACQUET": 0.75}, {})
     assert a.verdict == "aucun"
