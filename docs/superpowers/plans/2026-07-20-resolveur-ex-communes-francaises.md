@@ -401,7 +401,7 @@ cd /Users/fjacquet/Projects/crewai_custom_tools
 uv run python -m pytest tests/test_genealogy_geo_france_ex_communes.py -v
 ```
 
-Attendu : `10 passed`.
+Attendu : `11 passed`.
 
 - [ ] **Step 5: Commit**
 
@@ -575,7 +575,7 @@ cd /Users/fjacquet/Projects/crewai_custom_tools
 uv run python -m pytest tests/test_genealogy_geo_france_ex_communes.py -v
 ```
 
-Attendu : les 9 nouveaux tests `FAILED` (`module ... has no attribute '_http_get'` / `'resolve_fr_ex_commune'`), les 10 de la Task 2 toujours `passed`.
+Attendu : les 9 nouveaux tests `FAILED` (`module ... has no attribute '_http_get'` / `'resolve_fr_ex_commune'`), les 11 de la Task 2 toujours `passed`.
 
 - [ ] **Step 3: Extraire le filtre de nom exact dans `france.py`**
 
@@ -623,7 +623,7 @@ cd /Users/fjacquet/Projects/crewai_custom_tools
 uv run python -m pytest tests/test_genealogy_geo_france.py -v
 ```
 
-Attendu : les 7 tests passent, **inchangés**. Si l'un tombe, l'extraction a modifié le
+Attendu : les 8 tests passent, **inchangés**. Si l'un tombe, l'extraction a modifié le
 comportement — corriger avant de continuer.
 
 - [ ] **Step 4: Implémenter le résolveur**
@@ -737,7 +737,7 @@ cd /Users/fjacquet/Projects/crewai_custom_tools
 uv run python -m pytest tests/test_genealogy_geo_france_ex_communes.py -v
 ```
 
-Attendu : `19 passed`.
+Attendu : `20 passed`.
 
 - [ ] **Step 6: Commit**
 
