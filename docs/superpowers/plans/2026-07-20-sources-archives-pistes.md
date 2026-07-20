@@ -766,7 +766,7 @@ Créer `tests/test_genealogy_pistes_gallica.py` :
 ```python
 from crewai_custom_tools.tools.genealogy.models.domain import EventFact, PersonFacts
 from crewai_custom_tools.tools.genealogy.pistes import (
-    fenetre_vie, personne_eligible, pistes_gallica, requete_gallica,
+    dates_du_texte, fenetre_vie, personne_eligible, pistes_gallica, requete_gallica,
 )
 
 
