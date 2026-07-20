@@ -7,9 +7,13 @@ s'expliquer par les facteurs qui l'ont produit.
 
 from __future__ import annotations
 
+from collections import Counter
 from typing import Literal
 
+from crewai_custom_tools.tools.genealogy.models.domain import EventFact, PersonFacts
 from pydantic import BaseModel, Field
+
+from genecrew.pistes import _normaliser
 
 FacteurReleve = Literal[
     "parent nommé", "date complète", "lieu", "patronyme rare",
@@ -38,6 +42,8 @@ FACTEURS_FORTS: frozenset[str] = frozenset(
 SEUIL_NET = 8
 """Poids minimal d'un verdict `net`. Atteignable par deux facteurs forts, jamais
 par un empilement de faibles (voir `apparier`)."""
+
+SEUIL_RARETE = 0.02
 
 
 class PersonneLiee(BaseModel):
@@ -73,3 +79,27 @@ class Appariement(BaseModel):
     divergences: list[str] = Field(default_factory=list)
     poids: int = 0
     candidats: list[str] = Field(default_factory=list)
+
+
+def rarete_patronymes(people: list[PersonFacts]) -> dict[str, float]:
+    """Fréquence de chaque patronyme DANS L'ARBRE, normalisée casse et accents.
+
+    Mesurée, jamais devinée : « JACQUET » dans le Cher n'a pas la valeur
+    discriminante de « VILLEPELLET », et seul un comptage sur tes données peut
+    le dire. Recalculé à chaque passage — l'arbre bouge.
+    """
+    noms = [_normaliser(p.surname) for p in people if p.surname]
+    if not noms:
+        return {}
+    total = len(noms)
+    return {nom: n / total for nom, n in Counter(noms).items()}
+
+
+def est_rare(surname: str, rarete: dict[str, float],
+             seuil: float = SEUIL_RARETE) -> bool:
+    """Un patronyme absent de l'arbre n'est PAS déclaré rare.
+
+    Absent veut dire non mesuré, pas exceptionnel. Lui accorder un facteur fort
+    sur une non-mesure ferait basculer des verdicts sur du vide.
+    """
+    return rarete.get(_normaliser(surname), 1.0) <= seuil
