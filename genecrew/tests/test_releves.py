@@ -141,11 +141,21 @@ def test_blocage_ignore_les_personnes_a_patronyme_vide_quand_le_releve_en_a_un()
     assert [c.gramps_id for c in candidats_blocage(_releve(sujet_nom="JACQUET"), people)] == ["I2"]
 
 
-def _ev(type_, jour=0, mois=0, annee=0, lieu="", modifier=0):
+def _ev(type_, jour=0, mois=0, annee=0, lieu="", modifier=0, dateval=None):
     """`EventFact` ne porte PAS de champ `date` : la source est `dateval`, au
-    format Gramps [jour, mois, année, slash]. 0 = composante inconnue."""
-    return EventFact(type=type_, dateval=[jour, mois, annee, False],
-                     year=annee or None, modifier=modifier, place=lieu,
+    format Gramps [jour, mois, année, slash]. 0 = composante inconnue.
+
+    Le lieu est produit sous sa forme RÉELLE : `place` porte la hiérarchie
+    complète telle que Gramps la rend (« commune, département, pays ») et
+    `place_name` la commune seule. Une fixture qui mettrait la commune nue dans
+    `place` validerait une donnée que la source ne produit jamais — et
+    masquerait le fait que comparer `place` à un lieu de relevé (une commune)
+    échoue sur toutes les vraies données.
+    """
+    return EventFact(type=type_, dateval=dateval or [jour, mois, annee, False],
+                     year=annee or None, modifier=modifier,
+                     place=f"{lieu}, Cher, France" if lieu else "",
+                     place_name=lieu,
                      sortval=1 if annee else 0)
 
 
@@ -166,6 +176,44 @@ def test_deux_facteurs_forts_donnent_net():
     assert a.verdict == "net"
     assert "date complète" in a.facteurs and "lieu" in a.facteurs
     assert a.gramps_id == "I1"
+
+
+def test_le_lieu_se_compare_a_la_commune_pas_a_la_hierarchie():
+    """`EventFact.place` est la hiérarchie complète (« commune, département,
+    pays »), `place_name` la commune seule. Le relevé, lui, ne donne qu'une
+    commune. Comparer `place` rendrait l'égalité systématiquement fausse sur
+    les vraies données : plus aucun facteur « lieu », donc plus aucun `net` en
+    production. Ce test échoue si on revient à comparer `place`."""
+    p = _p("I1", "JACQUET", "Rose")
+    p.death = EventFact(type="Death", dateval=[0, 0, 0, False], modifier=0,
+                        place="Saint-Martin-d'Auxigny, Cher, France",
+                        place_name="Saint-Martin-d'Auxigny", sortval=0)
+    a = apparier(ROSE, [p], {"JACQUET": 0.75}, {})
+    assert "lieu" in a.facteurs
+
+
+def test_lieu_se_rabat_sur_le_premier_segment_si_place_name_est_vide():
+    """`place_name` n'est pas toujours renseigné selon la façon dont la fiche a
+    été saisie ; le premier segment de la hiérarchie est alors la commune."""
+    p = _p("I1", "JACQUET", "Rose")
+    p.death = EventFact(type="Death", dateval=[0, 0, 0, False], modifier=0,
+                        place="Saint-Martin-d'Auxigny, Cher, France",
+                        place_name="", sortval=0)
+    a = apparier(ROSE, [p], {"JACQUET": 0.75}, {})
+    assert "lieu" in a.facteurs
+
+
+def test_lieu_discordant_n_est_ni_facteur_ni_divergence():
+    """Une inégalité de chaîne n'est PAS une contradiction. « Saint Martin
+    d'Auxigny » contre « Saint-Martin-d'Auxigny » est une graphie, pas une
+    autre commune, et rien ici ne peut trancher — aucun résolveur de lieux
+    n'est disponible dans un moteur pur. Vetoer là-dessus écarterait de bons
+    candidats ; le veto reste réservé aux dates, entiers non ambigus."""
+    p = _mort(_p("I1", "JACQUET", "Rose"), 10, 12, 1894, "Sancerre")
+    a = apparier(ROSE, [p], {"JACQUET": 0.75}, {})
+    assert a.divergences == []
+    assert "lieu" not in a.facteurs
+    assert a.verdict == "gris"          # date complète (5) + prénom (1) = 6
 
 
 def test_divergence_de_date_est_un_veto_pas_un_malus():

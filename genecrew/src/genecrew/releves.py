@@ -182,6 +182,24 @@ def _date_iso(ev: EventFact | None) -> str:
     return f"{annee:04d}-{mois:02d}-{jour:02d}"
 
 
+def _commune(ev: EventFact | None) -> str:
+    """La COMMUNE de l'événement, "" si elle est introuvable.
+
+    `EventFact` porte deux champs de lieu : `place` est la hiérarchie complète
+    (« Saint-Martin-d'Auxigny, Cher, France ») et `place_name` la commune seule.
+    Le relevé, lui, ne cite qu'une commune. Comparer la hiérarchie à la commune
+    rend l'égalité systématiquement fausse sur les données réelles — le facteur
+    « lieu » ne se déclencherait jamais en production. On lit donc `place_name`,
+    et on se rabat sur le premier segment de `place` quand la fiche ne l'a pas
+    renseigné : c'est là que Gramps range la commune.
+    """
+    if ev is None:
+        return ""
+    if ev.place_name:
+        return ev.place_name
+    return ev.place.split(",")[0].strip()
+
+
 def facteurs_et_divergences(
     releve: ReleveIndexe, person: PersonFacts, rarete: dict[str, float],
     parents_par_handle: dict[str, list[str]],
@@ -198,11 +216,17 @@ def facteurs_et_divergences(
         else:
             divergences.append(f"date {date_arbre} ≠ relevé {releve.evenement_date}")
 
-    if releve.evenement_lieu and ev and ev.place:
-        if _normaliser(ev.place) == _normaliser(releve.evenement_lieu):
-            facteurs.append("lieu")
-        else:
-            divergences.append(f"lieu {ev.place} ≠ relevé {releve.evenement_lieu}")
+    # Un lieu qui concorde est un facteur ; un lieu qui NE concorde PAS n'est
+    # rien du tout. Une inégalité de chaîne n'est pas une contradiction :
+    # « Saint Martin d'Auxigny » contre « Saint-Martin-d'Auxigny » est une
+    # graphie, pas une autre commune, et ce moteur pur n'a aucun résolveur de
+    # lieux pour trancher. En faire une divergence — donc un veto — écarterait
+    # de bons candidats sur une simple différence de tiret. Le veto reste
+    # réservé aux dates, qui sont des entiers non ambigus.
+    commune = _commune(ev)
+    if (releve.evenement_lieu and commune
+            and _normaliser(commune) == _normaliser(releve.evenement_lieu)):
+        facteurs.append("lieu")
 
     if est_rare(releve.sujet_nom, rarete):
         facteurs.append("patronyme rare")
