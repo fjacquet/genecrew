@@ -64,7 +64,7 @@ Donne le **rattachement** (`chefLieu`) et le **code INSEE propre**. La recherche
 
 | Propriété | Valeur | Usage |
 |---|---|---|
-| `P576` date de dissolution | `+1972-12-31`, **précision 11 (jour)** | qualificatif des placerefs |
+| `P576` date de dissolution | `+1972-12-31`, **précision 11 (jour)** | **dernier jour d'existence** ; la borne est le lendemain |
 | `P1366` remplacé par | `Q286407` (Apremont-la-Forêt) | recoupement du successeur |
 | `P374` code INSEE | `55451` | recoupement de l'identité |
 | `P625` coordonnées | `48.842142, 5.622588` | GPS retenu (cf. §5) |
@@ -119,6 +119,11 @@ convertit chaque `_date_qualifier` en objet `Date` Gramps avec son `modifier`
 
 ## 4. Décisions actées (avec l'utilisateur)
 
+> **Nota (2026-07-20)** : la borne des placerefs est la **fusion**, pas la dissolution —
+> `merged_on` = `P576` + 1 jour, soit `1973-01-01` pour Saint-Agnant. Poser la date de
+> dissolution ferait démarrer le rattachement moderne un jour où la commune existait encore.
+> C'est ce qu'énonce la prose de Wikipédia, concordant sur les 4 cas vérifiés.
+
 1. **Modélisation par placerefs datées.** Le lieu porte **deux** rattachements datés plutôt
    qu'un seul. Le décès de 1914 est antérieur à la fusion de 1973 : rattacher purement et
    simplement Saint-Agnant à Apremont-la-Forêt ferait mourir le soldat dans une commune qui
@@ -129,10 +134,10 @@ convertit chaque `_date_qualifier` en objet `Date` Gramps avec son `modifier`
    France (Country)
    └─ Grand Est (Region, 44)
       └─ Meuse (Department, 55)
-         ├─ [placeref : avant 1972-12-31]
+         ├─ [placeref : avant 1973-01-01]
          │  └─ Saint-Agnant-sous-les-Côtes (Municipality, 55451)
          └─ Apremont-la-Forêt (Municipality, 55012)
-            └─ [placeref : après 1972-12-31]
+            └─ [placeref : après 1973-01-01]
                └─ Saint-Agnant-sous-les-Côtes   ← même lieu, 2ᵉ référence
    ```
 
@@ -212,8 +217,8 @@ qu'elle route silencieusement les événements vers la mauvaise branche de la hi
 
 | Chaîne | `date_qualifier` | `levels` |
 |---|---|---|
-| historique | `avant 1972-12-31` | France, Grand Est, Meuse |
-| moderne | `après 1972-12-31` | France, Grand Est, Meuse, Apremont-la-Forêt |
+| historique | `avant 1973-01-01` | France, Grand Est, Meuse |
+| moderne | `après 1973-01-01` | France, Grand Est, Meuse, Apremont-la-Forêt |
 
 Le `ResolvedPlace` porte par ailleurs : `name` = `Saint-Agnant-sous-les-Côtes`,
 `place_type` = `Municipality`, `code` = `55451`, GPS = `P625`, `score` = `1.0`,
@@ -289,5 +294,10 @@ Livraison en deux temps : bump de version de la bibliothèque, puis `uv sync` à
 - Les **communes déléguées** (communes nouvelles depuis 2015) : le même endpoint les couvre et
   le code les traitera sans distinction, mais aucun cas n'est présent dans l'arbre aujourd'hui —
   on ne construit pas de traitement spécifique tant qu'il n'y en a pas.
-- Toute **retouche du convertisseur de dates** : `P576` étant en précision jour, elle serait
-  sans objet.
+- Toute **retouche du convertisseur de dates** : le convertisseur exige un `YYYY-MM-DD` complet,
+  et c'est bien ce qu'il doit exiger. **Correction du 2026-07-20** : la phrase initiale disait
+  « `P576` étant en précision jour », généralisant à tort une mesure meusienne (12/12 en
+  précision jour) à la France entière. `wdt:P576` rend **toujours** un `dateTime` complet,
+  quelle que soit la précision réelle de la déclaration — une dissolution en précision année
+  sort `AAAA-01-01`. Le contrôle doit donc se faire **en amont**, dans la requête SPARQL
+  (`wikibase:timePrecision`), pas dans le convertisseur. Reproduit sur l'INSEE 14340 (Huppain).
