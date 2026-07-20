@@ -5,6 +5,9 @@ on:
   push:
     branches: [main]
 
+permissions:
+  contents: read
+
 # Un nouveau push sur la même branche annule le run en cours.
 concurrency:
   group: ci-${{ github.ref }}
