@@ -1,5 +1,8 @@
 # GeneCrew
 
+[![CI](https://github.com/fjacquet/genecrew/actions/workflows/ci.yml/badge.svg)](https://github.com/fjacquet/genecrew/actions/workflows/ci.yml)
+[![Documentation](https://github.com/fjacquet/genecrew/actions/workflows/docs.yml/badge.svg)](https://fjacquet.github.io/genecrew/)
+
 ![Python](https://img.shields.io/badge/python-3.11%20–%203.12-3776AB?logo=python&logoColor=white)
 ![CrewAI](https://img.shields.io/badge/built%20with-CrewAI-FF5A50)
 ![uv](https://img.shields.io/badge/packaging-uv-DE5FE9?logo=uv&logoColor=white)
@@ -20,7 +23,7 @@ vérifiées**. La généalogie est une discipline de preuve — *« c'est un dev
 
 - **`genecrew`** (ce dépôt) — CLI argparse + orchestration Python. Le paquet CrewAI garde son layout
   standard sous `genecrew/src/genecrew/` ; les métadonnées sont à la racine.
-- **[`crewai_custom_tools`](../crewai_custom_tools)** (dépôt frère, dépendance éditable) — toute la
+- **[`crewai_custom_tools`](https://github.com/fjacquet/crewai-custom-tools)** (dépôt frère, dépendance éditable) — toute la
   **logique généalogie** : client Gramps (httpx + JWT), modèles, règles d'audit R1–R10 + D1–D3,
   inférence de genre (table INSEE+OFS), outils d'écriture (casse, genre, lieux, citations de
   registres).
@@ -37,7 +40,7 @@ uv sync                       # installe le projet + la lib éditable
 cp .env.example .env          # puis renseigner GRAMPS_* et GENECREW_*
 ```
 
-Voir **[`docs/USER_GUIDE.md`](docs/USER_GUIDE.md)** pour la mise en route complète (démarrage de
+Voir **[`docs/USER_GUIDE.md`](https://github.com/fjacquet/genecrew/blob/main/docs/USER_GUIDE.md)** pour la mise en route complète (démarrage de
 Gramps Web via `gramps-mcp`, `GRAMPS_API_URL`, etc.).
 
 ## Utilisation
@@ -60,10 +63,10 @@ global `GENECREW_DRY_RUN` (dans `.env`) — tant qu'il vaut `true`, tout est **s
 
 ## Documentation
 
-- [`docs/USER_GUIDE.md`](docs/USER_GUIDE.md) — guide d'utilisation, phase par phase.
-- [`docs/document-de-travail.md`](docs/document-de-travail.md) — spécification / document de travail.
-- [`docs/adr/`](docs/adr/) — décisions d'architecture (ADR 0001–0012).
-- [`CHANGELOG.md`](CHANGELOG.md) — journal des livraisons · [`docs/BACKLOG.md`](docs/BACKLOG.md) — idées différées.
+- [`docs/USER_GUIDE.md`](https://github.com/fjacquet/genecrew/blob/main/docs/USER_GUIDE.md) — guide d'utilisation, phase par phase.
+- [`docs/document-de-travail.md`](https://github.com/fjacquet/genecrew/blob/main/docs/document-de-travail.md) — spécification / document de travail.
+- [`docs/adr/`](https://github.com/fjacquet/genecrew/tree/main/docs/adr/) — décisions d'architecture (ADR 0001–0012).
+- [`CHANGELOG.md`](https://github.com/fjacquet/genecrew/blob/main/CHANGELOG.md) — journal des livraisons · [`docs/BACKLOG.md`](https://github.com/fjacquet/genecrew/blob/main/docs/BACKLOG.md) — idées différées.
 
 ## Tests
 

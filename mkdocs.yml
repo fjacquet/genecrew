@@ -1,0 +1,42 @@
+site_name: GeneCrew
+site_description: Équipe d'agents IA pour la généalogie (Gramps Web)
+site_url: https://fjacquet.github.io/genecrew/
+repo_url: https://github.com/fjacquet/genecrew
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  language: fr
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      toggle:
+        icon: material/weather-night
+        name: Passer au thème sombre
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      toggle:
+        icon: material/weather-sunny
+        name: Passer au thème clair
+  features:
+    - navigation.sections
+    - navigation.top
+    - content.code.copy
+    - search.suggest
+
+markdown_extensions:
+  - admonition
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.superfences
+
+# Archives datées et données brutes : présentes dans le dépôt, hors du site.
+# Un plan de juillet décrit ce qui était vrai à sa date ; le publier comme
+# documentation courante ferait croire à un lecteur qu'il lit l'état du code.
+# Voir docs/adr/0012-cli-grammaire-verbes.md.
+# Syntaxe .gitignore, disponible depuis MkDocs 1.6.
+exclude_docs: |
+  superpowers/
+  document-de-travail.md
+  swagger/

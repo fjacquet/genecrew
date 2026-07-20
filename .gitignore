@@ -26,3 +26,7 @@ samples/
 *.code-workspace
 .vscode/
 data/
+
+# Documentation (MkDocs) — site construit et accueil copié depuis README au build
+site/
+docs/index.md
