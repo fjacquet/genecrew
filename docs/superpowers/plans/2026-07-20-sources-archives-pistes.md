@@ -755,6 +755,8 @@ Gallica ne sert pas à *retrouver* une personne mais à *contextualiser* une per
   - `personne_eligible(person: PersonFacts) -> bool` — vraie si la date de naissance **et** le lieu sont connus.
   - `requete_gallica(person: PersonFacts) -> str` — la requête CQL exacte, rejouable.
   - `fenetre_vie(person: PersonFacts) -> tuple[int, int]` — `(année_min, année_max)`. Sans décès, `année_max = année_naissance + 105` (la borne de R2).
+  - `dates_du_texte(texte: str) -> set[str]` — toutes les dates COMPLÈTES en ISO ; une année seule n'est jamais rendue.
+  - `date_concordante(person: PersonFacts, rec: dict) -> bool` — le titre porte-t-il une date complète égale à la naissance ou au décès.
   - `pistes_gallica(person: PersonFacts, resultats: list[dict]) -> list[Piste]` — `resultats` = la clé `records` de `parse_sru()`, soit des `{"title", "creator", "date", "type", "url"}`.
 
 - [ ] **Step 1: Écrire le test qui échoue**
@@ -822,6 +824,41 @@ def test_resultat_dans_la_fenetre_donne_une_piste_faible():
     assert p.force == "faible"
 
 
+def test_nom_et_lieu_dans_le_meme_titre_ne_font_qu_un_facteur():
+    """Le titre est UNE preuve. Sans cette règle, « Le Journal de Montbéliard »
+    rendrait FORTE une piste pour un Dupont né à Montbéliard — donc écrite
+    dans l'arbre — sans qu'aucune identité n'ait été vérifiée."""
+    records = [{"title": "Dupont et le Journal de Montbéliard", "creator": "",
+                "date": "1935", "type": "text",
+                "url": "https://gallica.bnf.fr/ark:/12148/bpt6k1"}]
+    p = pistes_gallica(_person(deces_annee=1970), records)[0]
+    assert len(set(p.concordances)) == 1
+    assert p.force == "faible"
+
+
+def test_titre_portant_la_date_complete_atteint_forte():
+    records = [{"title": "Dupont — acte du 14 juillet 1900", "creator": "",
+                "date": "1935", "type": "text",
+                "url": "https://gallica.bnf.fr/ark:/12148/bpt6k1"}]
+    p = pistes_gallica(_person(deces_annee=1970), records)[0]
+    assert set(p.concordances) == {"nom", "date complète"}
+    assert p.force == "forte"
+
+
+def test_roy_ne_correspond_pas_a_leroy_dans_un_titre():
+    person = _person(dateval=[14, 7, 1900, False], place_name="Montbéliard")
+    person.surname = "Roy"
+    records = [{"title": "Le Leroy de Belfort", "creator": "", "date": "1935",
+                "type": "text", "url": "https://gallica.bnf.fr/ark:/12148/bpt6k1"}]
+    assert pistes_gallica(person, records)[0].concordances == []
+
+
+def test_annee_seule_dans_le_titre_n_est_pas_une_date():
+    assert dates_du_texte("Le Journal de 1900") == set()
+    assert dates_du_texte("acte du 14/07/1900") == {"1900-07-14"}
+    assert dates_du_texte("acte du 1900-07-14") == {"1900-07-14"}
+
+
 def test_personne_ineligible_ne_produit_rien():
     records = [{"title": "Le Journal", "creator": "", "date": "1935",
                 "type": "text", "url": "https://gallica.bnf.fr/ark:/12148/bpt6k1"}]
@@ -855,6 +892,7 @@ import re
 
 from crewai_custom_tools.tools.genealogy.models.domain import PersonFacts, Piste
 from crewai_custom_tools.tools.genealogy.pistes.matchid import event_iso, norm_nom
+from crewai_custom_tools.tools.genealogy.pistes.wikidata import mots
 
 _AGE_MAX = 105  # la borne de R2 : au-delà, l'audit signale déjà une anomalie
 _ARK = re.compile(r"(ark:/\d+/[A-Za-z0-9]+)")
@@ -892,6 +930,50 @@ def _annee(valeur: str) -> int | None:
     return int(trouve.group(0)) if trouve else None
 
 
+_MOIS = {
+    "janvier": 1, "fevrier": 2, "mars": 3, "avril": 4, "mai": 5, "juin": 6,
+    "juillet": 7, "aout": 8, "septembre": 9, "octobre": 10, "novembre": 11,
+    "decembre": 12,
+}
+_DATE_NUM = re.compile(r"\b(\d{1,2})[/-](\d{1,2})[/-](\d{4})\b")
+_DATE_ISO = re.compile(r"\b(\d{4})-(\d{2})-(\d{2})\b")
+_DATE_TXT = re.compile(r"\b(\d{1,2})\s+([A-Za-zÉÛéûàç]+)\s+(\d{4})\b")
+
+
+def dates_du_texte(texte: str) -> set[str]:
+    """Toutes les dates COMPLÈTES d'un texte, en ISO. Pure.
+
+    Trois formes rencontrées dans les titres de presse : « 14/07/1900 »,
+    « 1900-07-14 » et « 14 juillet 1900 ». Une année seule n'est jamais
+    rendue — elle ne constitue pas une date (règle cardinale du projet).
+    """
+    trouvees: set[str] = set()
+    for j, m, a in _DATE_NUM.findall(texte or ""):
+        trouvees.add(f"{int(a):04d}-{int(m):02d}-{int(j):02d}")
+    for a, m, j in _DATE_ISO.findall(texte or ""):
+        trouvees.add(f"{int(a):04d}-{int(m):02d}-{int(j):02d}")
+    for j, mot, a in _DATE_TXT.findall(texte or ""):
+        mois = _MOIS.get(norm_nom(mot).lower())
+        if mois:
+            trouvees.add(f"{int(a):04d}-{mois:02d}-{int(j):02d}")
+    return trouvees
+
+
+def date_concordante(person: PersonFacts, rec: dict) -> bool:
+    """Le titre porte-t-il une date complète égale à la naissance ou au décès ?
+
+    C'est le SEUL moyen pour une piste Gallica d'atteindre « forte » : le titre
+    ne fournissant qu'un facteur (voir `pistes_gallica`), il en faut un second,
+    et seule une date complète en est un. En pratique un titre de presse en
+    porte rarement une — c'est assumé : la presse contextualise, elle n'identifie pas.
+    """
+    du_titre = dates_du_texte(rec.get("title", ""))
+    if not du_titre:
+        return False
+    attendues = {event_iso(person.birth), event_iso(person.death)}
+    return bool(du_titre & {d for d in attendues if len(d) == 10})
+
+
 def pistes_gallica(person: PersonFacts, resultats: list[dict]) -> list[Piste]:
     """Une piste par enregistrement SRU retenu. N'écrit rien, ne conclut rien."""
     if not personne_eligible(person):
@@ -908,12 +990,21 @@ def pistes_gallica(person: PersonFacts, resultats: list[dict]) -> list[Piste]:
         annee = _annee(rec.get("date", ""))
         if annee is None or not (debut <= annee <= fin):
             continue
+        # Le titre est UNE preuve, pas deux. `nom` et `lieu` en sont tous deux
+        # extraits : les compter séparément ferait basculer « Le Journal de
+        # Montbéliard » en piste FORTE pour un Dupont né à Montbéliard — donc
+        # écrite dans l'arbre — sans qu'aucune identité n'ait été vérifiée.
+        # Le titre ne contribue donc qu'un seul facteur ; seule une date
+        # complète concordante peut en apporter un second.
+        # Comparaison par MOTS ENTIERS, jamais par sous-chaîne (« Roy »/« LEROY »).
         concordances: list[str] = []
-        titre = rec.get("title", "")
-        if norm_nom(person.surname) in norm_nom(titre):
+        mots_titre = mots(rec.get("title", ""))
+        if mots(person.surname) and mots(person.surname) <= mots_titre:
             concordances.append("nom")
-        if lieu_arbre and norm_nom(lieu_arbre) in norm_nom(titre):
+        elif lieu_arbre and mots(lieu_arbre) <= mots_titre:
             concordances.append("lieu")
+        if date_concordante(person, rec):
+            concordances.append("date complète")
         pistes.append(Piste(
             gramps_id=person.gramps_id, handle=person.handle,
             source="gallica", identite=identite, identite_derivee=False,
@@ -928,11 +1019,12 @@ Ajouter aux ré-exports de `pistes/__init__.py` :
 
 ```python
 from crewai_custom_tools.tools.genealogy.pistes.gallica import (
-    ark_de, fenetre_vie, personne_eligible, pistes_gallica, requete_gallica,
+    ark_de, date_concordante, dates_du_texte, fenetre_vie, personne_eligible,
+    pistes_gallica, requete_gallica,
 )
 ```
 
-et à `__all__` : `"ark_de", "fenetre_vie", "personne_eligible", "pistes_gallica", "requete_gallica"`.
+et à `__all__` : `"ark_de", "date_concordante", "dates_du_texte", "fenetre_vie", "personne_eligible", "pistes_gallica", "requete_gallica"`.
 
 - [ ] **Step 4: Lancer les tests**
 
