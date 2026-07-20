@@ -15,11 +15,12 @@
 - **Coordonnées WGS84 décimales.** `centre` de geo.api.gouv.fr est du GeoJSON `[lon, lat]` ; `P625` de Wikidata est du WKT `Point(lon lat)`. **Longitude d'abord dans les deux cas.**
 - Date de dissolution retenue : `1972-12-31` (Wikidata `P576`, précision jour). Format des qualificatifs : `avant YYYY-MM-DD` / `après YYYY-MM-DD` — c'est ce qu'attend `date_qualifier_to_gramps_date`.
 - Jamais de date inventée : sources discordantes ou `P576` absent → une seule chaîne non datée.
-- Version de la bibliothèque : `0.17.0` → `0.19.0`. (`0.18.0` est déjà pris par la branche
-  en vol `feat/export-missing-tools` ; on l'enjambe pour rester fusionnable dans n'importe
-  quel ordre.)
+- Version de la bibliothèque : `0.18.0` → `0.19.0`. (`feat/export-missing-tools` a été
+  **fusionnée dans `main`** pendant la Task 1 et y a posé `0.18.0` ; la branche a donc été
+  rebasée sur `main` et part maintenant de cette version.)
 - Branches déjà créées, **une par dépôt, toutes deux nommées `feat/resolveur-ex-communes`** :
-  celle de `crewai_custom_tools` part de `main` (217a4b8), celle de `genecrew` est en place.
+  celle de `crewai_custom_tools` est rebasée sur `main` (base `d58b087`), celle de `genecrew`
+  est en place.
   Ne travailler sur `main` dans aucun des deux.
 - `genecrew` dépend de la bibliothèque en **editable par chemin**, sans version épinglée :
   c'est la branche *checked out* dans `../crewai_custom_tools` qui fait foi. Ne pas en
@@ -950,7 +951,7 @@ Attendu : `Bourges 18033 geo.api.gouv.fr 1` — une seule chaîne, source inchan
 
 - [ ] **Step 3: Bump de version et commit**
 
-Dans `crewai_custom_tools/pyproject.toml`, ligne 7 : `version = "0.17.0"` → `version = "0.19.0"`.
+Dans `crewai_custom_tools/pyproject.toml`, ligne 7 : `version = "0.18.0"` → `version = "0.19.0"`.
 
 ```bash
 cd /Users/fjacquet/Projects/crewai_custom_tools
