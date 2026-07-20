@@ -55,6 +55,14 @@ par un empilement de faibles (voir `apparier`)."""
 
 SEUIL_RARETE = 0.02
 
+FENETRE_ANNEE_APPROX = 2
+"""Écart d'années toléré pour le facteur faible « année approximative ».
+
+Nommé plutôt qu'écrit en dur : une année déduite d'un âge au décès (« 73 ans »)
+se décale d'un an selon que l'anniversaire est passé ou non, et les relevés
+eux-mêmes arrondissent. Deux ans absorbent ce jeu sans rapprocher des
+générations différentes."""
+
 
 class PersonneLiee(BaseModel):
     """Une personne citée par le relevé sans en être le sujet."""
@@ -171,10 +179,20 @@ def _date_iso(ev: EventFact | None) -> str:
     exactement ce qui sépare le facteur fort « date complète » du facteur faible
     « année approximative ».
 
-    `modifier == 6` (date en texte libre) est écarté : elle n'est comparable ni
-    comme concordance ni comme divergence.
+    Seul `modifier == 0` (date EXACTE) est accepté. La sémantique Gramps est
+    `0 exact, 1 before, 2 after, 3 about, 4 range, 5 span, 6 text` : dans tous
+    les autres cas la source ne s'engage pas sur le jour exact. En tirer le
+    facteur fort « date complète » — ou pire un veto s'il diffère — affirmerait
+    une précision que le document ne donne pas, et c'est exactement ce qui
+    inscrirait une fausseté dans l'arbre.
+
+    Le cas des intervalles (4) et durées (5) est le plus traître : Gramps y met
+    DEUX dates dans `dateval` (huit éléments), si bien qu'un garde de longueur
+    ne suffit pas — les trois premières composantes se lisent comme une date
+    exacte alors qu'elles ne sont qu'une borne. Filtrer sur `modifier` couvre
+    ce cas comme les autres.
     """
-    if ev is None or ev.modifier == 6 or len(ev.dateval) < 3:
+    if ev is None or ev.modifier != 0 or len(ev.dateval) < 3:
         return ""
     jour, mois, annee = ev.dateval[0], ev.dateval[1], ev.dateval[2]
     if not (jour and mois and annee):
@@ -234,9 +252,16 @@ def facteurs_et_divergences(
     if _normaliser(person.given) == _normaliser(releve.sujet_prenom):
         facteurs.append("prénom")
 
-    annee_arbre = person.birth.year if person.birth else None
-    if releve.naissance_estimee and annee_arbre:
-        if abs(annee_arbre - releve.naissance_estimee) <= 2:
+    # Même exigence, plus lâche d'un cran : une année n'est comparable à ±2 que
+    # si la source la donne (0 = exact) ou l'approche (3 = about). « Avant
+    # 1821 » (1), « après » (2) ou un intervalle (4/5) ne désignent aucune
+    # année en particulier — les compter reviendrait à fabriquer une
+    # concordance à partir d'une borne.
+    naissance = person.birth
+    if naissance is not None and naissance.modifier in (0, 3):
+        annee_arbre = naissance.year
+        if (releve.naissance_estimee and annee_arbre
+                and abs(annee_arbre - releve.naissance_estimee) <= FENETRE_ANNEE_APPROX):
             facteurs.append("année approximative")
 
     parents_arbre = {_normaliser(n) for n in parents_par_handle.get(person.handle, [])}

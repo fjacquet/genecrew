@@ -242,6 +242,67 @@ def test_date_texte_n_est_ni_concordance_ni_divergence():
     assert a.divergences == []
 
 
+def test_date_approximative_n_est_pas_une_date_complete():
+    """modifier==3 (« vers le 10 décembre 1894 ») : la source ne s'engage pas
+    sur le jour. En tirer le facteur FORT « date complète » (5 points)
+    affirmerait une précision que le document ne donne pas — et c'est
+    exactement ce qui inscrirait une fausseté dans l'arbre."""
+    p = _mort(_p("I1", "JACQUET", "Rose"), 10, 12, 1894, "Saint-Martin-d'Auxigny")
+    p.death.modifier = 3
+    a = apparier(ROSE, [p], {"JACQUET": 0.75}, {})
+    assert "date complète" not in a.facteurs
+    assert a.divergences == []
+    assert "lieu" in a.facteurs         # le candidat reste éligible
+
+
+def test_date_approximative_divergente_n_est_pas_un_veto():
+    """Symétrique du test précédent : une date approximative qui diffère ne
+    peut pas non plus contredire, sans quoi un « vers 1901 » écarterait un bon
+    candidat sur une précision que la source n'a jamais affirmée."""
+    p = _mort(_p("I1", "JACQUET", "Rose"), 2, 3, 1901, "Saint-Martin-d'Auxigny")
+    p.death.modifier = 3
+    a = apparier(ROSE, [p], {"JACQUET": 0.75}, {})
+    assert a.divergences == []
+    assert a.verdict != "aucun"
+
+
+def test_intervalle_de_dates_n_est_pas_une_date_complete():
+    """Pour un intervalle (modifier 4) ou une durée (5), Gramps met DEUX dates
+    dans `dateval` : huit éléments. Le garde `len(dateval) < 3` passe et les
+    trois premières composantes se lisent comme une date exacte — on
+    affirmerait « le 10/12/1894 » là où la source dit « entre le 10/12/1894 et
+    le 02/03/1901 »."""
+    p = _p("I1", "JACQUET", "Rose")
+    p.death = _ev("Death", lieu="Saint-Martin-d'Auxigny", modifier=4,
+                  dateval=[10, 12, 1894, False, 2, 3, 1901, False])
+    a = apparier(ROSE, [p], {"JACQUET": 0.75}, {})
+    assert "date complète" not in a.facteurs
+    assert a.divergences == []
+    assert "lieu" in a.facteurs
+
+
+def test_annee_approximative_exige_une_date_exacte_ou_about():
+    """« avant 1821 » (modifier 1) n'est pas une année comparable à ±2 : la
+    source ne dit pas quelle année, elle dit une borne."""
+    p = _p("I1", "JACQUET", "Rose")
+    p.death = _ev("Death", lieu="Saint-Martin-d'Auxigny")
+    p.birth = _ev("Birth", annee=1821, modifier=1)
+    a = apparier(ROSE, [p], {"JACQUET": 0.75}, {})
+    assert "année approximative" not in a.facteurs
+    assert "lieu" in a.facteurs         # le candidat reste éligible
+
+
+def test_annee_about_reste_une_annee_approximative():
+    """modifier==3 (« vers 1821 ») est précisément ce que le facteur FAIBLE
+    « année approximative » est fait pour accueillir — il ne doit pas être
+    écarté avec les bornes et les intervalles."""
+    p = _p("I1", "JACQUET", "Rose")
+    p.death = _ev("Death", lieu="Saint-Martin-d'Auxigny")
+    p.birth = _ev("Birth", annee=1821, modifier=3)
+    a = apparier(ROSE, [p], {"JACQUET": 0.75}, {})
+    assert "année approximative" in a.facteurs
+
+
 def test_facteurs_faibles_seuls_ne_font_jamais_un_net():
     p = _p("I1", "JACQUET", "Rose")          # ni date ni lieu : prénom + année seuls
     p.birth = _ev("Birth", annee=1821, modifier=3)      # 3 = about
