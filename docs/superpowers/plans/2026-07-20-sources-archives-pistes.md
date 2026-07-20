@@ -2,7 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Alimenter le contrat `Piste` (cct 0.20.0) par trois sources d'archives — Wikidata, le DHS (via P902) et Gallica — exposées par trois feuilles CLI `propose wikidata|dhs|gallica`.
+**Goal:** Alimenter le contrat `Piste` (cct 0.20.0) par Wikidata et le DHS (via P902), exposés par deux feuilles CLI `propose wikidata|dhs`.
+
+> **Gallica reporté en sous-projet (décision du 2026-07-20).** `pistes/gallica.py` est livré et testé (Task 5) mais **aucune feuille CLI ne l'expose** : mesuré contre l'API réelle, le SRU de Gallica rend des notices de collection, pas des articles. L'API adéquate — `services/ContentSearch`, qui rend des passages avec numéro de page — impose une conception à deux étapes. Voir `docs/BACKLOG.md`.
 
 **Architecture:** Un paquet `genealogy/pistes/` dans `crewai_custom_tools` regroupe une fonction **pure** par source (`pistes_<source>(person, resultats) -> list[Piste]`), sans aucun appel réseau — la collecte reste dans les outils existants (`WikidataSparqlTool`/`sparql_rows`, `GallicaSearchTool`/`parse_sru`). `piste_depuis_match` y déménage depuis genecrew. Côté genecrew, trois feuilles réutilisent tel quel `consigner()` et `render_rapport_pistes()`.
 
@@ -142,7 +144,8 @@ deux événements, les autres viennent de extended.events."
 - Create: `/Users/fjacquet/Projects/crewai_custom_tools/src/crewai_custom_tools/tools/genealogy/pistes/__init__.py`
 - Create: `/Users/fjacquet/Projects/crewai_custom_tools/src/crewai_custom_tools/tools/genealogy/pistes/matchid.py`
 - Create: `/Users/fjacquet/Projects/crewai_custom_tools/tests/test_genealogy_pistes_matchid.py`
-- Modify: `/Users/fjacquet/Projects/genecrew/genecrew/src/genecrew/deces.py` (retirer `piste_depuis_match` et `_norm_nom`, importer depuis la bibliothèque)
+- Modify: `/Users/fjacquet/Projects/genecrew/genecrew/src/genecrew/deces.py` (retirer `piste_depuis_match` et `_norm_nom`)
+- Modify: `/Users/fjacquet/Projects/genecrew/genecrew/tests/test_deces_pistes.py` (importer `pistes_matchid` depuis la bibliothèque ; assertions inchangées)
 
 **Interfaces:**
 - Consumes: `EventFact.place` (Task 1) — non utilisé ici, mais le paquet en dépend pour les tâches suivantes.
@@ -303,18 +306,17 @@ Expected: PASS (6 tests)
 
 - [ ] **Step 5: Retirer le doublon de genecrew**
 
-Dans `/Users/fjacquet/Projects/genecrew/genecrew/src/genecrew/deces.py` : **supprimer** les fonctions `_norm_nom` et `piste_depuis_match`, et remplacer l'usage local de `event_iso`/`first_given` par l'import bibliothèque. Ajouter en tête des imports :
+Dans `/Users/fjacquet/Projects/genecrew/genecrew/src/genecrew/deces.py` : **supprimer** les fonctions `_norm_nom` et `piste_depuis_match`.
+
+**Aucun alias de compatibilité** : vérifié, `piste_depuis_match` n'a qu'un seul consommateur, son propre fichier de tests (`run_deces` ne l'appelle pas). Un alias serait du code mort.
+
+Migrer donc `genecrew/tests/test_deces_pistes.py` — remplacer son import :
 
 ```python
 from crewai_custom_tools.tools.genealogy.pistes import pistes_matchid
 ```
 
-Garder un alias rétro-compatible juste après les imports, pour que les appelants existants ne cassent pas :
-
-```python
-# Le nom historique, conservé le temps que les appelants migrent.
-piste_depuis_match = pistes_matchid
-```
+et les trois appels `piste_depuis_match(...)` par `pistes_matchid(...)`. **Ne toucher à aucune assertion** : c'est ce qui prouve que le déménagement n'a rien changé au comportement.
 
 **Ne pas** supprimer les fonctions `event_iso` et `first_given` locales de `deces.py` si d'autres fonctions du module les utilisent — vérifier d'abord :
 
@@ -346,10 +348,10 @@ norm_nom et event_iso sont exposés : les sources suivantes en ont besoin."
 
 ```bash
 cd /Users/fjacquet/Projects/genecrew
-git add genecrew/src/genecrew/deces.py
+git add genecrew/src/genecrew/deces.py genecrew/tests/test_deces_pistes.py
 git commit -m "refactor(deces): consommer pistes_matchid depuis la bibliothèque
 
-Alias piste_depuis_match conservé le temps que les appelants migrent."
+Aucun alias : la fonction n'avait qu'un consommateur, son test."
 ```
 
 ---
@@ -384,9 +386,47 @@ def _person(surname="Dupont", given="Jean", dateval=None, place_name="Montbélia
                        surname=surname, given=given, sex="M", birth=birth)
 
 
-def test_requete_contient_le_nom_et_est_rejouable():
+def test_requete_passe_par_le_service_indexe_pas_par_un_filtre():
+    # Un FILTER(CONTAINS(...)) sur rdfs:label balaie les ~10 M d'humains de
+    # Wikidata et rend 504 après 65 s — mesuré. La recherche DOIT être indexée.
     q = requete_wikidata(_person())
     assert "Dupont" in q and "SELECT" in q.upper()
+    assert "EntitySearch" in q and "wikibase:mwapi" in q
+    assert "CONTAINS" not in q.upper()
+
+
+def test_roy_ne_correspond_pas_a_leroy():
+    """Le faux positif qui motive la comparaison par mots entiers."""
+    person = _person(surname="Roy", given="Silvain")
+    rows = [{"item": "http://www.wikidata.org/entity/Q99", "itemLabel": "Silvain Leroy",
+             "birthDate": "1677-07-15T00:00:00Z", "birthPlaceLabel": "Montbéliard"}]
+    assert "nom" not in pistes_wikidata(person, rows)[0].concordances
+
+
+def test_prenom_en_liste_a_virgules_correspond_au_prenom_d_usage():
+    # 20 % de l'arbre : 'Marcel, Hubert, Andre' = trois prénoms, pas un composé.
+    person = _person(surname="Soulat", given="Marcel, Hubert, Andre")
+    rows = [{"item": "http://www.wikidata.org/entity/Q99", "itemLabel": "Marcel Soulat",
+             "birthDate": "1677-07-15T00:00:00Z", "birthPlaceLabel": "Montbéliard"}]
+    assert "nom" in pistes_wikidata(person, rows)[0].concordances
+
+
+def test_trait_d_union_eclate_correspond_a_la_forme_espacee():
+    # Cas réel vérifié : la recherche 'Guillaume-Henri Dufour' rend le libellé
+    # Wikidata 'Guillaume Henri Dufour'. Sans éclatement, vrai positif perdu.
+    person = _person(surname="Dufour", given="Guillaume-Henri")
+    rows = [{"item": "http://www.wikidata.org/entity/Q99",
+             "itemLabel": "Guillaume Henri Dufour",
+             "birthDate": "1677-07-15T00:00:00Z", "birthPlaceLabel": "Montbéliard"}]
+    assert "nom" in pistes_wikidata(person, rows)[0].concordances
+
+
+def test_accents_ne_font_pas_diverger_les_prenoms():
+    # L'arbre porte 'Andre' comme 'André' : norm_nom les rejoint.
+    person = _person(surname="Soulat", given="Andre")
+    rows = [{"item": "http://www.wikidata.org/entity/Q99", "itemLabel": "André Soulat",
+             "birthDate": "1677-07-15T00:00:00Z", "birthPlaceLabel": "Montbéliard"}]
+    assert "nom" in pistes_wikidata(person, rows)[0].concordances
 
 
 def test_piste_forte_nom_date_complete_et_lieu():
@@ -446,18 +486,47 @@ peut en tirer plusieurs facteurs distincts. Réserve connue : Wikidata ne décri
 que des personnes notables, le rendement sur un arbre ordinaire sera faible.
 """
 
+import re
+
 from crewai_custom_tools.tools.genealogy.models.domain import PersonFacts, Piste
 from crewai_custom_tools.tools.genealogy.pistes.matchid import event_iso, norm_nom
 
+# La recherche passe par le service INDEXÉ (mwapi/EntitySearch), jamais par un
+# FILTER(CONTAINS(…)) sur rdfs:label : mesuré, ce dernier balaie les ~10 M d'humains
+# de Wikidata et rend 504 Gateway Timeout après 65 s sur le point d'accès public.
+# La version ci-dessous répond en ~0,9 s. Vérifiée en direct, pas supposée.
 _SPARQL = """SELECT ?item ?itemLabel ?birthDate ?birthPlaceLabel ?p902 WHERE {{
-  ?item wdt:P31 wd:Q5 ;
-        rdfs:label ?label .
-  FILTER(CONTAINS(LCASE(?label), LCASE("{nom}")))
+  SERVICE wikibase:mwapi {{
+    bd:serviceParam wikibase:api "EntitySearch" .
+    bd:serviceParam wikibase:endpoint "www.wikidata.org" .
+    bd:serviceParam mwapi:search "{nom}" .
+    bd:serviceParam mwapi:language "fr" .
+    bd:serviceParam mwapi:limit 25 .
+    ?item wikibase:apiOutputItem mwapi:item .
+  }}
+  ?item wdt:P31 wd:Q5 .
   OPTIONAL {{ ?item wdt:P569 ?birthDate . }}
   OPTIONAL {{ ?item wdt:P19 ?birthPlace . }}
   OPTIONAL {{ ?item wdt:P902 ?p902 . }}
   SERVICE wikibase:label {{ bd:serviceParam wikibase:language "fr,de,en". }}
 }} LIMIT 25"""
+
+_SEPARATEURS = re.compile(r"[,\-\s]+")
+
+
+def mots(valeur: str) -> set[str]:
+    """Découpe un nom en mots normalisés : virgules, espaces ET traits d'union.
+
+    Mesuré sur l'arbre : 79 % des prénoms sont simples, 20 % sont des LISTES
+    séparées par des virgules ('Marcel, Hubert, Andre' = trois prénoms distincts,
+    pas un composé), 1 % portent un trait d'union ('Georges-Frédéric').
+
+    Le trait d'union est éclaté volontairement : Wikidata répond
+    'Guillaume Henri Dufour' à une recherche 'Guillaume-Henri Dufour' — vérifié.
+    Sans éclatement, ce vrai positif serait perdu. Le patronyme devant lui aussi
+    correspondre, la permissivité sur le prénom ne coûte rien.
+    """
+    return {norm_nom(m) for m in _SEPARATEURS.split(valeur or "") if m.strip()}
 
 
 def requete_wikidata(person: PersonFacts) -> str:
@@ -484,8 +553,14 @@ def pistes_wikidata(person: PersonFacts, resultats: list[dict]) -> list[Piste]:
         concordances: list[str] = []
         divergences: list[str] = []
 
-        label = row.get("itemLabel", "")
-        if label and norm_nom(person.surname) in norm_nom(label):
+        # Comparaison par MOTS ENTIERS des deux côtés, jamais par sous-chaîne :
+        # `norm_nom(surname) in norm_nom(label)` ferait correspondre « Roy » à
+        # « LEROY » et fabriquerait des pistes fortes fausses — or une piste forte
+        # est ÉCRITE dans l'arbre, une faible reste dans le rapport.
+        # On exige le patronyme ET au moins un prénom commun.
+        mots_label = mots(row.get("itemLabel", ""))
+        if mots_label and mots(person.surname) <= mots_label and (
+                mots(person.given) & mots_label):
             concordances.append("nom")
 
         # wdt:P569 rend un dateTime complet quelle que soit la précision réelle ;
@@ -516,13 +591,14 @@ Ajouter aux ré-exports de `pistes/__init__.py` :
 
 ```python
 from crewai_custom_tools.tools.genealogy.pistes.wikidata import (
+    mots,
     pistes_wikidata,
     q_item,
     requete_wikidata,
 )
 ```
 
-et à `__all__` : `"pistes_wikidata", "q_item", "requete_wikidata"`.
+et à `__all__` : `"mots", "pistes_wikidata", "q_item", "requete_wikidata"`.
 
 - [ ] **Step 4: Lancer les tests**
 
@@ -681,6 +757,8 @@ Gallica ne sert pas à *retrouver* une personne mais à *contextualiser* une per
   - `personne_eligible(person: PersonFacts) -> bool` — vraie si la date de naissance **et** le lieu sont connus.
   - `requete_gallica(person: PersonFacts) -> str` — la requête CQL exacte, rejouable.
   - `fenetre_vie(person: PersonFacts) -> tuple[int, int]` — `(année_min, année_max)`. Sans décès, `année_max = année_naissance + 105` (la borne de R2).
+  - `dates_du_texte(texte: str) -> set[str]` — toutes les dates COMPLÈTES en ISO ; une année seule n'est jamais rendue.
+  - `date_concordante(person: PersonFacts, rec: dict) -> bool` — le titre porte-t-il une date complète égale à la naissance ou au décès.
   - `pistes_gallica(person: PersonFacts, resultats: list[dict]) -> list[Piste]` — `resultats` = la clé `records` de `parse_sru()`, soit des `{"title", "creator", "date", "type", "url"}`.
 
 - [ ] **Step 1: Écrire le test qui échoue**
@@ -690,7 +768,7 @@ Créer `tests/test_genealogy_pistes_gallica.py` :
 ```python
 from crewai_custom_tools.tools.genealogy.models.domain import EventFact, PersonFacts
 from crewai_custom_tools.tools.genealogy.pistes import (
-    fenetre_vie, personne_eligible, pistes_gallica, requete_gallica,
+    dates_du_texte, fenetre_vie, personne_eligible, pistes_gallica, requete_gallica,
 )
 
 
@@ -748,6 +826,41 @@ def test_resultat_dans_la_fenetre_donne_une_piste_faible():
     assert p.force == "faible"
 
 
+def test_nom_et_lieu_dans_le_meme_titre_ne_font_qu_un_facteur():
+    """Le titre est UNE preuve. Sans cette règle, « Le Journal de Montbéliard »
+    rendrait FORTE une piste pour un Dupont né à Montbéliard — donc écrite
+    dans l'arbre — sans qu'aucune identité n'ait été vérifiée."""
+    records = [{"title": "Dupont et le Journal de Montbéliard", "creator": "",
+                "date": "1935", "type": "text",
+                "url": "https://gallica.bnf.fr/ark:/12148/bpt6k1"}]
+    p = pistes_gallica(_person(deces_annee=1970), records)[0]
+    assert len(set(p.concordances)) == 1
+    assert p.force == "faible"
+
+
+def test_titre_portant_la_date_complete_atteint_forte():
+    records = [{"title": "Dupont — acte du 14 juillet 1900", "creator": "",
+                "date": "1935", "type": "text",
+                "url": "https://gallica.bnf.fr/ark:/12148/bpt6k1"}]
+    p = pistes_gallica(_person(deces_annee=1970), records)[0]
+    assert set(p.concordances) == {"nom", "date complète"}
+    assert p.force == "forte"
+
+
+def test_roy_ne_correspond_pas_a_leroy_dans_un_titre():
+    person = _person(dateval=[14, 7, 1900, False], place_name="Montbéliard")
+    person.surname = "Roy"
+    records = [{"title": "Le Leroy de Belfort", "creator": "", "date": "1935",
+                "type": "text", "url": "https://gallica.bnf.fr/ark:/12148/bpt6k1"}]
+    assert pistes_gallica(person, records)[0].concordances == []
+
+
+def test_annee_seule_dans_le_titre_n_est_pas_une_date():
+    assert dates_du_texte("Le Journal de 1900") == set()
+    assert dates_du_texte("acte du 14/07/1900") == {"1900-07-14"}
+    assert dates_du_texte("acte du 1900-07-14") == {"1900-07-14"}
+
+
 def test_personne_ineligible_ne_produit_rien():
     records = [{"title": "Le Journal", "creator": "", "date": "1935",
                 "type": "text", "url": "https://gallica.bnf.fr/ark:/12148/bpt6k1"}]
@@ -781,6 +894,7 @@ import re
 
 from crewai_custom_tools.tools.genealogy.models.domain import PersonFacts, Piste
 from crewai_custom_tools.tools.genealogy.pistes.matchid import event_iso, norm_nom
+from crewai_custom_tools.tools.genealogy.pistes.wikidata import mots
 
 _AGE_MAX = 105  # la borne de R2 : au-delà, l'audit signale déjà une anomalie
 _ARK = re.compile(r"(ark:/\d+/[A-Za-z0-9]+)")
@@ -818,6 +932,50 @@ def _annee(valeur: str) -> int | None:
     return int(trouve.group(0)) if trouve else None
 
 
+_MOIS = {
+    "janvier": 1, "fevrier": 2, "mars": 3, "avril": 4, "mai": 5, "juin": 6,
+    "juillet": 7, "aout": 8, "septembre": 9, "octobre": 10, "novembre": 11,
+    "decembre": 12,
+}
+_DATE_NUM = re.compile(r"\b(\d{1,2})[/-](\d{1,2})[/-](\d{4})\b")
+_DATE_ISO = re.compile(r"\b(\d{4})-(\d{2})-(\d{2})\b")
+_DATE_TXT = re.compile(r"\b(\d{1,2})\s+([A-Za-zÉÛéûàç]+)\s+(\d{4})\b")
+
+
+def dates_du_texte(texte: str) -> set[str]:
+    """Toutes les dates COMPLÈTES d'un texte, en ISO. Pure.
+
+    Trois formes rencontrées dans les titres de presse : « 14/07/1900 »,
+    « 1900-07-14 » et « 14 juillet 1900 ». Une année seule n'est jamais
+    rendue — elle ne constitue pas une date (règle cardinale du projet).
+    """
+    trouvees: set[str] = set()
+    for j, m, a in _DATE_NUM.findall(texte or ""):
+        trouvees.add(f"{int(a):04d}-{int(m):02d}-{int(j):02d}")
+    for a, m, j in _DATE_ISO.findall(texte or ""):
+        trouvees.add(f"{int(a):04d}-{int(m):02d}-{int(j):02d}")
+    for j, mot, a in _DATE_TXT.findall(texte or ""):
+        mois = _MOIS.get(norm_nom(mot).lower())
+        if mois:
+            trouvees.add(f"{int(a):04d}-{mois:02d}-{int(j):02d}")
+    return trouvees
+
+
+def date_concordante(person: PersonFacts, rec: dict) -> bool:
+    """Le titre porte-t-il une date complète égale à la naissance ou au décès ?
+
+    C'est le SEUL moyen pour une piste Gallica d'atteindre « forte » : le titre
+    ne fournissant qu'un facteur (voir `pistes_gallica`), il en faut un second,
+    et seule une date complète en est un. En pratique un titre de presse en
+    porte rarement une — c'est assumé : la presse contextualise, elle n'identifie pas.
+    """
+    du_titre = dates_du_texte(rec.get("title", ""))
+    if not du_titre:
+        return False
+    attendues = {event_iso(person.birth), event_iso(person.death)}
+    return bool(du_titre & {d for d in attendues if len(d) == 10})
+
+
 def pistes_gallica(person: PersonFacts, resultats: list[dict]) -> list[Piste]:
     """Une piste par enregistrement SRU retenu. N'écrit rien, ne conclut rien."""
     if not personne_eligible(person):
@@ -834,12 +992,21 @@ def pistes_gallica(person: PersonFacts, resultats: list[dict]) -> list[Piste]:
         annee = _annee(rec.get("date", ""))
         if annee is None or not (debut <= annee <= fin):
             continue
+        # Le titre est UNE preuve, pas deux. `nom` et `lieu` en sont tous deux
+        # extraits : les compter séparément ferait basculer « Le Journal de
+        # Montbéliard » en piste FORTE pour un Dupont né à Montbéliard — donc
+        # écrite dans l'arbre — sans qu'aucune identité n'ait été vérifiée.
+        # Le titre ne contribue donc qu'un seul facteur ; seule une date
+        # complète concordante peut en apporter un second.
+        # Comparaison par MOTS ENTIERS, jamais par sous-chaîne (« Roy »/« LEROY »).
         concordances: list[str] = []
-        titre = rec.get("title", "")
-        if norm_nom(person.surname) in norm_nom(titre):
+        mots_titre = mots(rec.get("title", ""))
+        if mots(person.surname) and mots(person.surname) <= mots_titre:
             concordances.append("nom")
-        if lieu_arbre and norm_nom(lieu_arbre) in norm_nom(titre):
+        elif lieu_arbre and mots(lieu_arbre) <= mots_titre:
             concordances.append("lieu")
+        if date_concordante(person, rec):
+            concordances.append("date complète")
         pistes.append(Piste(
             gramps_id=person.gramps_id, handle=person.handle,
             source="gallica", identite=identite, identite_derivee=False,
@@ -854,11 +1021,12 @@ Ajouter aux ré-exports de `pistes/__init__.py` :
 
 ```python
 from crewai_custom_tools.tools.genealogy.pistes.gallica import (
-    ark_de, fenetre_vie, personne_eligible, pistes_gallica, requete_gallica,
+    ark_de, date_concordante, dates_du_texte, fenetre_vie, personne_eligible,
+    pistes_gallica, requete_gallica,
 )
 ```
 
-et à `__all__` : `"ark_de", "fenetre_vie", "personne_eligible", "pistes_gallica", "requete_gallica"`.
+et à `__all__` : `"ark_de", "date_concordante", "dates_du_texte", "fenetre_vie", "personne_eligible", "pistes_gallica", "requete_gallica"`.
 
 - [ ] **Step 4: Lancer les tests**
 
@@ -934,7 +1102,7 @@ Expected: le tag `v0.21.0` existe sur le distant.
 - Create: `/Users/fjacquet/Projects/genecrew/genecrew/tests/test_archives.py`
 
 **Interfaces:**
-- Consumes: `pistes_wikidata`, `pistes_dhs`, `pistes_gallica`, `requete_wikidata`, `personne_eligible` (bibliothèque 0.21.0) ; `consigner(client, piste, *, dry_run)` et `render_rapport_pistes(pistes, date, *, dry_run)` (`genecrew.pistes`, déjà livrés).
+- Consumes: `pistes_wikidata`, `pistes_dhs`, `requete_wikidata` (bibliothèque 0.21.0) ; `consigner(client, piste, *, dry_run)` et `render_rapport_pistes(pistes, date, *, dry_run)` (`genecrew.pistes`, déjà livrés).
 - Produces: `run_archives(client, source, scope, output_dir, *, date, batch_size=25, limit=None, dry_run=False) -> Path` — rend le chemin du rapport Markdown.
 
 - [ ] **Step 1: Synchroniser la dépendance**
@@ -957,7 +1125,7 @@ import pytest
 from genecrew.cli import build_parser
 
 
-@pytest.mark.parametrize("cible", ["wikidata", "dhs", "gallica"])
+@pytest.mark.parametrize("cible", ["wikidata", "dhs"])
 def test_propose_accepte_les_trois_sources_d_archives(cible):
     args = build_parser().parse_args(["propose", cible, "--scope", "all"])
     assert args.command == "propose" and args.target == cible
@@ -991,11 +1159,6 @@ Dans `cli.py`, après la feuille `gender` du bloc `propose` :
     _add_batch(p)
     _add_date(p)
 
-    p = propose_sub.add_parser(
-        "gallica", help="Pistes Gallica — presse ; personnes déjà datées ET localisées")
-    _add_scope(p)
-    _add_batch(p)
-    _add_date(p)
 ```
 
 - [ ] **Step 5: Lancer le test du parseur**
@@ -1029,12 +1192,12 @@ def test_collecter_wikidata_traduit_les_lignes_sparql(mocker):
     assert pistes[0].force == "forte"
 
 
-def test_collecter_gallica_saute_une_personne_ineligible(mocker):
-    appel = mocker.patch("genecrew.archives.chercher_gallica", return_value=[])
-    person = _person()
-    person.birth.place_name = ""          # plus de lieu -> inéligible
-    assert collecter_pistes("gallica", person) == []
-    appel.assert_not_called()             # on n'interroge même pas l'API
+def test_gallica_n_est_pas_une_source_exposee():
+    """Livrée dans la bibliothèque mais pas branchée : son SRU rend des notices
+    de collection, pas des articles. Voir docs/BACKLOG.md."""
+    import pytest
+    with pytest.raises(ValueError, match="source inconnue"):
+        collecter_pistes("gallica", _person())
 
 
 def test_source_inconnue_leve():
@@ -1051,7 +1214,7 @@ Expected: FAIL — `ModuleNotFoundError: No module named 'genecrew.archives'`
 - [ ] **Step 8: Écrire `archives.py`**
 
 ```python
-"""Orchestration des sources d'archives en ligne : Wikidata, DHS, Gallica.
+"""Orchestration des sources d'archives en ligne : Wikidata et DHS.
 
 Ce module fait le RÉSEAU et la boucle ; la traduction en Piste est pure et vit
 dans la bibliothèque (crewai_custom_tools.tools.genealogy.pistes).
@@ -1064,38 +1227,26 @@ import logging
 from datetime import date as _date
 from pathlib import Path
 
-import requests
 from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient
 from crewai_custom_tools.tools.genealogy.gramps.facts import FactsFetcher
 from crewai_custom_tools.tools.genealogy.models.domain import PersonFacts, Piste
 from crewai_custom_tools.tools.genealogy.pistes import (
-    personne_eligible,
     pistes_dhs,
-    pistes_gallica,
     pistes_wikidata,
-    requete_gallica,
     requete_wikidata,
 )
-from crewai_custom_tools.tools.web.gallica import SRU_ENDPOINT, USER_AGENT, parse_sru
 from crewai_custom_tools.tools.web.wikidata import sparql_rows
 
 from genecrew.pistes import consigner, render_rapport_pistes
 
 logger = logging.getLogger(__name__)
 
-SOURCES = ("wikidata", "dhs", "gallica")
-
-
-def chercher_gallica(cql: str, max_records: int = 10) -> list[dict]:
-    """Interroge Gallica en SRU et rend les enregistrements. Effet de bord isolé ici."""
-    response = requests.get(
-        SRU_ENDPOINT,
-        params={"operation": "searchRetrieve", "version": "1.2",
-                "query": cql, "maximumRecords": max_records},
-        headers={"User-Agent": USER_AGENT}, timeout=30,
-    )
-    response.raise_for_status()
-    return parse_sru(response.text).get("records", [])
+# Gallica est ABSENTE : mesuré contre l'API réelle, son SRU rend des notices de
+# COLLECTION, pas des articles — « ce nom est quelque part dans ce volume de 500
+# pages » n'est pas une piste. L'API adéquate (services/ContentSearch, qui rend des
+# passages avec numéro de page) impose une conception à deux étapes : sous-projet
+# séparé. `pistes/gallica.py` reste dans la bibliothèque, non exposé. Voir BACKLOG.md.
+SOURCES = ("wikidata", "dhs")
 
 
 def collecter_pistes(source: str, person: PersonFacts) -> list[Piste]:
@@ -1103,12 +1254,6 @@ def collecter_pistes(source: str, person: PersonFacts) -> list[Piste]:
     if source in ("wikidata", "dhs"):
         rows = sparql_rows(requete_wikidata(person))
         return pistes_wikidata(person, rows) if source == "wikidata" else pistes_dhs(person, rows)
-    if source == "gallica":
-        # Filtrer AVANT d'appeler : inutile d'interroger pour une personne
-        # dont on ne pourra rien contextualiser.
-        if not personne_eligible(person):
-            return []
-        return pistes_gallica(person, chercher_gallica(requete_gallica(person)))
     raise ValueError(f"source inconnue : {source}")
 
 
@@ -1162,7 +1307,6 @@ Dans `main.py`, ajouter les trois entrées à la table de dispatch, après `("pr
 ```python
         ("propose", "wikidata"): lambda: archives_cmd(args, "wikidata"),
         ("propose", "dhs"): lambda: archives_cmd(args, "dhs"),
-        ("propose", "gallica"): lambda: archives_cmd(args, "gallica"),
 ```
 
 et définir la fonction, à côté des autres `*_cmd` :
@@ -1193,10 +1337,10 @@ grep -n -A12 'def gender_cmd' genecrew/src/genecrew/main.py
 ```bash
 cd /Users/fjacquet/Projects/genecrew
 uv run genecrew propose --help
-uv run genecrew propose gallica --help
+uv run genecrew propose dhs --help
 ```
 
-Expected: les trois nouvelles cibles apparaissent sous `propose` ; `propose gallica --help` liste `--scope`, `--batch-size`, `--date`.
+Expected: les deux nouvelles cibles apparaissent sous `propose` ; `propose dhs --help` liste `--scope`, `--batch-size`, `--date`.
 
 - [ ] **Step 12: Suite complète et lint**
 
@@ -1215,13 +1359,13 @@ cd /Users/fjacquet/Projects/genecrew
 git add genecrew/src/genecrew/archives.py genecrew/src/genecrew/cli.py \
         genecrew/src/genecrew/main.py genecrew/tests/test_archives.py \
         genecrew/tests/test_cli_parser.py uv.lock
-git commit -m "feat(archives): propose wikidata|dhs|gallica
+git commit -m "feat(archives): propose wikidata|dhs
 
-Trois feuilles sous propose, conformes à l'ADR 0012. L'orchestration
+Deux feuilles sous propose, conformes à l'ADR 0012. L'orchestration
 fait le réseau, la traduction en Piste reste pure côté bibliothèque.
 
-Gallica n'interroge même pas l'API pour une personne sans date complète
-ni lieu : rien à contextualiser."
+Gallica n'est pas exposée : son SRU rend des notices de collection, pas
+des articles. Reportée en sous-projet autour de ContentSearch."
 ```
 
 ---
@@ -1240,11 +1384,11 @@ ni lieu : rien à contextualiser."
 
 - [ ] **Step 1: Mode d'emploi**
 
-Dans `docs/USER_GUIDE.md`, ajouter une section « Pistes depuis les archives en ligne » : les trois commandes, ce que chacune cible (Wikidata = personnes notables, rendement faible mais pistes fortes ; DHS = Suisse, 122 personnes concernées dans l'arbre ; Gallica = presse, uniquement pour des personnes déjà datées et localisées, pistes faibles par construction), et le rappel qu'aucune citation n'est créée. Une phase n'est pas terminée si son mode d'emploi n'y est pas (§11 du document de travail).
+Dans `docs/USER_GUIDE.md`, ajouter une section « Pistes depuis les archives en ligne » : les deux commandes et ce que chacune cible (Wikidata = personnes notables, rendement faible mais seules pistes fortes possibles ; DHS = Suisse entière, 122 personnes concernées dans l'arbre, via la propriété P902), le rappel qu'aucune citation n'est créée, et une phrase disant pourquoi Gallica n'est pas là (renvoi au BACKLOG). Une phase n'est pas terminée si son mode d'emploi n'y est pas (§11 du document de travail).
 
 - [ ] **Step 2: CLAUDE.md**
 
-Mettre à jour la liste des modules de `genecrew/src/genecrew/` pour y ajouter `archives.py`, et la grammaire de la CLI (`propose {audit|places|deaths|military|gender|wikidata|dhs|gallica}`).
+Mettre à jour la liste des modules de `genecrew/src/genecrew/` pour y ajouter `archives.py`, et la grammaire de la CLI (`propose {audit|places|deaths|military|gender|wikidata|dhs}`).
 
 - [ ] **Step 3: ADR 0012**
 
@@ -1297,7 +1441,6 @@ Expected: `gramps-mcp-grampsweb-1` et consorts. Sinon : `cd /Users/fjacquet/Proj
 cd /Users/fjacquet/Projects/genecrew
 uv run genecrew propose wikidata --scope all --limit 50 --dry-run
 uv run genecrew propose dhs --scope all --limit 50 --dry-run
-uv run genecrew propose gallica --scope all --limit 50 --dry-run
 ```
 
 Expected: trois rapports Markdown écrits sous `output/`. **Borner avec `--limit` est impératif** — un run complet interroge des API externes une fois par personne sur 2119 personnes.

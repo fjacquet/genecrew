@@ -363,6 +363,90 @@ sont réversibles via l'historique des transactions Gramps (ADR 0001).
 
 ---
 
+## Pistes depuis les archives en ligne
+
+Interroge des bases externes pour trouver, pour une personne de l'arbre, une fiche qui pourrait
+la concerner ailleurs — jamais un fait : **aucune citation n'est créée** par ces commandes, et
+**elles n'écrivent rien dans l'arbre**. Rangées sous `propose`, elles sont **lecture seule** de
+bout en bout (docs/adr/0012-cli-grammaire-verbes.md) : tout ce qu'elles produisent est le rapport
+Markdown décrit plus bas. Les pistes **fortes** (au moins deux facteurs de concordance distincts,
+aucune divergence) et les **faibles** y figurent toutes les deux, séparément — aucune n'est perdue,
+aucune n'est consignée dans Gramps. Voir le contrat `Piste` (§6.3 du document de travail).
+
+> Historique : une version antérieure consignait les pistes fortes en note append-only taguée
+> `ia-piste`. Ce chemin d'écriture a été retiré — voir « Rendement mesuré » ci-dessous pour
+> pourquoi, et `apply pistes` n'existe pas encore : elle sera ajoutée le jour où une source produit
+> réellement des pistes fortes.
+
+Deux sources, deux feuilles sous `propose` :
+
+- **`propose wikidata`** — interroge Wikidata par son service de recherche indexé. C'est la
+  **seule source structurellement capable de produire des pistes fortes** : ses propriétés sont
+  structurées, donc plusieurs facteurs de concordance distincts (nom, date complète, lieu)
+  peuvent s'aligner sur la même fiche. En contrepartie, réserve honnête : Wikidata ne décrit que
+  des **personnes notables** — sur un arbre de généalogie ordinaire, le rendement sera faible.
+- **`propose dhs`** — le *Dictionnaire historique de la Suisse*. Ce n'est **pas une API** : la
+  propriété Wikidata **P902** porte l'identifiant de l'article DHS sur l'élément Wikidata de la
+  personne, donc cette commande est une projection de `propose wikidata`, pas un protocole
+  distinct. Elle vise la Suisse **entière**, alémanique comprise — 122 personnes de l'arbre sont
+  rattachées à un lieu suisse (contre 9 seulement pour le canton de Vaud, voir plus bas).
+
+```bash
+# Le scan par personne est le mode d'usage normal — le scan complet de l'arbre est l'exception :
+uv run genecrew propose wikidata --scope person:I0042
+uv run genecrew propose dhs --scope person:I0042
+
+# Scan complet, borné avec --limit (voir plus bas pourquoi c'est nécessaire) :
+uv run genecrew propose wikidata --scope all --limit 50
+uv run genecrew propose dhs --scope all --limit 50
+```
+
+Rapport écrit sous `output/` : `<AAAA-MM-JJ>_pistes_<source>_<scope>.md`, pistes fortes et
+faibles séparées, avec pour chacune la requête rejouable et l'URL (ou, à défaut de permalien dans
+la source, une note explicite plutôt qu'un lien mort).
+
+**Ces commandes interrogent une API publique et gratuite, une fois par personne, avec un
+espacement délibéré de 2 secondes entre les appels.** Un scan complet de l'arbre est donc long —
+c'est voulu : c'est de la politesse envers un service partagé, pas une limite technique à
+contourner. Bornez toujours un premier essai avec `--limit`.
+
+Ces deux commandes n'ont pas de flag `--dry-run` : il n'y a rien à simuler, puisqu'elles
+n'écrivent jamais rien.
+
+### Rendement mesuré (2026-07-20, 40 personnes de l'arbre réel)
+
+Mesure en simulation, avant le filtrage à zéro concordance décrit plus haut, puis après :
+
+| Source     | Fortes | Faibles avant filtrage | Faibles après filtrage |
+|------------|--------|-------------------------|-------------------------|
+| Wikidata   | 0      | 21                       | 8                        |
+| DHS        | 0      | 2                        | 1                        |
+
+**Zéro piste forte sur les deux sources.** Et avant le filtrage, 13 des 21 pistes Wikidata ne
+portaient **aucun** facteur de concordance : `EntitySearch` est une recherche floue sur le nom, et
+la version précédente transformait chaque résultat du moteur de recherche en « piste », y compris
+quand rien ne corroborait quoi que ce soit. Le filtrage retient désormais uniquement les lignes où
+au moins un facteur concorde réellement.
+
+**Ces deux sources ne touchent que les personnes ayant une notice documentaire** — fiches
+d'autorité Wikidata, articles du Dictionnaire historique de la Suisse. La plupart des personnes
+d'un arbre de généalogie ordinaire n'en ont pas, d'où le faible rendement même après filtrage.
+En pratique : lancez `propose wikidata`/`propose dhs` sur les **branches où l'on soupçonne un
+ancêtre notable** (magistrat, ecclésiastique, officier, personnalité locale…), pas sur l'arbre
+entier — un scan complet coûte du temps réseau (2 s/personne) pour un rendement qui reste marginal
+hors de ces branches.
+
+**Gallica n'est volontairement pas exposée ici.** Mesurée contre l'API réelle, son protocole SRU
+ne rend que des notices de *collection* (un périodique, pas un article) — une piste dirait « ce
+nom apparaît quelque part dans ce volume de 500 pages », inexploitable en généalogie. L'API
+adéquate (`services/ContentSearch`, qui rend des passages avec numéro de page) impose une
+conception à deux étapes et fera l'objet d'un sous-projet séparé. Détail complet, mesures et
+piste de reprise dans `docs/BACKLOG.md` (section « Sources de pistes écartées »), qui couvre
+aussi Scriptorium (presse vaudoise, écarté pour une cible trop étroite — 9 personnes — et un
+accès programmatique non documenté).
+
+---
+
 ## Phases suivantes
 
 Les sections Phase 1b (interprétation LLM, tags, PDF) à Phase 6 (Archiviste Numérique) seront

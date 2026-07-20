@@ -1,6 +1,5 @@
 from crewai_custom_tools.tools.genealogy.models.domain import EventFact, PersonFacts
-
-from genecrew.deces import piste_depuis_match
+from crewai_custom_tools.tools.genealogy.pistes import pistes_matchid
 
 
 def _personne(**kw):
@@ -19,7 +18,7 @@ _MATCH = {"id": "a1b2c3d4", "name": {"last": "Soulat", "first": ["Kleber"]},
 
 
 def test_nom_et_date_complete_font_une_piste_forte():
-    p = piste_depuis_match(_personne(), _MATCH, "https://deces.matchid.io/id/a1b2c3d4")
+    p = pistes_matchid(_personne(), _MATCH, "https://deces.matchid.io/id/a1b2c3d4")
     assert p.force == "forte"
     assert p.source == "matchid" and p.identite == "a1b2c3d4"
     assert p.identite_derivee is False
@@ -34,6 +33,6 @@ def test_annee_seule_ne_fait_pas_une_piste_forte():
     sans_jour = _personne(birth=EventFact(type="Birth", year=1888, dateval=[]))
     maigre = {"id": "x", "name": {"last": "Soulat", "first": ["Kleber"]},
               "birth": {"date": "1888"}, "death": {"date": "19140926"}}
-    p = piste_depuis_match(sans_jour, maigre, "https://deces.matchid.io/id/x")
+    p = pistes_matchid(sans_jour, maigre, "https://deces.matchid.io/id/x")
     assert p.force == "faible"
     assert "année" in " ".join(p.concordances + p.divergences).lower() or p.concordances == ["nom"]

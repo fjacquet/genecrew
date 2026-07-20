@@ -3,7 +3,7 @@ name = "genecrew"
 version = "0.1.0"
 description = "GeneCrew - équipe d'agents IA pour la généalogie (Gramps Web)"
 authors = [{ name = "Frederic Jacquet" }]
-requires-python = ">=3.11,<3.13"
+requires-python = ">=3.12,<3.13"
 dependencies = [
     "crewai[tools]>=1.15.2",
     "crewai-custom-tools",
