@@ -122,6 +122,16 @@ def test_blocage_vide_quand_le_releve_n_a_pas_de_patronyme():
     assert candidats_blocage(_releve(sujet_nom=""), people) == []
 
 
+def test_blocage_vide_quand_le_patronyme_du_releve_est_blanc():
+    """Un patronyme fait uniquement d'espaces n'est pas non plus une graphie :
+    `_normaliser` le réduit à une chaîne vide, exactement comme une chaîne déjà
+    vide au départ. Si `_normaliser` régressait (espaces mal réduits), ce test
+    est celui qui le détecterait — le test voisin sur la chaîne littéralement
+    vide ne l'aurait pas fait."""
+    people = [_p("I1", "", "Rose"), _p("I2", "JACQUET", "Pierre")]
+    assert candidats_blocage(_releve(sujet_nom="   "), people) == []
+
+
 def test_blocage_ignore_les_personnes_a_patronyme_vide_quand_le_releve_en_a_un():
     """Un relevé au patronyme renseigné ne doit jamais retenir une personne à
     patronyme vide — ce cas passe déjà, mais on le verrouille pour ne pas
