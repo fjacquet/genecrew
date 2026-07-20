@@ -1214,7 +1214,7 @@ Expected: FAIL — `ModuleNotFoundError: No module named 'genecrew.archives'`
 - [ ] **Step 8: Écrire `archives.py`**
 
 ```python
-"""Orchestration des sources d'archives en ligne : Wikidata, DHS, Gallica.
+"""Orchestration des sources d'archives en ligne : Wikidata et DHS.
 
 Ce module fait le RÉSEAU et la boucle ; la traduction en Piste est pure et vit
 dans la bibliothèque (crewai_custom_tools.tools.genealogy.pistes).
@@ -1359,13 +1359,13 @@ cd /Users/fjacquet/Projects/genecrew
 git add genecrew/src/genecrew/archives.py genecrew/src/genecrew/cli.py \
         genecrew/src/genecrew/main.py genecrew/tests/test_archives.py \
         genecrew/tests/test_cli_parser.py uv.lock
-git commit -m "feat(archives): propose wikidata|dhs|gallica
+git commit -m "feat(archives): propose wikidata|dhs
 
-Trois feuilles sous propose, conformes à l'ADR 0012. L'orchestration
+Deux feuilles sous propose, conformes à l'ADR 0012. L'orchestration
 fait le réseau, la traduction en Piste reste pure côté bibliothèque.
 
-Gallica n'interroge même pas l'API pour une personne sans date complète
-ni lieu : rien à contextualiser."
+Gallica n'est pas exposée : son SRU rend des notices de collection, pas
+des articles. Reportée en sous-projet autour de ContentSearch."
 ```
 
 ---
@@ -1384,11 +1384,11 @@ ni lieu : rien à contextualiser."
 
 - [ ] **Step 1: Mode d'emploi**
 
-Dans `docs/USER_GUIDE.md`, ajouter une section « Pistes depuis les archives en ligne » : les trois commandes, ce que chacune cible (Wikidata = personnes notables, rendement faible mais pistes fortes ; DHS = Suisse, 122 personnes concernées dans l'arbre ; Gallica = presse, uniquement pour des personnes déjà datées et localisées, pistes faibles par construction), et le rappel qu'aucune citation n'est créée. Une phase n'est pas terminée si son mode d'emploi n'y est pas (§11 du document de travail).
+Dans `docs/USER_GUIDE.md`, ajouter une section « Pistes depuis les archives en ligne » : les deux commandes et ce que chacune cible (Wikidata = personnes notables, rendement faible mais seules pistes fortes possibles ; DHS = Suisse entière, 122 personnes concernées dans l'arbre, via la propriété P902), le rappel qu'aucune citation n'est créée, et une phrase disant pourquoi Gallica n'est pas là (renvoi au BACKLOG). Une phase n'est pas terminée si son mode d'emploi n'y est pas (§11 du document de travail).
 
 - [ ] **Step 2: CLAUDE.md**
 
-Mettre à jour la liste des modules de `genecrew/src/genecrew/` pour y ajouter `archives.py`, et la grammaire de la CLI (`propose {audit|places|deaths|military|gender|wikidata|dhs|gallica}`).
+Mettre à jour la liste des modules de `genecrew/src/genecrew/` pour y ajouter `archives.py`, et la grammaire de la CLI (`propose {audit|places|deaths|military|gender|wikidata|dhs}`).
 
 - [ ] **Step 3: ADR 0012**
 
