@@ -248,9 +248,51 @@ def _commune(ev: EventFact | None) -> str:
     return ev.place.split(",")[0].strip()
 
 
+def _comparer_lieux(lieu_releve: str, commune_arbre: str,
+                    lieux_resolus: dict[str, str]) -> tuple[bool, str]:
+    """Concordance des lieux : `(facteur, divergence)`.
+
+    Règle à TROIS branches, dans cet ordre :
+
+    1. Les DEUX lieux sont résolus en code INSEE et les codes sont ÉGAUX →
+       facteur « lieu ». C'est plus fort que l'égalité de chaîne : « Saint Martin
+       d'Auxigny » et « Saint-Martin-d'Auxigny » rendent le même code, et la
+       graphie cesse de faire perdre un facteur.
+    2. Les DEUX sont résolus et les codes DIFFÈRENT → divergence, donc veto.
+       C'est légitime, et c'est le seul cas où ça l'est : deux codes INSEE
+       distincts désignent démontrablement deux communes distinctes, pas deux
+       façons d'écrire la même.
+    3. Au moins un des deux n'est PAS résolu → repli sur l'égalité de la chaîne
+       normalisée : facteur si elles concordent, RIEN si elles diffèrent. Jamais
+       de veto.
+
+    Le pourquoi de la troisième branche est exactement celui d'`est_rare` face à
+    un patronyme absent de l'arbre : **absent de la mesure ne veut pas dire
+    contredit**. Un lieu non résolu, c'est une comparaison qui n'a pas eu lieu —
+    l'orchestration n'a pas su le géocoder, ou le lieu est écrit d'une façon que
+    le résolveur ignore. Accorder un veto là-dessus écarterait de vraies
+    correspondances sur du vide, et un candidat écarté ne revient jamais devant
+    le relecteur.
+
+    La fonction reste PURE : le dictionnaire `lieux_resolus` arrive tout
+    construit de l'orchestration, aucune résolution réseau n'a lieu ici.
+    """
+    if not (lieu_releve and commune_arbre):
+        return False, ""
+    code_releve = lieux_resolus.get(_normaliser(lieu_releve))
+    code_arbre = lieux_resolus.get(_normaliser(commune_arbre))
+    if code_releve and code_arbre:
+        if code_releve == code_arbre:
+            return True, ""
+        return False, (f"lieu {commune_arbre} ({code_arbre}) "
+                       f"≠ relevé {lieu_releve} ({code_releve})")
+    return _normaliser(commune_arbre) == _normaliser(lieu_releve), ""
+
+
 def facteurs_et_divergences(
     releve: ReleveIndexe, person: PersonFacts, rarete: dict[str, float],
     parents_par_handle: dict[str, list[str]],
+    lieux_resolus: dict[str, str] | None = None,
 ) -> tuple[list[FacteurReleve], list[str]]:
     """Ce qui concorde et ce qui contredit, sans encore trancher.
 
@@ -258,7 +300,12 @@ def facteurs_et_divergences(
     fermé, et l'annoter ainsi fait relever une faute de frappe par le
     vérificateur de types plutôt que par un `KeyError` dans `POIDS` — ou, pire,
     par un poids silencieusement faux.
+
+    `lieux_resolus` associe un lieu brut NORMALISÉ (via `_normaliser`) à son code
+    INSEE. Optionnel : absent, la comparaison de lieux se réduit à son repli sur
+    les chaînes, c'est-à-dire au comportement d'avant. Voir `_comparer_lieux`.
     """
+    lieux_resolus = lieux_resolus or {}
     facteurs: list[FacteurReleve] = []
     divergences: list[str] = []
     ev = _evenement_compare(person, releve.evenement_type)
@@ -270,17 +317,16 @@ def facteurs_et_divergences(
         else:
             divergences.append(f"date {date_arbre} ≠ relevé {releve.evenement_date}")
 
-    # Un lieu qui concorde est un facteur ; un lieu qui NE concorde PAS n'est
-    # rien du tout. Une inégalité de chaîne n'est pas une contradiction :
-    # « Saint Martin d'Auxigny » contre « Saint-Martin-d'Auxigny » est une
-    # graphie, pas une autre commune, et ce moteur pur n'a aucun résolveur de
-    # lieux pour trancher. En faire une divergence — donc un veto — écarterait
-    # de bons candidats sur une simple différence de tiret. Le veto reste
-    # réservé aux dates, qui sont des entiers non ambigus.
-    commune = _commune(ev)
-    if (releve.evenement_lieu and commune
-            and _normaliser(commune) == _normaliser(releve.evenement_lieu)):
+    # Trois branches, détaillées dans `_comparer_lieux` : codes INSEE égaux →
+    # facteur ; codes INSEE différents → veto (deux communes démontrées
+    # distinctes) ; lieu non résolu d'un côté ou de l'autre → repli sur la
+    # chaîne, sans jamais de veto sur une non-mesure.
+    facteur_lieu, divergence_lieu = _comparer_lieux(
+        releve.evenement_lieu, _commune(ev), lieux_resolus)
+    if facteur_lieu:
         facteurs.append("lieu")
+    if divergence_lieu:
+        divergences.append(divergence_lieu)
 
     if est_rare(releve.sujet_nom, rarete):
         facteurs.append("patronyme rare")
@@ -343,8 +389,14 @@ class _Evalue(NamedTuple):
 
 def apparier(releve: ReleveIndexe, people: list[PersonFacts],
              rarete: dict[str, float],
-             parents_par_handle: dict[str, list[str]]) -> Appariement:
+             parents_par_handle: dict[str, list[str]],
+             lieux_resolus: dict[str, str] | None = None) -> Appariement:
     """Le verdict, motivé.
+
+    `lieux_resolus` (lieu brut normalisé → code INSEE) est construit par
+    l'orchestration et traversé tel quel jusqu'à `_comparer_lieux` : c'est ce qui
+    permet de vetoer sur une commune franchement AUTRE sans renoncer à la pureté
+    du moteur, qui ne résout toujours rien lui-même.
 
     `gris` a deux sources distinctes, et il faut les tenir pour telles : c'est
     un effet de seuil quand un candidat unique reste sous `SEUIL_NET`
@@ -359,7 +411,7 @@ def apparier(releve: ReleveIndexe, people: list[PersonFacts],
     evalues: list[_Evalue] = []
     for p in candidats_blocage(releve, people):
         facteurs, divergences = facteurs_et_divergences(
-            releve, p, rarete, parents_par_handle)
+            releve, p, rarete, parents_par_handle, lieux_resolus)
         verdict, poids = _verdict_candidat(facteurs, divergences)
         evalues.append(_Evalue(verdict, poids, p, facteurs, divergences))
 

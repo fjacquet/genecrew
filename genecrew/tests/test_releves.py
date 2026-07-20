@@ -465,3 +465,83 @@ def test_patronyme_rare_ajoute_un_facteur_fort():
                 evenement_date="1894-12-10")
     a = apparier(r, [p], {"VILLEPELLET": 0.01}, {})
     assert "patronyme rare" in a.facteurs
+
+
+# --- Lieux résolus en code INSEE ------------------------------------------
+#
+# Le moteur reste PUR : il ne résout rien lui-même, il reçoit de l'orchestration
+# un dictionnaire « lieu brut normalisé → code INSEE ». C'est ce qui rétablit un
+# veto SÛR sur les lieux : deux codes distincts sont démontrablement deux
+# communes différentes, là où deux chaînes différentes peuvent n'être qu'une
+# graphie.
+
+def test_deux_codes_insee_egaux_donnent_le_facteur_lieu():
+    """Les deux graphies diffèrent (tirets contre espaces) : sans résolution, le
+    repli sur la chaîne ne donnerait AUCUN facteur. C'est donc bien le code INSEE
+    qui produit le facteur ici, et rien d'autre."""
+    p = _mort(_p("I1", "JACQUET", "Rose"), 10, 12, 1894, "Saint Martin d'Auxigny")
+    resolus = {"SAINT MARTIN D'AUXIGNY": "18197",
+               "SAINT-MARTIN-D'AUXIGNY": "18197"}
+    a = apparier(ROSE, [p], {"JACQUET": 0.75}, {}, lieux_resolus=resolus)
+    assert "lieu" in a.facteurs
+    assert a.divergences == []
+
+
+def test_deux_codes_insee_differents_vetoent_meme_un_candidat_lourd():
+    """Le point du veto : deux communes DÉMONTRÉES distinctes annulent tout, y
+    compris un candidat qui pèse largement au-dessus de `SEUIL_NET` — deux
+    parents nommés (8) + prénom (1). Si la divergence n'était qu'un malus, ce
+    candidat sortirait encore `net`."""
+    p = _mort(_p("I1", "JACQUET", "Rose"), 10, 12, 1894, "Sancerre")
+    resolus = {"SANCERRE": "18241", "SAINT-MARTIN-D'AUXIGNY": "18197"}
+    r = _releve(evenement_lieu="Saint-Martin-d'Auxigny",
+                personnes_liees=ROSE.personnes_liees)
+    a = apparier(r, [p], {"JACQUET": 0.75},
+                 {"hI1": ["Pierre JACQUET", "Marie Anne VILLEPELLET"]},
+                 lieux_resolus=resolus)
+    assert a.verdict == "aucun"
+    assert a.divergences
+    assert "lieu" not in a.facteurs
+
+
+def test_un_seul_lieu_resolu_retombe_sur_la_chaine_sans_veto():
+    """Le lieu du relevé est résolu, celui de l'arbre ne l'est pas : il n'y a
+    aucune mesure comparable, donc pas de veto possible. Absent de la mesure ne
+    veut pas dire contredit."""
+    p = _mort(_p("I1", "JACQUET", "Rose"), 10, 12, 1894, "Sancerre")
+    a = apparier(ROSE, [p], {"JACQUET": 0.75}, {},
+                 lieux_resolus={"SAINT-MARTIN-D'AUXIGNY": "18197"})
+    assert a.divergences == []
+    assert "lieu" not in a.facteurs
+    assert a.verdict == "gris"          # date complète (5) + prénom (1) = 6
+
+
+def test_un_seul_lieu_resolu_accorde_le_facteur_si_les_chaines_concordent():
+    """Symétrique du précédent : le repli sur la chaîne reste ACTIF quand un seul
+    des deux côtés est résolu. Sans ce test, un repli qui ne rendrait jamais de
+    facteur passerait inaperçu."""
+    p = _mort(_p("I1", "JACQUET", "Rose"), 10, 12, 1894, "Saint-Martin-d'Auxigny")
+    a = apparier(ROSE, [p], {"JACQUET": 0.75}, {},
+                 lieux_resolus={"SAINT-MARTIN-D'AUXIGNY": "18197"})
+    assert "lieu" in a.facteurs
+    assert a.divergences == []
+
+
+def test_aucun_lieu_resolu_chaines_differentes_ne_veto_pas():
+    """Non-régression du comportement acquis : sans résolution, une inégalité de
+    chaîne n'est ni facteur ni divergence."""
+    p = _mort(_p("I1", "JACQUET", "Rose"), 10, 12, 1894, "Sancerre")
+    a = apparier(ROSE, [p], {"JACQUET": 0.75}, {},
+                 lieux_resolus={"BOURGES": "18033"})
+    assert a.divergences == []
+    assert "lieu" not in a.facteurs
+
+
+def test_lieux_resolus_vide_ou_absent_ne_change_rien():
+    """Rétrocompatibilité stricte : le paramètre est optionnel, et un dictionnaire
+    vide doit produire exactement le verdict d'avant."""
+    p = _mort(_p("I1", "JACQUET", "Rose"), 10, 12, 1894, "Saint-Martin-d'Auxigny")
+    sans = apparier(ROSE, [p], {"JACQUET": 0.75}, {})
+    vide = apparier(ROSE, [p], {"JACQUET": 0.75}, {}, lieux_resolus={})
+    assert sans.model_dump() == vide.model_dump()
+    assert sans.verdict == "net" and "lieu" in sans.facteurs
