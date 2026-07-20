@@ -2,11 +2,20 @@
 
 | | |
 | --- | --- |
-| **Version** | 1.0 |
-| **Date** | 2026-07-17 |
-| **Statut** | Validé pour implémentation |
-| **Périmètre** | France & Suisse (romande en priorité) |
+| **Version** | 1.1 |
+| **Date** | 2026-07-20 (v1.0 : 2026-07-17) |
+| **Statut** | Conception de référence — voir l'avertissement ci-dessous |
+| **Périmètre** | France & Suisse (romande en priorité), étendu à l'Allemagne et aux États-Unis pour les lieux |
 | **Backend** | Gramps Web API 3.17.0 (`docs/swagger/openapi.json`) |
+
+> **Portée de ce document.** Il fixe la **vision, les principes et le phasage**. Il n'est
+> **pas** la description de l'implémentation : sur tout ce qui est déjà livré, la vérité est
+> dans les **ADR** (`docs/adr/`) et dans `CLAUDE.md`, mis à jour à chaque chantier. En cas de
+> désaccord entre ce document et un ADR, **l'ADR gagne**.
+>
+> La v1.1 corrige les dérives de conception constatées le 2026-07-20 (CLI, structure des
+> crews, noms de variables, personas) et annote le §9 avec l'avancement réel. Les §1, §2, §4
+> et §8 n'ont pas bougé : ils décrivent des invariants toujours respectés.
 
 ---
 
@@ -75,9 +84,9 @@ Chaque principe est normatif et a une conséquence concrète dans ce document.
 ```mermaid
 flowchart TB
     subgraph genecrew["genecrew (repo)"]
-        CLI["CLI main.py<br/>stats | audit | standardiser | pistes | fiabiliser"]
-        ORCH["orchestrator.py<br/>périmètre → lots → kickoff → checkpoint"]
-        CREWS["4 crews @CrewBase<br/>audit / standardisation / pistes / fiabilisation"]
+        CLI["CLI cli.py + main.py<br/>stats | propose | apply | merge | enrich | import | crew"]
+        ORCH["scope.py + batching.py + checkpoint.py<br/>périmètre → lots → kickoff → checkpoint"]
+        CREWS["crew.py — 1 @CrewBase séquentiel<br/>détective / historien / standardisateur / chroniqueur"]
         CFG["config/agents.yaml<br/>config/tasks/*.yaml"]
     end
     subgraph cct["crewai_custom_tools — domaine tools/genealogy/"]
@@ -134,40 +143,56 @@ dependencies = ["crewai>=1.15.2", "crewai-custom-tools"]
 crewai-custom-tools = { path = "../crewai_custom_tools", editable = true }
 ```
 
-> **Note structure** : le scaffold `crewai create crew` a produit une structure imbriquée
-> (racine uv + `genecrew/genecrew/`). Le code du crew reste dans
-> `genecrew/genecrew/src/genecrew/` ; le venv racine est celui utilisé. Le contenu actuel du
-> scaffold (agents `researcher`/`reporting_analyst`, tâches `{topic}`) sera **entièrement
-> remplacé**.
+> **Note structure (à jour v1.1)** : le scaffold `crewai create crew` avait produit une
+> structure imbriquée (`genecrew/genecrew/`), depuis **aplatie**. Le code vit dans
+> `genecrew/src/genecrew/`, la configuration uv (`pyproject.toml`, `uv.lock`, `.venv/`, `.env`)
+> **à la racine** ; `pyproject.toml` fait le pont via
+> `[tool.hatch.build.targets.wheel] packages = ["genecrew/src/genecrew"]`. Tout se lance depuis
+> la racine. Le contenu du scaffold (`researcher`/`reporting_analyst`, `{topic}`) a été
+> entièrement remplacé.
 
 ### 3.5 Arborescence cible de genecrew
 
+Cible **réalisée** (v1.1) — la conception d'origine prévoyait quatre crews séparés et un
+`orchestrator.py` ; l'implémentation a convergé vers **un crew** dont on fait varier les
+agents, et une orchestration éclatée en modules purs :
+
 ```
 genecrew/src/genecrew/
-  main.py                  # CLI argparse : stats|audit|standardiser|pistes|fiabiliser
-  orchestrator.py          # boucle de lots + kickoff + checkpoints
+  cli.py                   # build_parser() : la grammaire de verbes (ADR 0012)
+  main.py                  # dispatch (command, target) + entrées CrewAI run/train/test/replay
   scope.py                 # résolution de périmètre → liste de handles triée (pur)
+  batching.py              # découpage en lots (pur)
   checkpoint.py            # lecture/écriture JSON de reprise
-  crews/
-    audit.py  standardisation.py  pistes.py  fiabilisation.py    # 4 @CrewBase
+  crew.py                  # @CrewBase Genecrew — séquentiel, 4 agents
+  crew_audit.py            # orchestration du crew
+  audit.py names.py gender.py gender_apply.py apply_all.py       # chantiers déterministes
+  places.py places_apply.py places_merge.py lieux_wiki.py lieu_import.py
+  deces.py deces_apply.py militaires.py propositions.py pistes.py
+  report.py stats.py logging_setup.py
   config/
-    agents.yaml            # 5 personas (partagé)
-    tasks/
-      audit.yaml  standardisation.yaml  pistes.yaml  fiabilisation.yaml
-output/                    # rapports + checkpoints (gitignoré)
+    agents.yaml            # personas (partagé)
+    tasks/audit.yaml       # tâches du crew d'audit
+output/                    # rapports + checkpoints + logs (gitignoré)
 docs/
-  document-de-travail.md   # ce document
+  document-de-travail.md   # ce document — vision et phasage
+  adr/                     # décisions structurantes — font foi sur l'existant
   swagger/                 # specs OpenAPI vendorées
 ```
 
 ### 3.6 Configuration (variables d'environnement)
 
-Tout dans `genecrew/genecrew/.env`, jamais dans les YAML. Liste complète en Annexe E.
+Tout dans le `.env` **de la racine**, jamais dans les YAML. Liste complète en Annexe E.
 Points clés :
 
-- `MODEL` (existant, LiteLLM) = modèle par défaut ; surcharges par agent
-  `GENECREW_MODEL_DETECTIVE`, `_STANDARDISATEUR`, `_HISTORIEN`, `_CHRONIQUEUR`, `_ARCHIVISTE`
-  (ce dernier doit être multimodal). Fonction pure `resolve_llm(agent_key) -> str`.
+- `MODEL` (LiteLLM) = modèle par défaut ; surcharges par rôle **`MODEL_DETECTIVE`**,
+  `MODEL_STANDARDISATEUR`, `MODEL_HISTORIEN`, `MODEL_CHRONIQUEUR` (`MODEL_ARCHIVISTE`,
+  multimodal, en phase 6) — **sans** préfixe `GENECREW_`, contrairement à la v1.0. Résolution
+  par `build_llm(role)`, **toujours `is_litellm=True`** : le provider natif de CrewAI force
+  `"strict": true` sur les schémas d'outils, que Mistral rejette.
+- Le fournisseur est **OpenRouter** (`OPENROUTER_API_KEY`), avec un mélange par rôle : un
+  modèle de jugement pour le Détective et le Standardisateur, un modèle mécanique pour
+  l'Historien et le Chroniqueur.
 - `GRAMPS_API_URL=http://localhost:80/api`, `GRAMPS_USERNAME=genecrew-ia`,
   `GRAMPS_PASSWORD=…` — compte dédié, rôle **Editor** (§ 4.6).
 - `GENECREW_DRY_RUN` (défaut **`true`**) : tout outil d'écriture devient simulateur — il
@@ -269,6 +294,11 @@ C'est le code qui garantit l'encadrement, pas le prompt.
 Cinq personas. Le moindre privilège est réalisé **par le jeu d'outils** : trois agents sur
 cinq n'ont aucun outil d'écriture ; un seul écrit.
 
+> **État v1.1** : **quatre** personas sont implémentés dans `config/agents.yaml` — Détective,
+> Historien, Standardisateur, Chroniqueur. L'Archiviste (§5.5) relève de la phase 6 et
+> n'existe pas encore. L'outillage effectif de chaque agent a également divergé des listes
+> ci-dessous, qui restent la **cible** : voir `crew.py` pour l'attribution réelle.
+
 ### 5.1 Détective Généalogique (Corrélateur)
 
 - **role** : Détective généalogique spécialiste de la critique des sources
@@ -340,7 +370,7 @@ cinq n'ont aucun outil d'écriture ; un seul écrit.
 - **Outils** : lecture Gramps + `GrampsGetMediaFileTool`, `GrampsOcrTool`,
   `VisionTranscriptionTool`, `GallicaSearchTool`, `ScriptoriumSearchTool`, `SwisstopoMapTool`.
 - **Écriture** : aucune — ses transcriptions passent par le Chroniqueur.
-- **LLM** : `GENECREW_MODEL_ARCHIVISTE`, obligatoirement multimodal (vision).
+- **LLM** : `MODEL_ARCHIVISTE`, obligatoirement multimodal (vision).
 
 ---
 
@@ -348,6 +378,18 @@ cinq n'ont aucun outil d'écriture ; un seul écrit.
 
 Chaque workflow = un crew `@CrewBase` séquentiel de 2 agents (l'agent métier + le
 Chroniqueur), piloté par l'orchestrateur.
+
+> **État v1.1 — deux écarts à retenir avant de lire ce chapitre.**
+>
+> 1. **Les commandes citées ci-dessous n'existent plus.** La CLI suit désormais une
+>    **grammaire de verbes** (ADR 0012) : `stats`, `propose {audit|places|deaths|military|gender}`,
+>    `apply {case|gender|places|citations|all}`, `merge places`, `enrich wiki`, `import place`,
+>    `crew audit`. Les anciens noms plats ont été supprimés **sans alias**. Table de
+>    correspondance complète dans l'ADR 0012.
+> 2. **L'essentiel du travail est déterministe, pas LLM.** Là où ce chapitre décrit un crew,
+>    l'implémentation a le plus souvent livré d'abord une commande pure et gratuite
+>    (`propose …` / `apply …`), le crew n'intervenant que sur le jugement (`crew audit`).
+>    C'est l'application du principe « déterministe d'abord » (§2), pas une déviation.
 
 ### 6.1 Workflow 1 — Audit qualité (le socle)
 
@@ -375,8 +417,9 @@ Chroniqueur), piloté par l'orchestrateur.
 | R9 | personne ou événement sans source ni citation |
 | R10 | candidats doublons : nom normalisé (sans accents, minuscules) + naissance à ±2 ans + `difflib.SequenceMatcher` ≥ 0,85 |
 
-- **Sorties** : `output/audit/AAAA-MM-JJ_audit_<scope>.md` (+ PDF WeasyPrint) +
-  `…_propositions.yaml`. Écritures directes : tags et notes uniquement.
+- **Sorties** : `output/audit/AAAA-MM-JJ_audit_<scope>.md` + `…_propositions.yaml`. Écritures
+  directes : tags et notes uniquement. (v1.1 : le **PDF WeasyPrint est abandonné** — les
+  rapports restent en Markdown, convertis au besoin par pandoc.)
 - **Revue humaine** : traitement des propositions dans Gramps Web ; le run d'audit suivant
   constate les anomalies disparues et les marque « résolues ».
 
@@ -491,7 +534,7 @@ seule vérification, DRY).
 | `HlsDhsSearchTool` | DHS via mapping Wikidata | sans clé | P3 | Historien |
 | `ScriptoriumSearchTool` | BCUL, OAI-PMH | sans clé | P3 | Historien, Archiviste |
 | `SwisstopoMapTool` | api3.geo.admin.ch (docs HTML, pas d'OpenAPI) | sans clé | P3 | Historien, Archiviste |
-| `VisionTranscriptionTool` | LLM vision via LiteLLM (`GENECREW_MODEL_ARCHIVISTE`) | clé LLM | P3 | Archiviste |
+| `VisionTranscriptionTool` | LLM vision via LiteLLM (`MODEL_ARCHIVISTE`) | clé LLM | P3 | Archiviste |
 
 ### 7.4 Outils existants réutilisés tels quels
 
@@ -565,12 +608,27 @@ de sortie sur l'arbre réel.**
 | Phase | Livrable | Critère de sortie |
 | --- | --- | --- |
 | **0 — Plomberie** | `genealogy/gramps/` lecture seule + client JWT + modèles générés + dépendance genecrew→bibliothèque + CLI `genecrew stats` | `uv run genecrew stats` affiche les statistiques identiques au tableau de bord Gramps Web |
-| **1 — Audit lecture seule** | crew audit + R1–R10 + rapport MD/PDF + checkpoints, `DRY_RUN=true` | rapport sur une branche de ~25 personnes ; anomalies confrontées aux problèmes connus ; faux positifs acceptables ; coût/lot mesuré |
+| **1 — Audit lecture seule** | crew audit + R1–R10 + rapport MD + checkpoints, `DRY_RUN=true` | rapport sur une branche de ~25 personnes ; anomalies confrontées aux problèmes connus ; faux positifs acceptables ; coût/lot mesuré |
 | **2 — Écritures encadrées** | note/tag/attach + compte `genecrew-ia` Editor + `DRY_RUN=false` | tags et notes visibles dans Gramps Web ; l'historique des transactions ne montre que des POST notes/tags et des PUT append-only |
 | **3 — Standardisation** | crew standardisation + outils géo FR/CH | propositions correctes sur des communes fusionnées connues de l'arbre (échantillon validé à la main) |
 | **4 — Pistes** | crew pistes + MatchID, Gallica, Wikidata | retrouve au moins un décès post-1970 connu ; pistes jugées utiles par l'utilisateur |
 | **5 — Fiabilisation** | sources/citations + notices biographiques + PDF familial | chaîne source→citation→rattachement conforme ; confiance ≤ 2 ; récit validé |
 | **6 — Archiviste Numérique** | outils média + OCR + vision | transcription correcte d'un acte test du magasin de médias, consignée en note |
+
+### 9.1 Avancement au 2026-07-20
+
+| Phase | État | Ce qui le prouve / ce qui manque |
+| --- | --- | --- |
+| **0** | ✅ terminée | `stats`, client JWT, modèles générés |
+| **1** | ✅ terminée | R1–R10 + D1–D3, `propose audit`, checkpoints, `crew audit` (ADR 0006) |
+| **2** | ✅ terminée | note/tag append-only, `effective_dry_run`, ADR 0001 |
+| **3** | ✅ **dépassée** | résolveurs FR/CH **et** DE/US (hors périmètre initial), ex-communes fusionnées avec placerefs datées, `merge places`, GPS ; casse des noms (ADR 0007), genre (ADR 0008/0009), lieux (ADR 0010). Restent non traités : normalisation des **dates textuelles** et des **titres de sources** |
+| **4** | 🟡 **en cours** | MatchID décès ✅ (critère de sortie atteint) ; contrat `Piste` ✅ (marqueur, idempotence, force dérivée, rapport fortes/faibles). **Manquent : Gallica, Wikidata comme outil, DHS, Scriptorium** — l'Historien est l'agent dont l'outillage reste le plus vide |
+| **5** | 🟡 **partielle** | chaîne source→citation→rattachement ✅ avec confiance plafonnée à 2 (ADR 0011, `apply citations`, éprouvée sur les propositions militaires). **Manquent : notices biographiques et rapport familial** |
+| **6** | ⬜ non commencée | ni agent Archiviste, ni OCR, ni transcription par vision |
+
+**Prochain incrément** : les outils d'archives en ligne de la phase 4 (Gallica, Wikidata, DHS,
+Scriptorium), qui donnent enfin sa matière à l'Historien.
 
 ---
 
@@ -599,18 +657,28 @@ ADR). Tout vit dans `genecrew/docs/`.
 
 | Document | Contenu | Quand |
 | --- | --- | --- |
-| `docs/document-de-travail.md` | ce document — la spécification de référence | maintenu à chaque changement de conception |
+| `docs/document-de-travail.md` | ce document — **vision, principes, phasage**. Ne décrit pas l'implémentation | révisé quand la vision ou le phasage bouge, pas à chaque chantier |
+| `docs/adr/NNNN-*.md` | **font foi sur l'existant** — chaque décision structurante livrée | à chaque chantier (règle ci-dessous) |
+| `CLAUDE.md` | l'état réel du dépôt : structure, commandes, pièges | à chaque chantier |
 | `docs/PRD.md` | le « pourquoi/quoi » produit : mission, utilisateurs, objectifs, non-objectifs (dérivé du § 1) | avant Phase 0 |
 | `docs/USER_GUIDE.md` | comment lancer chaque workflow, lire les rapports, traiter les propositions, gérer `DRY_RUN` | complété **à chaque phase** — une phase n'est pas terminée si son mode d'emploi n'y est pas |
-| `docs/adr/NNNN-*.md` | Architecture Decision Records, format court (contexte / décision / conséquences) | au fil de l'eau |
 
-ADR initiaux à rédiger (ils tracent les décisions de ce document) :
+Les cinq ADR initiaux (0001–0005), qui tracent les décisions de ce document, **sont écrits**,
+ainsi que sept autres au fil des chantiers :
 
-1. `0001-ecriture-directe-encadree.md` — périmètre d'écriture des agents, écrivain unique, append-only.
-2. `0002-acces-gramps-rest-direct.md` — REST direct httpx plutôt que le serveur gramps-mcp ; gramps-mcp = référence.
-3. `0003-outils-dans-crewai-custom-tools.md` — domaine `genealogy/`, réutilisation de l'infra, genecrew simple consommateur.
-4. `0004-spec-first-generation-pydantic.md` — specs vendorées dans `docs/swagger/`, `datamodel-code-generator`, emplacement des modèles.
-5. `0005-deterministe-d-abord.md` — règles pures avant LLM, orchestration Python hors CrewAI, batching/checkpoints.
+| ADR | Décision |
+| --- | --- |
+| 0001 | écriture directe encadrée — écrivain unique, append-only |
+| 0002 | accès Gramps REST direct (gramps-mcp = référence, pas runtime) |
+| 0003 | outils dans `crewai_custom_tools`, genecrew simple consommateur |
+| 0004 | spec-first, génération Pydantic, specs vendorées |
+| 0005 | déterministe d'abord, orchestration Python hors CrewAI |
+| 0006 | audit déterministe sur `PersonFacts` |
+| 0007 | standardisation de la casse sous invariant « casse seule » |
+| 0008 / 0009 | genre : proposition, puis écriture directe à haute confiance |
+| 0010 | écriture de la hiérarchie des lieux |
+| 0011 | citations INSEE décès via `apply citations` |
+| 0012 | grammaire de verbes de la CLI |
 
 Règle : **toute nouvelle décision structurante = un ADR** — pas de décision uniquement dans
 une conversation ou un commit.
@@ -687,8 +755,10 @@ Citation (confiance plafonnée) :
 
 | Variable | Défaut | Rôle |
 | --- | --- | --- |
-| `MODEL` | (existant) | modèle LiteLLM par défaut |
-| `GENECREW_MODEL_DETECTIVE` / `_STANDARDISATEUR` / `_HISTORIEN` / `_CHRONIQUEUR` / `_ARCHIVISTE` | — | surcharge par agent (Archiviste : vision requis) |
+| `MODEL` | — | modèle LiteLLM par défaut |
+| `MODEL_DETECTIVE` / `MODEL_STANDARDISATEUR` / `MODEL_HISTORIEN` / `MODEL_CHRONIQUEUR` | — | surcharge par rôle — **sans** préfixe `GENECREW_` |
+| `MODEL_ARCHIVISTE` | — | phase 6, multimodal (vision) requis |
+| `OPENROUTER_API_KEY` | — | fournisseur LLM |
 | `GRAMPS_API_URL` | `http://localhost:80/api` | base API Gramps Web |
 | `GRAMPS_USERNAME` / `GRAMPS_PASSWORD` | — | compte `genecrew-ia` (rôle Editor) |
 | `GENECREW_DRY_RUN` | `true` | simule les écritures |
