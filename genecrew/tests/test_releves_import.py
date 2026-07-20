@@ -208,6 +208,14 @@ def test_source_title_route_un_releve_de_cercle():
     assert auteur == "Cercle Généalogique du Haut-Berry"
 
 
+@pytest.mark.parametrize("detail", ["Relevé — ", "Relevé —    "])
+def test_source_title_leve_sur_un_releve_sans_cercle(detail):
+    """Régression : `(.+?)` paresseux + `\\s*` gourmand capturaient UN espace au
+    lieu d'échouer, rendant ("  — relevés", "") — un auteur VIDE écrit sans erreur."""
+    with pytest.raises(ValueError, match="(?i)cercle"):
+        source_title_for(detail)
+
+
 def test_source_title_leve_toujours_sur_un_registre_inconnu():
     """Pas de repli silencieux sur l'INSEE : ce serait une fausse attribution."""
     with pytest.raises(ValueError):
