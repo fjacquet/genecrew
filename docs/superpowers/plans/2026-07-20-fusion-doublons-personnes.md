@@ -1483,6 +1483,22 @@ def test_une_erreur_est_consignee_et_le_lot_continue(outils):
     assert len(faites) == 1
 
 
+def test_patch_de_genre_echoue_la_grappe_n_est_pas_fusionnee():
+    """Fusionner malgré l'échec du patch perdrait le genre sans trace, ce que le
+    patch existe pour empêcher. La grappe est abandonnée, pas silencieusement fusionnée."""
+    fusion, genre = _OutilEspion(), _OutilEspion()
+    genre._run = lambda **kw: json.dumps({"success": False, "error": "boom"})
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(people_merge, "GrampsMergePeopleTool", lambda: fusion)
+        mp.setattr(people_merge, "GrampsUpdateGenderTool", lambda: genre)
+        faites, erreurs = people_merge.executer_grappes(
+            [_grappe(gender_patch=1)], dry_run=False)
+    assert fusion.appels == []
+    assert faites == []
+    assert len(erreurs) == 1
+    assert "abandonnée" in erreurs[0][1]
+
+
 def test_dry_run_transmis_aux_outils(outils):
     fusion, genre = outils
     people_merge.executer_grappes([_grappe(gender_patch=1)], dry_run=True)
@@ -1563,8 +1579,16 @@ def executer_grappes(grappes: list[MergeCluster], *, dry_run: bool = False
     erreurs: list[tuple[str, str]] = []
     for grappe in grappes:
         if grappe.gender_patch is not None:
-            genre._run(handle=grappe.phoenix_handle, gender=grappe.gender_patch,
-                       dry_run=dry_run)
+            patch = json.loads(genre._run(handle=grappe.phoenix_handle,
+                                          gender=grappe.gender_patch, dry_run=dry_run))
+            if not patch["success"]:
+                # Fusionner malgré l'échec du patch supprimerait le titanic ET
+                # perdrait son genre sans trace — précisément ce que le patch
+                # existe pour empêcher. On abandonne la grappe ; elle repassera
+                # à la prochaine exécution.
+                erreurs.append((grappe.phoenix_gramps_id,
+                                f"patch de genre échoué, fusion abandonnée : {patch['error']}"))
+                continue
         for titanic_handle, titanic_id in zip(grappe.titanic_handles,
                                               grappe.titanic_gramps_ids):
             payload = json.loads(fusion._run(phoenix_handle=grappe.phoenix_handle,
@@ -1685,7 +1709,7 @@ def run_people_merge_yaml(client: GrampsClient, merges_yaml, output_dir, *,
 cd /Users/fjacquet/Projects/genecrew && uv run python -m pytest genecrew/tests/test_people_merge.py -q && uv run ruff check genecrew/src/genecrew/people_merge.py
 ```
 
-Attendu : `7 passed`, `All checks passed!`.
+Attendu : `8 passed`, `All checks passed!`.
 
 - [ ] **Step 5: Commit**
 
