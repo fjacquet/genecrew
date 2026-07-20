@@ -513,6 +513,46 @@ def test_net_hors_simulation_pose_note_et_tag(monkeypatch, mocker):
     assert vu["put"][0]["tag_list"] == ["t0", "t1"]
 
 
+@pytest.mark.parametrize("casse", ["tags", "attache"])
+def test_echec_apres_la_note_signale_l_orpheline(monkeypatch, mocker, casse):
+    """Les trois écritures ne sont PAS atomiques : la note reste, il faut le dire.
+
+    Si le tag ou le rattachement échoue après la création de la note, celle-ci
+    subsiste dans l'arbre sans être rattachée à personne. `deja_importe` lit les
+    notes DE LA PERSONNE : le marqueur n'y est pas, donc le réimport est autorisé
+    — c'est le bon sens de l'échec — mais une DEUXIÈME orpheline s'ajouterait
+    sans que rien ne le signale. La raison rendue doit donc nommer l'orpheline et
+    son handle, pour qu'un humain puisse la retrouver et la supprimer.
+    """
+    monkeypatch.setenv("GENECREW_DRY_RUN", "false")
+
+    def h(request):
+        chemin = request.url.path
+        if request.method == "POST" and chemin == "/api/notes/":
+            return httpx.Response(201, json=[{"new": {"handle": "n1"}}])
+        if request.method == "POST" and chemin == "/api/tags/":
+            if casse == "tags":
+                return httpx.Response(500, json={"error": "boum"})
+            return httpx.Response(201, json=[{"new": {"handle": "t1"}}])
+        if request.method == "PUT" and chemin == "/api/people/h1":
+            return httpx.Response(500, json={"error": "boum"})
+        if chemin == "/api/tags/":
+            return httpx.Response(200, json=[])
+        if chemin == "/api/people/h1":
+            return httpx.Response(200, json={"gramps_id": "I0001", "handle": "h1"})
+        return _handler_arbre([_ROSE_ARBRE])(request)
+
+    client = _client(h)
+    mocker.patch(
+        "crewai_custom_tools.tools.genealogy.gramps.write_tools.get_client",
+        return_value=client)
+
+    out = run_import_releve(client, COLLAGE_ROSE, llm=_llm())
+    assert out["ecrit"] is False
+    assert "orpheline" in out["raison"]
+    assert "n1" in out["raison"]
+
+
 def _espionner_les_outils(mocker) -> dict:
     """Enregistre les kwargs reçus par les trois outils d'écriture."""
     appels: dict[str, dict] = {}

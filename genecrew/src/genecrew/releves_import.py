@@ -263,6 +263,16 @@ def _parents_par_handle(fetcher: FactsFetcher, people: list[PersonFacts],
     return index
 
 
+def _orpheline(raison: str, note_handle: str) -> str:
+    """Complète une raison d'échec par le handle de la note restée orpheline.
+
+    Le handle est indispensable : c'est la seule prise qu'un humain aura pour
+    retrouver la note dans Gramps et la supprimer.
+    """
+    return (f"{raison} — note orpheline laissée dans l'arbre "
+            f"(handle {note_handle}), à supprimer à la main")
+
+
 def run_import_releve(client: GrampsClient, texte: str, *, llm=None,
                       dry_run: bool = False) -> dict:
     """Interprète, apparie, écrit si le verdict est net. Rend le verdict ET sa raison.
@@ -271,6 +281,25 @@ def run_import_releve(client: GrampsClient, texte: str, *, llm=None,
     `ecrit`, `raison`, `dry_run`) : l'appelant n'a jamais à deviner pourquoi
     rien n'a été écrit, et c'est ce qui rendra les verdicts lisibles en lot
     avant qu'un humain lâche la main.
+
+    ÉCRITURES NON ATOMIQUES — l'écriture se fait en trois appels successifs :
+    création de la note, garantie du tag, rattachement des deux à la personne.
+    Gramps Web n'offre pas de transaction qui les couvrirait, donc un échec au
+    deuxième ou au troisième laisse la note DÉJÀ CRÉÉE, non rattachée : une
+    orpheline.
+
+    L'ordre reste celui-là à dessein, parce que le sens de l'échec est correct.
+    `deja_importe` lit les notes DE LA PERSONNE ; le marqueur n'y étant pas, un
+    nouveau passage réessaiera l'import au lieu de le sauter — ce qui est le bon
+    comportement, l'annotation n'ayant jamais atteint la personne. Le prix est
+    qu'un deuxième passage qui échouerait au même endroit ajouterait une
+    deuxième orpheline.
+
+    Ce n'est donc pas rattrapé, c'est rendu VISIBLE : dans ce cas la `raison`
+    nomme explicitement l'orpheline et donne son handle, seule prise permettant
+    à un humain de la retrouver et de la supprimer. Un nettoyage automatique
+    demanderait un DELETE — la chaîne d'import est délibérément append-only et
+    ne détruit rien.
 
     `apparier` est appelé SANS `lieux_resolus` : peupler ce dictionnaire
     demande d'appeler les résolveurs géographiques (réseau), ce qui fera l'objet
@@ -338,15 +367,20 @@ def run_import_releve(client: GrampsClient, texte: str, *, llm=None,
     if not note["success"]:
         out["raison"] = f"note refusée : {note['error']}"
         return out
+    # À partir d'ici la note EXISTE dans l'arbre. Tout échec ultérieur la laisse
+    # orpheline : `_orpheline` le dit, avec son handle, pour qu'un humain la
+    # retrouve. Voir la docstring pour pourquoi l'ordre n'est pas changé.
+    note_handle = note["data"]["handle"]
     tag = json.loads(GrampsEnsureTagTool()._run(name=TAG_RELEVE, dry_run=dry_run))
     if not tag["success"]:
-        out["raison"] = f"tag refusé : {tag['error']}"
+        out["raison"] = _orpheline(f"tag refusé : {tag['error']}", note_handle)
         return out
     attache = json.loads(GrampsAttachTool()._run(
-        handle=appariement.handle, note_handle=note["data"]["handle"],
+        handle=appariement.handle, note_handle=note_handle,
         tag_handle=tag["data"]["handle"], dry_run=dry_run))
     if not attache["success"]:
-        out["raison"] = f"rattachement refusé : {attache['error']}"
+        out["raison"] = _orpheline(
+            f"rattachement refusé : {attache['error']}", note_handle)
         return out
 
     out["ecrit"] = True
