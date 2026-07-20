@@ -186,7 +186,7 @@ def gender_apply_cmd(args) -> None:
 
 
 def archives_cmd(args, source: str) -> None:
-    """Pistes depuis une source d'archives en ligne (lecture seule + notes append-only)."""
+    """Pistes depuis une source d'archives en ligne. Lecture seule : n'écrit rien."""
     from pathlib import Path
 
     from crewai_custom_tools.tools.genealogy.gramps.client import get_client

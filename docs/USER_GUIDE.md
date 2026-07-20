@@ -366,20 +366,25 @@ sont réversibles via l'historique des transactions Gramps (ADR 0001).
 ## Pistes depuis les archives en ligne
 
 Interroge des bases externes pour trouver, pour une personne de l'arbre, une fiche qui pourrait
-la concerner ailleurs — jamais un fait : **aucune citation n'est créée** par ces commandes. Seules
-les pistes jugées **fortes** (au moins deux facteurs de concordance distincts, aucune divergence)
-sont consignées, en note append-only taguée `ia-piste` sur la personne ; les pistes **faibles**
-n'existent que dans le rapport Markdown — les perdre les perdrait, donc regardez-y avant de les
-écarter. Voir le contrat `Piste` (§6.3 du document de travail).
+la concerner ailleurs — jamais un fait : **aucune citation n'est créée** par ces commandes, et
+**elles n'écrivent rien dans l'arbre**. Rangées sous `propose`, elles sont **lecture seule** de
+bout en bout (docs/adr/0012-cli-grammaire-verbes.md) : tout ce qu'elles produisent est le rapport
+Markdown décrit plus bas. Les pistes **fortes** (au moins deux facteurs de concordance distincts,
+aucune divergence) et les **faibles** y figurent toutes les deux, séparément — aucune n'est perdue,
+aucune n'est consignée dans Gramps. Voir le contrat `Piste` (§6.3 du document de travail).
+
+> Historique : une version antérieure consignait les pistes fortes en note append-only taguée
+> `ia-piste`. Ce chemin d'écriture a été retiré — voir « Rendement mesuré » ci-dessous pour
+> pourquoi, et `apply pistes` n'existe pas encore : elle sera ajoutée le jour où une source produit
+> réellement des pistes fortes.
 
 Deux sources, deux feuilles sous `propose` :
 
 - **`propose wikidata`** — interroge Wikidata par son service de recherche indexé. C'est la
-  **seule source capable de produire des pistes fortes** : ses propriétés sont structurées, donc
-  plusieurs facteurs de concordance distincts (nom, date complète, lieu) peuvent s'aligner sur la
-  même fiche. En contrepartie, réserve honnête : Wikidata ne décrit que des **personnes
-  notables** — sur un arbre de généalogie ordinaire, le rendement sera faible. C'est acceptable :
-  le coût par personne est faible, et les rares correspondances sont de haute valeur.
+  **seule source structurellement capable de produire des pistes fortes** : ses propriétés sont
+  structurées, donc plusieurs facteurs de concordance distincts (nom, date complète, lieu)
+  peuvent s'aligner sur la même fiche. En contrepartie, réserve honnête : Wikidata ne décrit que
+  des **personnes notables** — sur un arbre de généalogie ordinaire, le rendement sera faible.
 - **`propose dhs`** — le *Dictionnaire historique de la Suisse*. Ce n'est **pas une API** : la
   propriété Wikidata **P902** porte l'identifiant de l'article DHS sur l'élément Wikidata de la
   personne, donc cette commande est une projection de `propose wikidata`, pas un protocole
@@ -405,10 +410,31 @@ espacement délibéré de 2 secondes entre les appels.** Un scan complet de l'ar
 c'est voulu : c'est de la politesse envers un service partagé, pas une limite technique à
 contourner. Bornez toujours un premier essai avec `--limit`.
 
-Comme pour les autres écritures du projet, le double interrupteur dry-run s'applique aux pistes
-fortes : le défaut (`GENECREW_DRY_RUN=true`) simule la consignation tant qu'il n'est pas mis à
-`false` dans `.env`. Ces deux commandes n'ont pas de flag `--dry-run` propre — il n'y a rien
-d'autre à simuler que cette seule consignation, déjà gouvernée par la variable globale.
+Ces deux commandes n'ont pas de flag `--dry-run` : il n'y a rien à simuler, puisqu'elles
+n'écrivent jamais rien.
+
+### Rendement mesuré (2026-07-20, 40 personnes de l'arbre réel)
+
+Mesure en simulation, avant le filtrage à zéro concordance décrit plus haut, puis après :
+
+| Source     | Fortes | Faibles avant filtrage | Faibles après filtrage |
+|------------|--------|-------------------------|-------------------------|
+| Wikidata   | 0      | 21                       | 8                        |
+| DHS        | 0      | 2                        | 1                        |
+
+**Zéro piste forte sur les deux sources.** Et avant le filtrage, 13 des 21 pistes Wikidata ne
+portaient **aucun** facteur de concordance : `EntitySearch` est une recherche floue sur le nom, et
+la version précédente transformait chaque résultat du moteur de recherche en « piste », y compris
+quand rien ne corroborait quoi que ce soit. Le filtrage retient désormais uniquement les lignes où
+au moins un facteur concorde réellement.
+
+**Ces deux sources ne touchent que les personnes ayant une notice documentaire** — fiches
+d'autorité Wikidata, articles du Dictionnaire historique de la Suisse. La plupart des personnes
+d'un arbre de généalogie ordinaire n'en ont pas, d'où le faible rendement même après filtrage.
+En pratique : lancez `propose wikidata`/`propose dhs` sur les **branches où l'on soupçonne un
+ancêtre notable** (magistrat, ecclésiastique, officier, personnalité locale…), pas sur l'arbre
+entier — un scan complet coûte du temps réseau (2 s/personne) pour un rendement qui reste marginal
+hors de ces branches.
 
 **Gallica n'est volontairement pas exposée ici.** Mesurée contre l'API réelle, son protocole SRU
 ne rend que des notices de *collection* (un périodique, pas un article) — une piste dirait « ce

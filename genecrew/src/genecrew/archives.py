@@ -23,7 +23,7 @@ from crewai_custom_tools.tools.genealogy.pistes import (
 from crewai_custom_tools.tools.web.wikidata import sparql_rows
 
 from genecrew.batching import iter_people_batches
-from genecrew.pistes import consigner, render_rapport_pistes
+from genecrew.pistes import render_rapport_pistes
 
 logger = logging.getLogger(__name__)
 
@@ -47,8 +47,16 @@ def collecter_pistes(source: str, person: PersonFacts) -> list[Piste]:
 
 def run_archives(client: GrampsClient, source: str, scope: str, output_dir: Path, *,
                  date: str | None = None, batch_size: int = 25,
-                 limit: int | None = None, dry_run: bool = False) -> Path:
-    """Parcourt `scope`, interroge `source`, consigne les fortes, rend le rapport."""
+                 limit: int | None = None) -> Path:
+    """Parcourt `scope`, interroge `source`, rend le rapport. Lecture seule.
+
+    `propose` n'écrit jamais (docs/adr/0012-cli-grammaire-verbes.md) : ce module
+    n'appelle plus `consigner()`. La mesure du 2026-07-20 sur l'arbre réel montre
+    qu'aucune piste n'est jamais forte — or `consigner()` n'écrit QUE les fortes —
+    donc ce chemin d'écriture était mort dans les faits, en plus d'être rangé sous
+    le mauvais verbe. Une future feuille `apply pistes` pourra le réintroduire le
+    jour où une source produit des pistes fortes.
+    """
     if source not in SOURCES:
         raise ValueError(f"source inconnue : {source}")
     date = date or _date.today().isoformat()
@@ -65,12 +73,10 @@ def run_archives(client: GrampsClient, source: str, scope: str, output_dir: Path
             except Exception as exc:                       # noqa: BLE001
                 logger.warning("%s : %s a échoué (%s)", person.gramps_id, source, exc)
                 continue
-            for piste in pistes:
-                consigner(client, piste, dry_run=dry_run)
             toutes.extend(pistes)
 
     output_dir.mkdir(parents=True, exist_ok=True)
     chemin = output_dir / f"{date}_pistes_{source}_{scope.replace(':', '-')}.md"
-    chemin.write_text(render_rapport_pistes(toutes, date, dry_run=dry_run), encoding="utf-8")
+    chemin.write_text(render_rapport_pistes(toutes, date, dry_run=True), encoding="utf-8")
     logger.info("%s pistes depuis %s (%s personnes vues)", len(toutes), source, vues)
     return chemin
