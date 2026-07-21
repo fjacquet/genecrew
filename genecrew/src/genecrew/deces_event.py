@@ -16,6 +16,8 @@ import unicodedata
 
 from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient
 
+from genecrew.evenements import dateval_iso
+
 TAG_DECES = "genecrew:deces"
 
 
@@ -71,3 +73,28 @@ def index_lieux(client: GrampsClient) -> dict[str, str | None]:
 def resoudre_lieu(index: dict[str, str | None], nom: str) -> str | None:
     """Handle du lieu nommé, ou None s'il est inconnu ou ambigu. Pur."""
     return index.get(normaliser_lieu(nom))
+
+
+def trier_propositions(propositions: list) -> tuple[list, dict[str, int]]:
+    """Sépare les propositions applicables du reste. Pur.
+
+    Trois des quatre conditions de l'ADR 0014 se jugent sur la proposition seule :
+    `type: date`, `confiance == 2`, et une date ISO complète. La quatrième — « la
+    personne n'a toujours pas de décès » — exige de lire l'arbre au moment de
+    l'écriture, et vit dans `run_deces_event`.
+
+    Les deux motifs de rejet sont comptés SÉPARÉMENT : « hors périmètre » est un
+    non-sujet (c'est le travail d'`apply citations`), « sans donnée » est un signal
+    — un YAML trop ancien, à régénérer. Les confondre ferait lire un lot périmé
+    comme un lot vide.
+    """
+    retenues, motifs = [], {"hors_perimetre": 0, "sans_donnee": 0}
+    for prop in propositions:
+        if prop.type != "date" or prop.confiance != 2:
+            motifs["hors_perimetre"] += 1
+            continue
+        if dateval_iso(prop.date_iso) is None:
+            motifs["sans_donnee"] += 1
+            continue
+        retenues.append(prop)
+    return retenues, motifs

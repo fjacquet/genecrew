@@ -4,7 +4,7 @@ import httpx
 import pytest
 from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient, GrampsConfig
 
-from genecrew.deces_event import index_lieux, normaliser_lieu, resoudre_lieu
+from genecrew.deces_event import index_lieux, normaliser_lieu, resoudre_lieu, trier_propositions
 
 CONFIG = GrampsConfig(api_url="http://g.test/api", username="u", password="p")
 
@@ -101,3 +101,53 @@ def test_trois_homonymes_rendent_toujours_none():
     index = index_lieux(client)
     assert "saint palais" in index
     assert resoudre_lieu(index, "Saint-Palais") is None
+
+
+def _prop(**kw):
+    base = {
+        "type": "date", "gramps_id": "I0174", "handle": "H174",
+        "personne": "Alain Rolland", "cible": "décès de I0174 (absent de l'arbre)",
+        "action": "Renseigner le décès : 2021-12-23 à Saint-Palais.",
+        "preuve_url": "https://deces.matchid.io/id/X",
+        "preuve_detail": "Fichier des décès INSEE : 2021-12-23 à Saint-Palais "
+                         "(score 1.000).",
+        "priorite": "moyenne", "confiance": 2,
+        "date_iso": "2021-12-23", "lieu_nom": "Saint-Palais",
+    }
+    base.update(kw)
+    from crewai_custom_tools.tools.genealogy.models.domain import PropositionAudit
+    return PropositionAudit(**base)
+
+
+def test_retient_une_proposition_date_confiance_2_datee():
+    retenues, motifs = trier_propositions([_prop()])
+    assert len(retenues) == 1
+    assert motifs == {"hors_perimetre": 0, "sans_donnee": 0}
+
+
+def test_ecarte_le_type_source():
+    """`type: source` est le métier de `apply citations`, pas de `apply deaths`."""
+    retenues, motifs = trier_propositions([_prop(type="source")])
+    assert retenues == []
+    assert motifs["hors_perimetre"] == 1
+
+
+def test_ecarte_la_confiance_1():
+    """Confiance 1 = date de naissance non concordante : homonyme possible."""
+    retenues, motifs = trier_propositions([_prop(confiance=1)])
+    assert retenues == []
+    assert motifs["hors_perimetre"] == 1
+
+
+def test_ecarte_un_yaml_sans_champs_structures():
+    """Un lot produit avant les champs structurés ne doit pas se lire comme un lot vide."""
+    retenues, motifs = trier_propositions([_prop(date_iso="", lieu_nom="")])
+    assert retenues == []
+    assert motifs["sans_donnee"] == 1
+    assert motifs["hors_perimetre"] == 0
+
+
+def test_ecarte_une_date_incomplete():
+    retenues, motifs = trier_propositions([_prop(date_iso="2021")])
+    assert retenues == []
+    assert motifs["sans_donnee"] == 1
