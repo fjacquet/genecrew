@@ -4,7 +4,13 @@ import httpx
 import pytest
 from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient, GrampsConfig
 
-from genecrew.deces_event import index_lieux, normaliser_lieu, resoudre_lieu, trier_propositions
+from genecrew.deces_event import (
+    index_lieux,
+    normaliser_lieu,
+    render_deaths_report,
+    resoudre_lieu,
+    trier_propositions,
+)
 
 CONFIG = GrampsConfig(api_url="http://g.test/api", username="u", password="p")
 
@@ -151,3 +157,44 @@ def test_ecarte_une_date_incomplete():
     retenues, motifs = trier_propositions([_prop(date_iso="2021")])
     assert retenues == []
     assert motifs["sans_donnee"] == 1
+
+
+def test_rapport_annonce_le_mode_effectif():
+    md = render_deaths_report("2026-07-21", [], [], [], {"hors_perimetre": 0,
+                              "sans_donnee": 0}, [], dry_run=True)
+    assert "simulation" in md
+    assert "écritures appliquées" not in md
+
+
+def test_rapport_liste_les_evenements_crees():
+    md = render_deaths_report(
+        "2026-07-21",
+        [("I0174", "Alain Rolland", "E9001", "Saint-Palais")],
+        [], [], {"hors_perimetre": 0, "sans_donnee": 0}, [], dry_run=False)
+    assert "I0174 Alain Rolland" in md
+    assert "E9001" in md
+    assert "Saint-Palais" in md
+    assert "Décès créés : 1" in md
+
+
+def test_rapport_distingue_les_deux_motifs_de_rejet():
+    md = render_deaths_report("2026-07-21", [], [], [],
+                              {"hors_perimetre": 8, "sans_donnee": 3}, [], dry_run=False)
+    assert "Hors périmètre" in md and "8" in md
+    assert "sans donnée machine" in md.lower() and "3" in md
+
+
+def test_rapport_signale_les_lieux_non_resolus():
+    md = render_deaths_report("2026-07-21", [], [], [("I0186", "Nohant-en-Goût")],
+                              {"hors_perimetre": 0, "sans_donnee": 0}, [], dry_run=False)
+    assert "Lieux non résolus" in md
+    assert "Nohant-en-Goût" in md
+
+
+def test_rapport_porte_le_handle_de_l_orphelin():
+    """Un événement non rattaché doit être retrouvable : son handle en clair."""
+    md = render_deaths_report(
+        "2026-07-21", [], [], [], {"hors_perimetre": 0, "sans_donnee": 0},
+        [("I0174", "Death créé mais NON rattaché (orphelin EV_ORPH) : timeout")],
+        dry_run=False)
+    assert "EV_ORPH" in md

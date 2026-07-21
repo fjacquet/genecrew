@@ -98,3 +98,40 @@ def trier_propositions(propositions: list) -> tuple[list, dict[str, int]]:
             continue
         retenues.append(prop)
     return retenues, motifs
+
+
+def render_deaths_report(date: str, crees: list, refuses: list, lieux_non_resolus: list,
+                         motifs: dict, errors: list, dry_run: bool) -> str:
+    """Rapport Markdown d'un passage de `apply deaths`. Pur.
+
+    `Mode:` reflète le dry-run EFFECTIF (variable d'environnement comprise) : le
+    rapport ne doit jamais annoncer une écriture qui n'a pas eu lieu.
+    """
+    mode = "simulation (dry-run, aucune écriture)" if dry_run else "écritures appliquées"
+    lines = [f"# Création d'événements décès sourcés — {date}", "",
+             f"Mode : {mode}.", "",
+             f"- Décès créés : {len(crees)}",
+             f"- Refusés (décès déjà présent dans l'arbre) : {len(refuses)}",
+             f"- Sans donnée machine exploitable (YAML antérieur) : {motifs['sans_donnee']}",
+             f"- Hors périmètre (type ≠ date ou confiance < 2) : {motifs['hors_perimetre']}",
+             f"- Erreurs : {len(errors)}", ""]
+    if crees:
+        lines += ["| Personne | Événement | Lieu |", "|---|---|---|"]
+        lines += [f"| {gid} {nom} | {ev} | {lieu or '—'} |"
+                  for gid, nom, ev, lieu in crees]
+        lines.append("")
+    if lieux_non_resolus:
+        lines += ["## Lieux non résolus", "",
+                  "Événement créé sans lieu : la commune est inconnue de l'arbre, ou "
+                  "plusieurs lieux portent ce nom. À traiter avec `apply places`.", ""]
+        lines += [f"- {gid} : {nom}" for gid, nom in lieux_non_resolus]
+        lines.append("")
+    if refuses:
+        lines += ["## Refusés", ""]
+        lines += [f"- {gid} : {motif}" for gid, motif in refuses]
+        lines.append("")
+    if errors:
+        lines += ["## Erreurs", ""]
+        lines += [f"- {gid} : {msg}" for gid, msg in errors]
+        lines.append("")
+    return "\n".join(lines)
