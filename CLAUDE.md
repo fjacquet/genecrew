@@ -19,7 +19,7 @@ When making changes, work inside `genecrew/src/genecrew/` for crew logic.
 - `crew.py` — the real audit crew (`@CrewBase Genecrew`, `Process.sequential`, 4 agents): `detective` (judges) → `historien` (external proof: MatchID/Gallica/Wikidata) → `standardisateur` (precise propositions, strict JSON validated by `PropositionsLot`, confidence ≤ 2) → `chroniqueur` (the **only** writer, append-only note/tag tools). Write isolation is structural. LLM per role via `build_llm(role)` (`MODEL_<ROLE>` env, fallback `MODEL`), **always `is_litellm=True`** — CrewAI's native provider hardcodes `"strict": true` on tool schemas, which Mistral rejects.
 - `config/agents.yaml` — `detective`/`chroniqueur` personas (French, static).
 - `config/tasks/audit.yaml` — `interpreter_anomalies` (Détective) → `rediger_annotations` (Chroniqueur), templated with `{anomalies_block}` and `{date}`. (`crew.py` sets `tasks_config` to this path; the stock `config/tasks.yaml` was deleted.)
-- `cli.py` — `build_parser()`, the CLI's verb grammar: `stats`, `propose {audit|places|deaths|military|gender|wikidata|dhs}`, `apply {case|gender|places|citations|all}`, `merge places`, `enrich wiki`, `import place`, `crew audit`. Pure — reads the environment only for flag defaults. See `docs/adr/0012-cli-grammaire-verbes.md`.
+- `cli.py` — `build_parser()`, the CLI's verb grammar: `stats`, `propose {audit|places|deaths|military|gender|wikidata|dhs}`, `apply {case|gender|places|citations|all}`, `merge places`, `enrich wiki`, `import {place|releve}`, `crew audit`. Pure — reads the environment only for flag defaults. See `docs/adr/0012-cli-grammaire-verbes.md`.
 - `main.py` — the CLI dispatcher (`main()` calls `cli.build_parser()`, then routes on the `(command, target)` pair) **and** the CrewAI console entry points (`run`/`train`/`test`/`replay`). `run` delegates to a bounded dry-run `crew audit`. Sets up durable logging around every command.
 - `tools/custom_tool.py` — placeholder `BaseTool` subclass template for adding custom CrewAI tools.
 - `knowledge/user_preference.txt` — static knowledge file (currently placeholder content) available to the crew via CrewAI's knowledge sources.
@@ -38,6 +38,11 @@ names), `audit.py`, `names.py`, `gender.py`, `gender_apply.py`, `apply_all.py`, 
 `places_apply.py`, `places_merge.py`, `deces.py`, `deces_apply.py`, `militaires.py`,
 `lieux_wiki.py`, `lieu_import.py`, `archives.py` (`propose wikidata`/`propose dhs` orchestration —
 network + batching; the pure Piste translation lives in the library, `genealogy/pistes/`),
+`releves.py` (`import releve` smart-match engine — **pure**: models + weighted matching, blocking,
+verdict net/gris/aucun, country-prefixed place-code comparison; no network, offline-tested) and
+`releves_import.py` (`import releve` orchestration — LLM interprets the pasted text, then
+deterministic collect/apparier/write of note+tag+citation on a `net`; `--person` forces the target
+without bypassing the safety guards),
 `propositions.py`, `stats.py`, `checkpoint.py`,
 `crew_audit.py` (crew orchestration), `crew.py` (the crew), `logging_setup.py`,
 `scope.py`, `batching.py`, `report.py`.
@@ -99,6 +104,8 @@ uv run genecrew propose places --scope all        # propositions de lieux (lectu
 uv run genecrew apply places --dry-run            # écrit hiérarchie + GPS au-dessus du score
 uv run genecrew apply places --scope place:P0080 --dry-run  # cibler UN lieu avant d'élargir
 uv run genecrew merge places --yaml <fusions.yaml>  # exécute les fusions relues (jamais auto)
+pbpaste | uv run genecrew import releve            # relevé collé → smart match (stdin ; simule par défaut)
+uv run genecrew import releve --file acte.txt --person I0421  # trancher un gris : forcer la personne
 uv run genecrew propose wikidata --scope person:I0042  # pistes Wikidata ; scan complet = exception, borner avec --limit
 uv run genecrew propose dhs --scope person:I0042       # pistes DHS (projection de Wikidata via P902) ; aucune citation créée
 

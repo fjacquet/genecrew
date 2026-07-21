@@ -447,6 +447,89 @@ accès programmatique non documenté).
 
 ---
 
+## Importer un relevé trouvé en ligne
+
+Tu tombes sur un relevé de dépouillement — un acte indexé par un cercle généalogique, publié sur
+Geneanet ou ailleurs — et tu veux le verser dans l'arbre. `import releve` lit le texte que tu
+**colles**, l'interprète, cherche à qui il correspond, et écrit ce qui est certain.
+
+```bash
+# Colle le relevé au clavier (termine par Ctrl-D), ou passe-le par un pipe :
+pbpaste | uv run genecrew import releve
+uv run genecrew import releve --file docs/exemples/releve-rose-jacquet.txt
+```
+
+Prérequis : la stack Gramps Web doit tourner (voir Phase 0), car la commande lit tout l'arbre pour
+apparier. Un `.env` avec les `GRAMPS_*` renseignés est nécessaire — la commande ne fonctionne pas
+hors ligne.
+
+### Pourquoi coller, et pas une source automatique
+
+Geneanet n'expose aucune API de lecture publique, et ses CGU interdisent nommément l'extraction
+automatisée (« robots »), sous peine de résiliation du compte ; l'accès partenaire est réservé aux
+associations contributrices, pas aux adhérents individuels. Le collage manuel n'est donc pas un
+pis-aller : c'est la seule entrée légitime. Si un cercle te fournit un jour un export (CSV, GEDCOM),
+ce sera une autre porte, à traiter séparément.
+
+### Le LLM lit, il ne décide pas
+
+Un seul appel LLM sert à transformer ton texte libre en champs structurés (sujet, événement, date,
+lieu, parents, référence). C'est la **seule** étape non déterministe, et la seule payante — un appel
+par collage. Tout ce qui décide d'une écriture dans l'arbre — l'appariement, la pondération, le
+verdict — est du code déterministe et testé. Le texte que tu as collé est recopié **intégralement**
+dans la note posée, pour que la source reste vérifiable quoi qu'il advienne de l'interprétation.
+
+### Simulation par défaut — lis les verdicts avant d'écrire
+
+Comme le reste du projet, l'import **simule** tant que `GENECREW_DRY_RUN=false` n'est pas posé dans
+`.env`. Le premier lot ne peut donc rien casser. Le rapport affiche le mode **effectif** — il
+n'annonce jamais une écriture qui n'a pas eu lieu.
+
+### Lire le verdict
+
+Chaque import rend un verdict motivé :
+
+- **`net`** — une seule personne correspond, avec assez de facteurs concordants (date complète, lieu,
+  patronyme rare, les deux parents nommés…) et aucune contradiction. La note, le tag `ia-releve` et,
+  si l'événement existe déjà, une citation de confiance *Normal* sont posés. La citation dit que le
+  relevé est un **dépouillement**, pas l'acte original — jamais *High*.
+- **`gris`** — plusieurs personnes plausibles. Rien n'est écrit ; le rapport les liste. Relance en
+  désignant la bonne :
+
+  ```bash
+  uv run genecrew import releve --file <fichier> --person I0421
+  ```
+
+  `--person` force **quelle** personne, jamais **le droit** d'écrire : il saute l'appariement mais
+  garde toutes les vérifications (la personne doit exister, le type d'événement doit être géré,
+  l'idempotence et la simulation s'appliquent). La note d'un rattachement forcé l'**affirme**
+  explicitement, pour qu'on la distingue plus tard d'un appariement mesuré.
+- **`aucun`** — personne ne correspond. Rien n'est écrit. La recherche préalable est large (variantes
+  de graphie, fenêtre de dates) et sa requête figure au rapport, pour qu'« absent » ne veuille jamais
+  dire « mal cherché ».
+
+Recoller le même relevé n'écrit rien : un marqueur porté par la référence du relevé rend l'opération
+idempotente.
+
+### Limites connues (assumées)
+
+- **Aucune création.** Si le sujet est absent de l'arbre, ou si l'événement (le décès, la naissance)
+  n'y est pas encore, l'import le **rapporte** au lieu de le créer. Créer une personne ou un événement
+  est une surface d'écriture qui mérite ta décision, pas un effet de bord — même posture qu'`apply
+  citations` (ADR 0011). À lever après avoir observé un vrai lot.
+- **Le veto sur les lieux ne joue pas encore.** Distinguer deux communes de façon sûre passera par les
+  résolveurs de codes (INSEE, AGS…) ; ce branchement est un chantier à part. En attendant, un lieu qui
+  ne concorde pas ne bloque pas — il ne compte simplement pas. Conséquence : un peu plus de `gris` à
+  relire, jamais de fausse écriture.
+- **Lieux suisses non résolus.** Le résolveur suisse ne rend pas de code commune ; les lieux suisses
+  retomberont donc toujours sur la comparaison de graphies. Direction sûre, mais moins discriminante
+  qu'en France ou en Allemagne.
+- **Les poids sont un point de départ.** Si le premier lot réel produit des `net` douteux ou des
+  `gris` évidents, ce sont les poids du moteur qu'on ajuste — c'est précisément à ça que sert la
+  simulation par défaut.
+
+---
+
 ## Phases suivantes
 
 Les sections Phase 1b (interprétation LLM, tags, PDF) à Phase 6 (Archiviste Numérique) seront
