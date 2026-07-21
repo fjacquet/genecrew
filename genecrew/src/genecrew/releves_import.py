@@ -547,7 +547,26 @@ def format_import_releve(resultat: dict) -> str:
     On lit `resultat["dry_run"]` (le dry-run que `run_import_releve` a réellement
     appliqué, env inclus), jamais le dry-run demandé : un rapport ne doit jamais
     annoncer une écriture qui n'a pas eu lieu.
+
+    `resultat["appariement"]` peut valoir `None` — UN SEUL cas : `--person`
+    désigne un `gramps_id` ABSENT de l'arbre (voir `handle_personne` /
+    `run_import_releve`). C'est un refus gracieux, pas un appariement raté —
+    il n'y a donc rien à décrire côté `Appariement`. `releve_import_cmd`
+    (main.py) appelle TOUJOURS cette fonction, y compris sur ce refus : sans
+    cette garde, le parcours nominal — qui invite justement l'utilisateur à
+    relancer avec `--person <ID>` sur un verdict gris — plante dès que l'ID
+    saisi est mauvais, au lieu d'afficher la `raison` déjà calculée par
+    `run_import_releve`.
     """
+    if resultat["appariement"] is None:
+        releve = resultat["releve"]
+        return "\n".join([
+            f"Relevé {releve.reference} — {releve.fonds}",
+            f"Sujet : {releve.sujet_prenom} {releve.sujet_nom} "
+            f"({releve.evenement_type} {releve.evenement_date or 'sans date'})",
+            "",
+            f"Résultat : non écrit ({resultat['raison']})",
+        ])
     releve, app = resultat["releve"], resultat["appariement"]
     mode = ("simulation (dry-run, aucune écriture)" if resultat["dry_run"]
             else "écritures appliquées")

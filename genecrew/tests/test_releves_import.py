@@ -991,3 +991,19 @@ def test_rapport_liste_les_candidats_d_un_gris(monkeypatch):
                             llm=_LLMStub(json.dumps(_JSON_ATTENDU)))
     texte = format_import_releve(out)
     assert "I0001" in texte and "I0002" in texte
+
+
+def test_rapport_sur_personne_introuvable_ne_plante_pas(monkeypatch):
+    """`format_import_releve` déréférence `app.verdict` sans garde : sur un ID
+    `--person` introuvable, `run_import_releve` rend `appariement=None` (un
+    refus gracieux, voir `handle_personne`), et `releve_import_cmd` appelle
+    TOUJOURS `format_import_releve` — donc `genecrew import releve --person
+    I9999` plantait avec un AttributeError au lieu d'afficher la raison déjà
+    calculée. Ce test verrouille le cas : pas de crash, et le rapport reste
+    lisible (l'ID et le mot « introuvable » y figurent)."""
+    monkeypatch.setenv("GENECREW_DRY_RUN", "false")
+    out = run_import_releve(_client(_handler_force(existe=False)),
+                            COLLAGE_ROSE, llm=_llm(), person="I9999")
+    texte = format_import_releve(out)
+    assert "I9999" in texte
+    assert "introuvable" in texte
