@@ -15,6 +15,10 @@ from collections.abc import Callable
 
 from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient
 from crewai_custom_tools.tools.genealogy.gramps.facts import FactsFetcher
+from crewai_custom_tools.tools.genealogy.analysis.gender import (
+    infer_sex,
+    load_prenoms_table,
+)
 from crewai_custom_tools.tools.genealogy.gramps.write_tools import (
     GrampsAttachCitationTool,
     GrampsAttachTool,
@@ -31,6 +35,7 @@ from crewai_custom_tools.tools.genealogy.standardize.places import parse_pname
 from genecrew.batching import iter_people_batches
 from genecrew.crew import build_llm
 from genecrew.deces_apply import source_title_for
+from genecrew.lieu_import import run_lieu_import
 from genecrew.pistes import _normaliser
 from genecrew.releves import (
     Appariement,
@@ -462,6 +467,56 @@ def _raw_lieu(releve: ReleveIndexe) -> str:
     echelons = [commune, (releve.evenement_departement or "").strip(),
                 (releve.evenement_pays or "").strip()]
     return ", ".join(e for e in echelons if e)
+
+
+_TABLE_PRENOMS: dict | None = None
+
+SEUIL_GENRE = 0.98
+"""Ratio minimal pour poser un genre sur un sujet CRÉÉ.
+
+Même exigence que `apply gender` : sous ce seuil le prénom est trop ambigu pour
+trancher, on laisse Inconnu (U) plutôt que d'inscrire un fait douteux. Le genre
+reste réversible, mais on ne le pose pas à la légère.
+"""
+
+
+def _table_prenoms() -> dict:
+    """Table INSEE+OFS des prénoms, chargée une fois (coûteuse) et mémorisée."""
+    global _TABLE_PRENOMS
+    if _TABLE_PRENOMS is None:
+        _TABLE_PRENOMS = load_prenoms_table()
+    return _TABLE_PRENOMS
+
+
+def genre_infere(prenom: str) -> int:
+    """Genre Gramps (0=F, 1=M, 2=U) inféré du prénom, U hors table ou sous le seuil.
+
+    Réutilise l'inférence de `propose gender` (table INSEE+OFS). On ne pose F/M que
+    si le ratio franchit `SEUIL_GENRE` ; sinon Inconnu — cohérent avec l'asymétrie
+    de tout l'import : on crée du réversible, jamais un fait tranché sans base.
+    """
+    inf = infer_sex(prenom or "", _table_prenoms())
+    if inf.sex and inf.ratio >= SEUIL_GENRE:
+        return 0 if inf.sex == "F" else 1
+    return 2
+
+
+def resoudre_ou_creer_lieu(client: GrampsClient, releve: ReleveIndexe, *,
+                           dry_run: bool = False) -> str | None:
+    """Handle du lieu de l'événement, créé en cascade si absent ; None si non résolu.
+
+    Délègue à `run_lieu_import` (mêmes résolveurs que `propose places`) sur la chaîne
+    qualifiée `_raw_lieu`. Rend le handle de la feuille quand la résolution autorise
+    l'écriture (créée OU déjà présente), sinon None : commune absente, résolution
+    ambiguë ou score sous le seuil. Un None fait poser l'événement SANS lieu (rapporté)
+    — jamais un lieu faux. En dry-run le handle rendu est synthétique (`DRYRUN:…`),
+    que `GrampsCreateEventTool` ignore de toute façon.
+    """
+    raw = _raw_lieu(releve)
+    if not raw:
+        return None
+    out = run_lieu_import(client, raw, dry_run=dry_run)
+    return out.get("handle")
 
 
 def _prefixe_pays(country: str) -> str | None:

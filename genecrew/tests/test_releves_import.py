@@ -31,9 +31,11 @@ from genecrew.releves_import import (
     deja_importe,
     ecrire_citation,
     format_import_releve,
+    genre_infere,
     handle_evenement,
     marqueur_releve,
     parse_releve,
+    resoudre_ou_creer_lieu,
     run_import_releve,
 )
 
@@ -126,6 +128,58 @@ def test_raw_lieu_saute_les_champs_vides():
 def test_raw_lieu_sans_commune_est_vide():
     # Pas de commune : rien à résoudre — la cascade ne doit pas partir sur « Cher, France ».
     assert _raw_lieu(_releve_lieu(commune="")) == ""
+
+
+# --- genre_infere : mapping + seuil ---
+
+def _inf(sex, ratio):
+    from crewai_custom_tools.tools.genealogy.analysis.gender import GenderInference
+    return GenderInference(sex=sex, ratio=ratio, total=100, key="x")
+
+
+def test_genre_infere_feminin_haut_ratio(mocker):
+    mocker.patch("genecrew.releves_import.infer_sex", return_value=_inf("F", 0.99))
+    assert genre_infere("Rose") == 0            # 0 = F
+
+
+def test_genre_infere_masculin_haut_ratio(mocker):
+    mocker.patch("genecrew.releves_import.infer_sex", return_value=_inf("M", 0.995))
+    assert genre_infere("Pierre") == 1          # 1 = M
+
+
+def test_genre_infere_inconnu_hors_table(mocker):
+    mocker.patch("genecrew.releves_import.infer_sex", return_value=_inf(None, 0.0))
+    assert genre_infere("Xyzzy") == 2           # 2 = U
+
+
+def test_genre_infere_sous_le_seuil_reste_inconnu(mocker):
+    # Prénom ambigu (ratio sous le seuil) : on ne pose PAS un genre douteux — U.
+    mocker.patch("genecrew.releves_import.infer_sex", return_value=_inf("F", 0.60))
+    assert genre_infere("Claude") == 2
+
+
+# --- resoudre_ou_creer_lieu : cascade déléguée à run_lieu_import ---
+
+def test_resoudre_lieu_rend_le_handle_quand_ecrit(mocker):
+    mocker.patch("genecrew.releves_import.run_lieu_import",
+                 return_value={"action": "ecrire", "handle": "P_SMA", "created": True})
+    h = resoudre_ou_creer_lieu(None, _releve_lieu(), dry_run=False)
+    assert h == "P_SMA"
+
+
+def test_resoudre_lieu_sans_commune_ne_resout_pas(mocker):
+    appels = mocker.patch("genecrew.releves_import.run_lieu_import")
+    h = resoudre_ou_creer_lieu(None, _releve_lieu(commune=""), dry_run=False)
+    assert h is None
+    appels.assert_not_called()                  # rien à résoudre : pas d'appel réseau
+
+
+def test_resoudre_lieu_ambigu_ne_pose_aucun_lieu(mocker):
+    # run_lieu_import a refusé (score/ambiguïté) : handle None -> événement sans lieu.
+    mocker.patch("genecrew.releves_import.run_lieu_import",
+                 return_value={"action": "proposer", "handle": None})
+    h = resoudre_ou_creer_lieu(None, _releve_lieu(), dry_run=False)
+    assert h is None
 
 
 def test_texte_brut_est_conserve_integralement():
