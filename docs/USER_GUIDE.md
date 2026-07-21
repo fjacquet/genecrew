@@ -525,9 +525,18 @@ dans la note posée, pour que la source reste vérifiable quoi qu'il advienne de
 
 ### Simulation par défaut — lis les verdicts avant d'écrire
 
-Comme le reste du projet, l'import **simule** tant que `GENECREW_DRY_RUN=false` n'est pas posé dans
-`.env`. Le premier lot ne peut donc rien casser. Le rapport affiche le mode **effectif** — il
-n'annonce jamais une écriture qui n'a pas eu lieu.
+Comme le reste du projet, l'écriture est bornée par **deux** leviers, et **l'un OU l'autre suffit à
+simuler** :
+
+- `--dry-run` sur la commande (`import releve --dry-run`) ;
+- l'interrupteur global `GENECREW_DRY_RUN` (`.env`), qui vaut `true` par défaut.
+
+La règle de précédence va toujours vers la sûreté : un `--dry-run` explicite ne peut jamais être
+annulé par l'environnement, et `GENECREW_DRY_RUN=true` force la simulation même sans le flag. Pour
+écrire réellement, il faut donc **à la fois** poser `GENECREW_DRY_RUN=false` dans `.env` **et** ne
+pas passer `--dry-run`. Le premier lot ne peut donc rien casser. Le rapport affiche le mode
+**effectif** (`Mode : simulation` / `écritures appliquées`, `GENECREW_DRY_RUN` inclus) — il n'annonce
+jamais une écriture qui n'a pas eu lieu.
 
 ### Lire le verdict
 
@@ -556,6 +565,12 @@ Chaque import rend un verdict motivé :
 Recoller le même relevé n'écrit rien : un marqueur porté par la référence du relevé rend l'opération
 idempotente. Un sujet créé au premier passage est retrouvé par l'appariement au suivant (son décès
 posé le rend reconnaissable), et le marqueur de sa note coupe la réécriture.
+
+**L'idempotence ne commence qu'après une écriture *effective*.** Le marqueur n'est posé que par une
+écriture réelle : une **simulation ne persiste rien**, donc relancer un import en dry-run ne « marque »
+jamais le relevé et n'établit aucune protection contre un doublon. C'est sans conséquence — un dry-run
+n'écrit pas non plus le sujet — mais la garde d'idempotence (y compris celle qui empêche de recréer un
+sujet déjà posé) ne joue qu'une fois le premier import passé pour de vrai.
 
 ### Ce qui se crée
 

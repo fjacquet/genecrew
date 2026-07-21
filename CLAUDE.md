@@ -30,10 +30,15 @@ When making changes, work inside `genecrew/src/genecrew/` for crew logic.
 
 genecrew depends on the sibling **`crewai_custom_tools`** library as an editable uv dependency
 (`[tool.uv.sources] crewai-custom-tools = { path = "../crewai_custom_tools", editable = true }`).
-All genealogy logic lives THERE under `src/crewai_custom_tools/tools/genealogy/`: `gramps/`
+Genealogy logic lives THERE under `src/crewai_custom_tools/tools/genealogy/`: `gramps/`
 (httpx+JWT client, read/write tools), `models/` (generated + `domain.py`), `analysis/` (pure
-rules R1–R10 + D1–D3, duplicate finder), `standardize/` (name casing). genecrew holds only
-orchestration/CLI: `cli.py` (the verb grammar — `build_parser()`, the dispatch table's target
+rules R1–R10 + D1–D3, duplicate finder), `standardize/` (name casing). **One deliberate
+exception**: `releves.py`, the `import releve` smart-match engine, is a *pure* genealogy engine
+that nonetheless stays in genecrew for now — spec §8 defers its extraction to the library until a
+**second** relevé source appears (a single consumer doesn't justify the cross-repo release
+friction). When that second source lands, `releves.py` moves to the library and this exception
+goes away. genecrew otherwise holds only orchestration/CLI, plus that one engine: `cli.py` (the
+verb grammar — `build_parser()`, the dispatch table's target
 names), `audit.py`, `names.py`, `gender.py`, `gender_apply.py`, `apply_all.py`, `places.py`,
 `places_apply.py`, `places_merge.py`, `deces.py`, `deces_apply.py`, `militaires.py`,
 `lieux_wiki.py`, `lieu_import.py`, `archives.py` (`propose wikidata`/`propose dhs` orchestration —
