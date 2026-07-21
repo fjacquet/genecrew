@@ -92,3 +92,15 @@ def test_propose_accepte_les_deux_sources_d_archives(cible):
 # et par argparse lui-même (choix fermé). "scriptorium" n'a jamais été une feuille
 # valide de `propose` — la source a été écartée avant d'être câblée, voir
 # docs/BACKLOG.md — donc son rejet n'est pas un comportement spécifique à verrouiller.
+
+
+def test_import_releve_lit_stdin_par_defaut():
+    args = build_parser().parse_args(["import", "releve"])
+    assert (args.command, args.target) == ("import", "releve")
+    assert args.file is None
+
+
+def test_import_releve_accepte_un_fichier():
+    args = build_parser().parse_args(["import", "releve", "--file", "acte.txt"])
+    assert args.file == "acte.txt"
+    assert args.dry_run is False

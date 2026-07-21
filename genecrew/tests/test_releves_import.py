@@ -23,6 +23,7 @@ from genecrew.releves_import import (
     corps_note_releve,
     deja_importe,
     ecrire_citation,
+    format_import_releve,
     handle_evenement,
     marqueur_releve,
     parse_releve,
@@ -806,3 +807,24 @@ def test_dry_run_est_propage_aux_trois_outils_de_citation(mocker):
     assert appels["GrampsEnsureSourceTool"]["dry_run"] is True
     assert appels["GrampsCreateCitationTool"]["dry_run"] is True
     assert appels["GrampsAttachCitationTool"]["dry_run"] is True
+
+
+# --- rapport lisible -----------------------------------------------------
+
+def test_rapport_affiche_le_mode_effectif(monkeypatch):
+    monkeypatch.delenv("GENECREW_DRY_RUN", raising=False)
+    out = run_import_releve(_arbre(_ROSE_ARBRE), COLLAGE_ROSE,
+                            llm=_LLMStub(json.dumps(_JSON_ATTENDU)))
+    texte = format_import_releve(out)
+    assert "simulation" in texte
+    assert "I0001" in texte
+    assert "date complète" in texte
+
+
+def test_rapport_liste_les_candidats_d_un_gris(monkeypatch):
+    monkeypatch.setenv("GENECREW_DRY_RUN", "false")
+    jumeau = _personne("I0002", "h2")
+    out = run_import_releve(_arbre(_ROSE_ARBRE, jumeau), COLLAGE_ROSE,
+                            llm=_LLMStub(json.dumps(_JSON_ATTENDU)))
+    texte = format_import_releve(out)
+    assert "I0001" in texte and "I0002" in texte

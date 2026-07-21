@@ -492,3 +492,33 @@ def run_import_releve(client: GrampsClient, texte: str, *, llm=None,
     out["raison"] = ("importée" if citation["posee"]
                      else f"importée sans citation ({citation['raison']})")
     return out
+
+
+def format_import_releve(resultat: dict) -> str:
+    """Rapport lisible d'un import. Le mode affiché est le mode EFFECTIF.
+
+    On lit `resultat["dry_run"]` (le dry-run que `run_import_releve` a réellement
+    appliqué, env inclus), jamais le dry-run demandé : un rapport ne doit jamais
+    annoncer une écriture qui n'a pas eu lieu.
+    """
+    releve, app = resultat["releve"], resultat["appariement"]
+    mode = ("simulation (dry-run, aucune écriture)" if resultat["dry_run"]
+            else "écritures appliquées")
+    lignes = [
+        f"Relevé {releve.reference} — {releve.fonds}",
+        f"Sujet : {releve.sujet_prenom} {releve.sujet_nom} "
+        f"({releve.evenement_type} {releve.evenement_date or 'sans date'})",
+        f"Mode : {mode}",
+        "",
+        f"Verdict : {app.verdict.upper()} (poids {app.poids})",
+        f"  facteurs    : {', '.join(app.facteurs) or '—'}",
+        f"  divergences : {', '.join(app.divergences) or '—'}",
+        f"  candidats   : {', '.join(app.candidats) or '—'}",
+        "",
+        f"Résultat : {'écrit' if resultat['ecrit'] else 'non écrit'} "
+        f"({resultat['raison']})",
+    ]
+    if app.verdict == "gris":
+        lignes += ["", "Relis les candidats, puis relance en désignant le bon :",
+                   "  genecrew import releve --file <fichier> --person <ID>"]
+    return "\n".join(lignes)

@@ -357,6 +357,19 @@ def lieu_import_cmd(args) -> None:
     print(format_lieu_import(out))
 
 
+def releve_import_cmd(args) -> None:
+    """`genecrew import releve` : lit le collage (stdin ou --file), apparie, écrit le net."""
+    from crewai_custom_tools.tools.genealogy.gramps.client import get_client
+
+    from genecrew.releves_import import format_import_releve, run_import_releve
+
+    texte = Path(args.file).read_text(encoding="utf-8") if args.file else sys.stdin.read()
+    if not texte.strip():
+        raise SystemExit("Rien à importer : le relevé est vide.")
+    resultat = run_import_releve(get_client(), texte, dry_run=args.dry_run)
+    print(format_import_releve(resultat))
+
+
 def crew_audit_cmd(args) -> None:
     """Run the two-agent audit crew over a scope; print the report path."""
     from pathlib import Path
@@ -409,6 +422,7 @@ def main() -> None:
         ("merge", "places"): lambda: lieux_merge_cmd(args),
         ("enrich", "wiki"): lambda: lieux_wiki_cmd(args),
         ("import", "place"): lambda: lieu_import_cmd(args),
+        ("import", "releve"): lambda: releve_import_cmd(args),
         ("crew", "audit"): lambda: crew_audit_cmd(args),
     }
     try:

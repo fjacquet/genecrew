@@ -170,6 +170,14 @@ def build_parser() -> argparse.ArgumentParser:
     _add_min_score(p, "seuil de score pour créer (défaut 0.90)")
     _add_dry_run(p)
 
+    p = import_sub.add_parser(
+        "releve", help="Importer un relevé collé (stdin par défaut) avec smart match")
+    p.add_argument("--file", default=None,
+                   help="fichier contenant le relevé (défaut : stdin)")
+    p.add_argument("--person", default=None,
+                   help="forcer le rattachement à cette personne (ID Gramps)")
+    _add_dry_run(p)
+
     # --- crew : escalade LLM ---
     crew_p = sub.add_parser("crew", help="Workflows interprétés par la crew LLM (coûteux)")
     crew_sub = crew_p.add_subparsers(dest="target", required=True)
