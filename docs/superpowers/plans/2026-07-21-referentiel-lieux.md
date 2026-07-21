@@ -687,6 +687,486 @@ git commit -m "feat(referentiel): mapper pur, niveau par P131 et collisions ISO 
 
 ---
 
+### Task 3bis : corriger le mapper — ancre pays, écartées, déterminisme
+
+> **Cette tâche corrige la tâche 3, déjà livrée au commit `73fd37b`.** La revue de code a fait
+> passer la **vraie** charge Wikidata dans le mapper : sur 125 entités françaises, **12
+> seulement** étaient retenues, toutes ultramarines, et la collision `FR-69` exigée par la spec
+> n'apparaissait pas. Cause : les régions métropolitaines pendent sous `Q212429`
+> *France métropolitaine*, qui n'a pas de code ISO et n'entre donc pas dans l'univers. Les
+> régions tombaient, puis les 96 départements avec elles. **En silence** : rien ne signalait les
+> 113 disparues.
+>
+> Quatre autres constats de la même revue sont corrigés ici.
+
+**Files:**
+- Modify: `src/crewai_custom_tools/tools/genealogy/referentiel/wikidata.py`
+- Modify: `src/crewai_custom_tools/tools/genealogy/models/domain.py` (ajout d'un modèle)
+- Modify: `tests/test_genealogy_referentiel_mapper.py` (réécriture des fixtures)
+- Modify: `tests/test_genealogy_referentiel_wikidata.py` (signature de `build_query`)
+- Create: `tests/fixtures/referentiel/{FR,IT,CH,PL}.json`
+- Create: `scripts/capturer_charges_referentiel.py`
+
+**Interfaces:**
+- Produces (signatures modifiées) :
+  - `build_query(prefixe: str, langue: str, qid_pays: str) -> str`
+  - `map_subdivisions(rows, pays) -> tuple[list[Subdivision], list[CollisionIso], list[EntiteEcartee]]`
+  - `EntiteEcartee(qid, iso, libelle_fr, motif)` dans `models/domain.py`
+- La tâche 4, qui n'est pas encore écrite, consommera ces signatures.
+
+**Les six corrections, chacune avec le cas qui la motive :**
+
+1. **Ancre pays.** La requête demande en plus si le pays est atteignable en un, deux ou trois
+   sauts de `P131`. Sans parent candidat, l'ancre donne le niveau 1. Cas : Auvergne-Rhône-Alpes.
+2. **L'ancre ne rattrape que les entités sans aucun `P131` dans l'univers.** Cas : Venise-la-ville,
+   dont l'unique parent porte le même code ISO qu'elle — sans cette condition l'ancre la promeut
+   région.
+3. **Trois sauts, pas quatre.** Mesuré : à quatre sauts, l'entité sans libellé de `IT-82` remonte
+   par une commune puis une province et collisionne avec la Sicile.
+4. **Parent le moins profond**, et non le plus petit QID. Le départage lexicographique laissait un
+   accident de numérotation décider du niveau. Cas : le Bas-Rhin, qui pend à la fois sous la
+   Collectivité européenne d'Alsace et sous le Grand Est — le rattachement direct fait foi.
+5. **Écartées rendues à l'appelant** avec leur motif. Sans ce canal, « ce pays a 12 subdivisions »
+   est indiscernable de « 113 entités sont tombées ».
+6. **Collisions ordonnées par QID.** L'ordre suivait celui des lignes SPARQL : sur les 24
+   permutations de la charge `FR-69`, deux sorties distinctes.
+
+**Et les jeux d'essai, qui étaient faux.** Les QID des fixtures actuelles sont inventés : `Q1225`
+est Bruce Springsteen et non la Vénétie, `Q1273` la Toscane et non Vaud, `Q54193` une catégorie
+Wikipédia. C'est ce qui a laissé passer le défaut : la logique n'avait jamais rencontré la charge
+qu'elle doit traiter. Les tests portent désormais sur des **charges réelles figées**.
+
+- [ ] **Step 1: capturer les charges réelles**
+
+Créer `scripts/capturer_charges_referentiel.py` — un utilitaire hors suite de tests, lancé à la
+main quand les fixtures doivent être rafraîchies :
+
+```python
+"""Capture les charges SPARQL réelles servant de fixtures au référentiel.
+
+À relancer à la main quand les fixtures doivent être rafraîchies. Wikidata bouge : les
+fixtures sont figées précisément pour que la suite de tests ne dépende ni du réseau ni de
+l'humeur de l'endpoint.
+
+    uv run python scripts/capturer_charges_referentiel.py
+"""
+
+import json
+import pathlib
+import time
+
+from crewai_custom_tools.tools.genealogy.referentiel.config import PAYS_REFERENTIEL
+from crewai_custom_tools.tools.genealogy.referentiel.wikidata import build_query
+from crewai_custom_tools.tools.web.wikidata import sparql_rows
+
+DESTINATION = pathlib.Path(__file__).parent.parent / "tests" / "fixtures" / "referentiel"
+# Quatre pays suffisent : ils portent tous les cas qui ont fait basculer la conception.
+# FR = conteneur intermédiaire sans ISO + collision FR-69 ; IT = villes métropolitaines,
+# entité sans libellé, Venise ; CH = un sommet portant un code cantonal ; PL = une ville.
+PAYS_CAPTURES = ("FR", "IT", "CH", "PL")
+
+
+def main() -> None:
+    DESTINATION.mkdir(parents=True, exist_ok=True)
+    for code in PAYS_CAPTURES:
+        pays = PAYS_REFERENTIEL[code]
+        rows = sparql_rows(build_query(pays.code_iso, pays.langue, pays.qid), timeout=180.0)
+        cible = DESTINATION / f"{code}.json"
+        cible.write_text(json.dumps(rows, ensure_ascii=False, indent=1), encoding="utf-8")
+        print(f"{code}: {len(rows)} lignes -> {cible}")
+        time.sleep(4)
+
+
+if __name__ == "__main__":
+    main()
+```
+
+Ce script ne peut pas tourner avant l'étape 3, qui donne à `build_query` son troisième paramètre.
+Écris-le maintenant, lance-le à l'étape 4.
+
+- [ ] **Step 2: écrire les tests qui échouent**
+
+Remplacer **intégralement** `tests/test_genealogy_referentiel_mapper.py` :
+
+```python
+# tests/test_genealogy_referentiel_mapper.py
+"""Le mapper, éprouvé sur des charges Wikidata RÉELLES figées.
+
+Les fixtures viennent de `scripts/capturer_charges_referentiel.py`. Les QID écrits à la main
+dans ce fichier ont tous été vérifiés en ligne — une version antérieure de ces tests portait
+des QID inventés et n'a pas vu que la France entière tombait.
+"""
+import json
+import pathlib
+
+import pytest
+
+from crewai_custom_tools.tools.genealogy.referentiel.config import PAYS_REFERENTIEL
+from crewai_custom_tools.tools.genealogy.referentiel.wikidata import map_subdivisions
+
+FIXTURES = pathlib.Path(__file__).parent / "fixtures" / "referentiel"
+ENTITE = "http://www.wikidata.org/entity/"
+
+
+def charge(code: str) -> list[dict]:
+    return json.loads((FIXTURES / f"{code}.json").read_text(encoding="utf-8"))
+
+
+def ligne(qid, label, iso, parent=None, coord=None, art=None, nom_local=None, ancre=False):
+    """Une ligne aplatie telle que sparql_rows la rend (clés absentes si non liées)."""
+    r = {"item": ENTITE + qid, "itemLabel": label, "iso": iso}
+    if parent:
+        r["parent"] = ENTITE + parent
+    if coord:
+        r["coord"] = coord
+    if art:
+        r["art"] = art
+    if nom_local:
+        r["nomLocal"] = nom_local
+    if ancre:
+        r["ancre"] = "true"
+    return r
+
+
+# --- charges réelles : ce que les fixtures écrites à la main ne pouvaient pas voir ---
+
+def test_la_france_ne_se_reduit_pas_a_loutre_mer():
+    """Régression : les régions métropolitaines pendent sous Q212429 France métropolitaine,
+    qui n'a pas de code ISO. Sans l'ancre pays, 12 entités survivaient sur 125."""
+    subs, collisions, ecartees = map_subdivisions(charge("FR"), PAYS_REFERENTIEL["FR"])
+    assert len(subs) > 110
+    niveaux = {n: sum(1 for s in subs if s.niveau == n) for n in (1, 2)}
+    assert niveaux[1] > 20 and niveaux[2] > 90
+    codes = {s.code for s in subs}
+    assert {"ARA", "01", "75"} & codes           # au moins une région et un département
+
+
+def test_la_collision_fr_69_est_signalee_sur_la_charge_reelle():
+    """Le département du Rhône et la circonscription départementale partagent FR-69."""
+    subs, collisions, _ = map_subdivisions(charge("FR"), PAYS_REFERENTIEL["FR"])
+    fr69 = [c for c in collisions if c.iso == "FR-69"]
+    assert len(fr69) == 1
+    assert sorted(fr69[0].qids) == ["Q18914778", "Q46130"]
+    assert "FR-69" not in {s.iso for s in subs}   # aucune des deux n'est écrite
+
+
+def test_litalie_garde_ses_villes_metropolitaines_et_ecarte_le_reste():
+    subs, collisions, ecartees = map_subdivisions(charge("IT"), PAYS_REFERENTIEL["IT"])
+    par_iso = {s.iso: s for s in subs}
+    assert par_iso["IT-NA"].place_type == "Province"     # Naples, ville métropolitaine
+    assert par_iso["IT-MI"].place_type == "Province"     # Milan, idem
+    assert par_iso["IT-25"].place_type == "Region"       # Lombardie
+    assert par_iso["IT-VE"].qid == "Q3678587"            # la ville métropolitaine, pas la ville
+    assert collisions == []
+    ecartes = {e.iso for e in ecartees}
+    assert {"IT-VE", "IT-82"} <= ecartes                 # Venise-ville et l'entité sans libellé
+
+
+def test_la_suisse_rend_ses_26_cantons_en_type_natif():
+    subs, collisions, _ = map_subdivisions(charge("CH"), PAYS_REFERENTIEL["CH"])
+    assert len(subs) == 26
+    assert {s.place_type for s in subs} == {"State"}
+    assert collisions == []
+
+
+def test_la_pologne_ecarte_la_ville_de_kielce():
+    subs, _, ecartees = map_subdivisions(charge("PL"), PAYS_REFERENTIEL["PL"])
+    assert len(subs) == 16
+    assert "PL-KI" in {e.iso for e in ecartees}
+
+
+@pytest.mark.parametrize("code", ["FR", "IT", "CH", "PL"])
+def test_toute_entite_est_retenue_ecartee_ou_en_collision(code):
+    """Aucune disparition muette : chaque entité de la charge ressort quelque part."""
+    rows = charge(code)
+    subs, collisions, ecartees = map_subdivisions(rows, PAYS_REFERENTIEL[code])
+    entrees = {r["item"].rsplit("/", 1)[-1] for r in rows}
+    sorties = ({s.qid for s in subs} | {e.qid for e in ecartees}
+               | {q for c in collisions for q in c.qids})
+    assert entrees == sorties
+
+
+@pytest.mark.parametrize("code", ["FR", "IT"])
+def test_le_resultat_ne_depend_pas_de_lordre_des_lignes(code):
+    """SPARQL ne garantit pas l'ordre. Deux exécutions doivent rendre le même résultat."""
+    import random
+
+    rows = charge(code)
+    pays = PAYS_REFERENTIEL[code]
+    reference = map_subdivisions(rows, pays)
+    melange = list(rows)
+    random.Random(1789).shuffle(melange)
+    obtenu = map_subdivisions(melange, pays)
+    assert [s.model_dump() for s in obtenu[0]] == [s.model_dump() for s in reference[0]]
+    assert [c.model_dump() for c in obtenu[1]] == [c.model_dump() for c in reference[1]]
+
+
+def test_les_coordonnees_ne_sont_pas_inversees():
+    """WKT = Point(lon lat). Venise est à 45.4 N, 12.3 E — pas l'inverse."""
+    subs, _, _ = map_subdivisions(charge("IT"), PAYS_REFERENTIEL["IT"])
+    venise = next(s for s in subs if s.iso == "IT-VE")
+    assert venise.lat.startswith("45.")
+    assert venise.long.startswith("12.")
+
+
+# --- cas qu'une charge réelle ne contient pas, en lignes vérifiées à la main ---
+
+def test_charge_vide():
+    subs, collisions, ecartees = map_subdivisions([], PAYS_REFERENTIEL["FR"])
+    assert (subs, collisions, ecartees) == ([], [], [])
+
+
+def test_un_cycle_de_rattachement_ecarte_les_deux_entites():
+    """A parent de B, B parent de A : sans garde, la récursion ne terminerait pas."""
+    rows = [ligne("Q1", "A", "FR-01", parent="Q2"),
+            ligne("Q2", "B", "FR-02", parent="Q1")]
+    subs, _, ecartees = map_subdivisions(rows, PAYS_REFERENTIEL["FR"])
+    assert subs == []
+    assert {e.iso for e in ecartees} == {"FR-01", "FR-02"}
+
+
+def test_le_parent_le_moins_profond_lemporte():
+    """Le Bas-Rhin pend sous la Collectivité européenne d'Alsace ET sous le Grand Est.
+    Le rattachement direct fait foi, sinon il tomberait au niveau 3 et serait écarté."""
+    rows = [ligne("Q1142", "Grand Est", "FR-GES", parent="Q212429", ancre=True),
+            ligne("Q3153299", "Collectivité européenne d'Alsace", "FR-6AE", parent="Q1142"),
+            ligne("Q1180", "Bas-Rhin", "FR-67", parent="Q3153299"),
+            ligne("Q1180", "Bas-Rhin", "FR-67", parent="Q1142")]
+    subs, _, _ = map_subdivisions(rows, PAYS_REFERENTIEL["FR"])
+    assert {s.iso: s.niveau for s in subs} == {"FR-GES": 1, "FR-6AE": 2, "FR-67": 2}
+
+
+def test_lancre_ne_rattrape_pas_une_entite_dont_un_parent_est_dans_lunivers():
+    """Venise-ville : son seul parent porte le même code ISO qu'elle, donc n'est pas
+    candidat — mais il est dans l'univers, donc l'ancre ne doit pas la promouvoir."""
+    rows = [ligne("Q1243", "Vénétie", "IT-34", parent="Q38", ancre=True),
+            ligne("Q3678587", "ville métropolitaine de Venise", "IT-VE", parent="Q1243"),
+            ligne("Q641", "Venise", "IT-VE", parent="Q3678587", ancre=True)]
+    subs, collisions, ecartees = map_subdivisions(rows, PAYS_REFERENTIEL["IT"])
+    assert sorted(s.qid for s in subs) == ["Q1243", "Q3678587"]
+    assert collisions == []
+    assert [e.qid for e in ecartees] == ["Q641"]
+
+
+def test_un_parent_de_meme_code_iso_nest_jamais_candidat():
+    """Sans cette clause, les deux FR-69 se prennent mutuellement pour parent et l'une
+    est écrite seule, sans collision signalée."""
+    rows = [ligne("Q18338206", "Auvergne-Rhône-Alpes", "FR-ARA", parent="Q212429", ancre=True),
+            ligne("Q46130", "Rhône", "FR-69", parent="Q18914778"),
+            ligne("Q46130", "Rhône", "FR-69", parent="Q18338206"),
+            ligne("Q18914778", "Rhône", "FR-69", parent="Q18338206")]
+    subs, collisions, _ = map_subdivisions(rows, PAYS_REFERENTIEL["FR"])
+    assert [s.iso for s in subs] == ["FR-ARA"]
+    assert len(collisions) == 1 and collisions[0].qids == ["Q18914778", "Q46130"]
+
+
+def test_les_noms_dapariement_portent_le_francais_puis_le_vernaculaire():
+    rows = [ligne("Q980", "Bavière", "DE-BY", parent="Q183", nom_local="Bayern", ancre=True)]
+    subs, _, _ = map_subdivisions(rows, PAYS_REFERENTIEL["DE"])
+    assert subs[0].noms == ["Bavière", "Bayern"]
+
+
+def test_les_noms_ne_repetent_pas_un_libelle_identique():
+    rows = [ligne("Q12146", "Vaud", "CH-VD", parent="Q39", nom_local="Vaud", ancre=True)]
+    subs, _, _ = map_subdivisions(rows, PAYS_REFERENTIEL["CH"])
+    assert subs[0].noms == ["Vaud"]
+
+
+def test_une_entite_sans_parent_ni_ancre_est_ecartee_avec_son_motif():
+    rows = [ligne("Q999999", "orpheline", "FR-99", parent="Q888888")]
+    subs, collisions, ecartees = map_subdivisions(rows, PAYS_REFERENTIEL["FR"])
+    assert subs == [] and collisions == []
+    assert ecartees[0].iso == "FR-99"
+    assert ecartees[0].motif                      # un motif non vide, lisible par un humain
+```
+
+- [ ] **Step 3: lancer les tests, constater l'échec**
+
+```bash
+uv run python -m pytest tests/test_genealogy_referentiel_mapper.py -q
+```
+
+Attendu : échec — les fixtures n'existent pas encore et `map_subdivisions` rend deux valeurs.
+
+- [ ] **Step 4: ajouter le modèle, l'ancre, et corriger le mapper**
+
+Dans `models/domain.py`, après `CollisionIso` :
+
+```python
+class EntiteEcartee(BaseModel):
+    """Une entité que les règles de filtrage n'ont pas retenue, et pourquoi.
+
+    Ce canal existe pour qu'aucune disparition ne soit muette : sans lui, « ce pays a 12
+    subdivisions » est indiscernable de « 113 entités sont tombées ».
+    """
+
+    qid: str
+    iso: str
+    libelle_fr: str
+    motif: str
+```
+
+Dans `referentiel/wikidata.py`, ajouter la clause d'ancre au gabarit `_SUBDIVISIONS`, juste avant
+la ligne `SERVICE wikibase:label` :
+
+```
+  OPTIONAL {{ ?item (wdt:P131|wdt:P131/wdt:P131|wdt:P131/wdt:P131/wdt:P131) wd:{qid_pays} .
+              BIND(true AS ?ancre) }}
+```
+
+et donner son troisième paramètre à `build_query` :
+
+```python
+def build_query(prefixe: str, langue: str, qid_pays: str) -> str:
+    """Requête des subdivisions d'un pays, par préfixe ISO 3166-2 ('FR', 'CH'…).
+
+    `langue` rapatrie le nom vernaculaire en plus du libellé français : c'est la seule prise
+    pour apparier `Bayern`, déjà en base en allemand, avant qu'un QID n'y soit posé.
+
+    `qid_pays` sert l'**ancre** : une entité dont le pays est atteignable en un à trois sauts
+    de `P131` est de premier niveau, même si le conteneur qui l'en sépare n'a pas de code ISO.
+    Sans cette ancre, les régions françaises — qui pendent sous `Q212429` France métropolitaine —
+    tombent toutes, et les 96 départements avec elles.
+    """
+    return _SUBDIVISIONS.format(prefixe=prefixe, langue=langue, qid_pays=qid_pays)
+```
+
+Puis remplacer `_choisir_parent`, `_niveau` et `map_subdivisions` par :
+
+```python
+def _candidats(entree: dict, par_qid: dict[str, dict]) -> list[str]:
+    """Parents recevables : dans l'univers, et de code ISO différent de celui de l'enfant.
+
+    La comparaison des codes est indispensable : sans elle, deux entités en collision se
+    prennent mutuellement pour parent et aucune ne se résout — cas réel de `FR-69`, où
+    Wikidata donne bien `Q46130 wdt:P131 Q18914778`.
+    """
+    return sorted(p for p in entree["parents"]
+                  if p in par_qid and par_qid[p]["iso"] != entree["iso"])
+
+
+def _niveaux(par_qid: dict[str, dict], qid_pays: str) -> dict[str, int]:
+    """Niveau de chaque entité : 1 + celui du parent le MOINS profond, ou 1 par l'ancre.
+
+    Le parent le moins profond l'emporte parce que le rattachement le plus direct fait foi :
+    le Bas-Rhin pend sous la Collectivité européenne d'Alsace *et* sous le Grand Est ; retenir
+    le plus profond le classerait au niveau 3 et le ferait écarter.
+
+    L'ancre ne s'applique qu'aux entités dont AUCUN `P131` ne pointe dans l'univers. Sans cette
+    condition, Venise-la-ville — dont l'unique parent porte le même code ISO qu'elle, donc n'est
+    pas candidat — serait promue au rang de région.
+    """
+    candidats = {q: _candidats(e, par_qid) for q, e in par_qid.items()}
+    dans_univers = {q: any(p in par_qid for p in e["parents"]) for q, e in par_qid.items()}
+    memo: dict[str, int] = {}
+
+    def niveau(qid: str, vus: frozenset) -> int:
+        if qid in memo:
+            return memo[qid]
+        if qid in vus:                                   # cycle de rattachement
+            return _NIVEAU_IMPOSSIBLE
+        entree = par_qid[qid]
+        resultat = _NIVEAU_IMPOSSIBLE
+        profondeurs = [niveau(p, vus | {qid}) for p in candidats[qid]]
+        recevables = [d for d in profondeurs if d < _NIVEAU_IMPOSSIBLE]
+        if recevables:
+            resultat = min(recevables) + 1
+        elif not dans_univers[qid] and (entree["ancre"] or not entree["parents"]):
+            resultat = 1
+        if not vus:                                      # ne mémoïser que les appels racines
+            memo[qid] = resultat
+        return resultat
+
+    return {qid: niveau(qid, frozenset()) for qid in par_qid}
+
+
+def map_subdivisions(
+    rows: list[dict], pays: PaysReferentiel,
+) -> tuple[list[Subdivision], list[CollisionIso], list[EntiteEcartee]]:
+    """Charge SPARQL -> subdivisions retenues, collisions, écartées. Pure, hors ligne.
+
+    Les cinq règles de la spec §3.4. Toute entité de la charge ressort dans exactement une des
+    trois listes : rien ne disparaît en silence.
+    """
+    par_qid = _grouper(rows)
+    niveaux = _niveaux(par_qid, pays.qid)
+
+    retenues: list[Subdivision] = []
+    ecartees: list[EntiteEcartee] = []
+    for qid, entree in sorted(par_qid.items()):
+        niveau = niveaux[qid]
+        if niveau > len(pays.niveaux):
+            motif = ("rattachement introuvable" if niveau >= _NIVEAU_IMPOSSIBLE
+                     else f"niveau {niveau}, or {pays.nom} en compte {len(pays.niveaux)}")
+            ecartees.append(EntiteEcartee(qid=qid, iso=entree["iso"],
+                                          libelle_fr=entree["label"], motif=motif))
+            continue
+        lat, long = (parse_wkt_point(entree["coord"]) or (None, None))
+        retenues.append(Subdivision(
+            qid=qid, iso=entree["iso"],
+            code=code_sans_prefixe(entree["iso"], pays.code_iso),
+            libelle_fr=entree["label"], noms=_noms(entree),
+            place_type=pays.niveaux[niveau - 1], niveau=niveau,
+            parent_qid=_parent_retenu(qid, par_qid, niveaux, pays.qid),
+            lat=lat, long=long, frwiki=entree["art"]))
+
+    par_iso: dict[str, list[Subdivision]] = defaultdict(list)
+    for sub in retenues:
+        par_iso[sub.iso].append(sub)
+    collisions = [CollisionIso(iso=iso, qids=[s.qid for s in sorted(lot, key=lambda s: s.qid)],
+                               libelles=[s.libelle_fr for s in sorted(lot, key=lambda s: s.qid)])
+                  for iso, lot in sorted(par_iso.items()) if len(lot) > 1]
+    propres = [lot[0] for _, lot in sorted(par_iso.items()) if len(lot) == 1]
+    return propres, collisions, ecartees
+```
+
+Il te reste à écrire `_parent_retenu(qid, par_qid, niveaux, qid_pays) -> str` : le QID du parent
+effectivement retenu — le candidat de niveau minimal quand il en existe, le QID du pays sinon.
+Il doit rendre le **même** parent que celui qui a servi au calcul du niveau, sans quoi la
+hiérarchie écrite en base ne correspondrait pas au niveau annoncé. Écris-le de façon à ne pas
+dupliquer la logique de départage de `_niveaux` — extraire la sélection dans une fonction
+partagée est la voie propre.
+
+- [ ] **Step 5: adapter les tests de `build_query`**
+
+Dans `tests/test_genealogy_referentiel_wikidata.py`, les appels à `build_query` prennent un
+troisième argument. Ajouter aussi un test de la clause d'ancre :
+
+```python
+def test_build_query_demande_lancre_pays():
+    """Sans elle, les régions françaises — qui pendent sous France métropolitaine, sans code
+    ISO — tombent toutes, et les 96 départements avec elles."""
+    q = build_query("FR", "fr", "Q142")
+    assert "wd:Q142" in q
+    assert "wdt:P131/wdt:P131/wdt:P131" in q      # trois sauts, pas plus
+    assert "wdt:P131/wdt:P131/wdt:P131/wdt:P131" not in q
+```
+
+- [ ] **Step 6: capturer les fixtures, puis lancer les tests**
+
+```bash
+uv run python scripts/capturer_charges_referentiel.py
+uv run python -m pytest tests/test_genealogy_referentiel_mapper.py -q
+```
+
+Attendu : tous les tests passent. Si une charge réelle contredit un test, **ne modifie pas le
+test pour qu'il passe** — rapporte la contradiction, c'est exactement ce qu'on cherche à voir.
+
+Ordres de grandeur mesurés le 2026-07-21, à titre de contrôle : France 121 retenues
+(26 de niveau 1, 95 de niveau 2), 1 collision, 2 écartées ; Italie 124 retenues (20 régions,
+104 provinces), 0 collision, 2 écartées ; Suisse 26, 0, 1 ; Pologne 16, 0, 1.
+
+- [ ] **Step 7: suite complète, puis commit**
+
+```bash
+uv run python -m pytest tests/ -q
+uv run ruff check .
+git add src/ tests/ scripts/
+git commit -m "fix(referentiel): ancre pays, écartées rendues, départage et ordre déterministes"
+```
+
+---
+
 ### Task 4 : couche réseau, reprises et pays en échec
 
 **Files:**
@@ -808,12 +1288,14 @@ from __future__ import annotations
 
 import time
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from requests.exceptions import RequestException
 
 from crewai_custom_tools.core.rate_limiter import get_rate_limiter
 from crewai_custom_tools.tools.genealogy.geo.france_ex_communes import parse_wkt_point
-from crewai_custom_tools.tools.genealogy.models.domain import CollisionIso, Subdivision
+from crewai_custom_tools.tools.genealogy.models.domain import (
+    CollisionIso, EntiteEcartee, Subdivision,
+)
 from crewai_custom_tools.tools.genealogy.referentiel.config import PaysReferentiel
 from crewai_custom_tools.tools.genealogy.referentiel.wikidata import (
     build_query, build_query_pays, map_subdivisions, qid_of,
@@ -828,8 +1310,9 @@ class ResultatPays(BaseModel):
     """Ce qu'un pays a rendu : ses subdivisions, ses collisions, ou son erreur."""
 
     code_iso: str
-    subdivisions: list[Subdivision] = []
-    collisions: list[CollisionIso] = []
+    subdivisions: list[Subdivision] = Field(default_factory=list)
+    collisions: list[CollisionIso] = Field(default_factory=list)
+    ecartees: list[EntiteEcartee] = Field(default_factory=list)
     erreur: str | None = None
 
 
@@ -861,12 +1344,12 @@ def charger_pays(pays: PaysReferentiel, *, essais: int = 3,
                  pause: float = 5.0) -> ResultatPays:
     """Interroge Wikidata pour un pays et applique le mapper. N'lève jamais."""
     try:
-        rows = _interroger(build_query(pays.code_iso, pays.langue), essais, pause)
+        rows = _interroger(build_query(pays.code_iso, pays.langue, pays.qid), essais, pause)
     except RequestException as exc:
         return ResultatPays(code_iso=pays.code_iso, erreur=str(exc))
-    subdivisions, collisions = map_subdivisions(rows, pays)
+    subdivisions, collisions, ecartees = map_subdivisions(rows, pays)
     return ResultatPays(code_iso=pays.code_iso, subdivisions=subdivisions,
-                        collisions=collisions)
+                        collisions=collisions, ecartees=ecartees)
 
 
 def charger_entites_pays(qids: list[str], *, essais: int = 3,
@@ -1337,15 +1820,16 @@ def render_referentiel_report(date: str, resultats: list[ResultatPays],
               f"- Pays en échec : {sum(1 for r in resultats if r.erreur)}",
               f"- Subdivisions retenues : {total}",
               f"- Collisions signalées : {sum(len(r.collisions) for r in resultats)}",
+              f"- Entités écartées : {sum(len(r.ecartees) for r in resultats)}",
               f"- Entités pays résolues : {len(entites)}", "",
               "## Par pays", "",
-              "| Pays | Niveau 1 | Niveau 2 | Collisions | Erreur |",
-              "|---|---|---|---|---|"]
+              "| Pays | Niveau 1 | Niveau 2 | Collisions | Écartées | Erreur |",
+              "|---|---|---|---|---|---|"]
     for res in sorted(resultats, key=lambda r: r.code_iso):
         n1 = sum(1 for s in res.subdivisions if s.niveau == 1)
         n2 = sum(1 for s in res.subdivisions if s.niveau == 2)
         lignes.append(f"| {res.code_iso} | {n1} | {n2} | {len(res.collisions)} "
-                      f"| {res.erreur or '—'} |")
+                      f"| {len(res.ecartees)} | {res.erreur or '—'} |")
     lignes += ["", "## Subdivisions", "",
                "| Pays | ISO | Code | Nom | Type | Niveau | GPS | Article |",
                "|---|---|---|---|---|---|---|---|"]
@@ -1388,6 +1872,7 @@ def render_referentiel_yaml(resultats: list[ResultatPays],
         "pays": [e.model_dump() for e in entites.values()],
         "subdivisions": [s.model_dump() for r in resultats for s in r.subdivisions],
         "collisions": [c.model_dump() for r in resultats for c in r.collisions],
+        "ecartees": [e.model_dump() for r in resultats for e in r.ecartees],
         "doublons_arbre": doublons,
         "echecs": [{"code_iso": r.code_iso, "erreur": r.erreur}
                    for r in resultats if r.erreur],
