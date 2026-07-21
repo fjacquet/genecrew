@@ -93,13 +93,12 @@ sur pièce.
 n'existent que dans cette prose. Créer un événement demande un `dateval` et un handle de
 lieu.
 
-`PropositionAudit` (bibliothèque, `models/domain.py`) gagne trois champs **optionnels,
+`PropositionAudit` (bibliothèque, `models/domain.py`) gagne deux champs **optionnels,
 défaut vide** :
 
 ```python
 date_iso: str = Field(default="", description="Date ISO du fait proposé (AAAA-MM-JJ).")
 lieu_nom: str = Field(default="", description="Nom de la commune du fait proposé.")
-lieu_code: str = Field(default="", description="Code lieu préfixé pays (ex. FR:18033).")
 ```
 
 Optionnels parce que le modèle est le **vocabulaire partagé** du projet : les règles D
@@ -114,9 +113,14 @@ Un YAML produit avant ce changement se charge toujours (champs vides, pydantic c
 sera refusé par `apply deaths` avec un motif explicite au rapport — pas un crash, pas une
 écriture partielle.
 
-`lieu_code` n'est pas consommé par la v2 (§7 résout par nom). Il est rempli dès maintenant
-parce que la donnée est là, gratuite, au moment de la proposition — et parce que c'est la
-clé qui permettra plus tard une résolution de lieu sans ambiguïté.
+> **Amendement du 2026-07-21, à l'implémentation.** Cette section prévoyait un
+> **troisième** champ, `lieu_code` — un code de commune préfixé par pays, du genre
+> `FR:18033` — et justifiait de le remplir « dès maintenant, parce que la donnée est là,
+> gratuite ». Elle avait tort : la donnée n'est pas là. Tout le code existant ne lit, dans
+> la réponse MatchID, qu'un `location.city` et un `location.country` (`matchid.py:69-86`) ;
+> aucun code INSEE de commune n'y est extrait nulle part. Le remplir aurait demandé de
+> deviner un nom de clé d'API non vérifié, pour un champ que la v2 ne consomme pas — §7
+> résout par nom. Il s'ajoutera le jour où une source le fournira réellement.
 
 ## 5. Ce qui existe déjà — et le seul ajout bibliothèque
 
