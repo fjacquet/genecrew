@@ -92,3 +92,19 @@ def test_propose_accepte_les_deux_sources_d_archives(cible):
 # et par argparse lui-même (choix fermé). "scriptorium" n'a jamais été une feuille
 # valide de `propose` — la source a été écartée avant d'être câblée, voir
 # docs/BACKLOG.md — donc son rejet n'est pas un comportement spécifique à verrouiller.
+
+
+def test_merge_people_accepte_le_mode_detection():
+    args = build_parser().parse_args(
+        ["merge", "people", "--scope", "all", "--limit", "50", "--dry-run"])
+    assert (args.command, args.target) == ("merge", "people")
+    assert args.scope == "all"
+    assert args.limit == 50
+    assert args.dry_run is True
+    assert args.yaml is None
+    assert args.max_passes == 5
+
+
+def test_merge_people_accepte_un_yaml_relu():
+    args = build_parser().parse_args(["merge", "people", "--yaml", "arbitrage.yaml"])
+    assert args.yaml == "arbitrage.yaml"

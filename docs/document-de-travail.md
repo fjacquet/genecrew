@@ -65,9 +65,13 @@ Chaque principe est normatif et a une conséquence concrète dans ce document.
 
 - **Écritures autonomes autorisées** : notes, sources, citations, tags qualité — et leur
   **rattachement append-only** à des objets existants (§ 4.5).
-- **Interdites aux agents, toujours en proposition pour revue humaine** : suppression, fusion,
-  modification de tout champ existant d'une personne, famille, événement ou lieu (dates, noms,
-  liens de parenté, hiérarchies de lieux…).
+- **Interdites aux agents, toujours en proposition pour revue humaine** : suppression, fusion
+  — **sauf** la fusion de personnes adossée à une preuve structurelle vérifiable (date de
+  naissance complète identique, mêmes parents, conjoint et enfant communs), automatisée par
+  `merge people` — modification de tout champ existant d'une personne, famille, événement ou
+  lieu (dates, noms, liens de parenté, hiérarchies de lieux…). L'amendement est borné : il ne
+  repose sur aucun seuil numérique, et toute paire à preuve partielle repasse par un YAML relu.
+  Voir `docs/superpowers/specs/2026-07-20-fusion-doublons-personnes-design.md`.
 - La garantie est **structurelle, pas rédactionnelle** : les outils dangereux n'existent pas
   dans la bibliothèque. Aucune injection de prompt ne peut faire faire à un agent ce que ses
   outils ne permettent pas.

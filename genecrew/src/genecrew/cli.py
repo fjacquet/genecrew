@@ -139,12 +139,25 @@ def build_parser() -> argparse.ArgumentParser:
     _add_dry_run(p)
     _add_date(p)
 
-    # --- merge : jamais automatique, toujours depuis un YAML relu ---
-    merge_p = sub.add_parser("merge", help="Fusions relues par un humain (jamais auto)")
+    # --- merge : la fusion des lieux vient d'un YAML relu ; celle des personnes
+    # est automatique au-dessus d'une preuve STRUCTURELLE, jamais d'un score
+    # (voir docs/superpowers/specs/2026-07-20-fusion-doublons-personnes-design.md).
+    merge_p = sub.add_parser("merge", help="Fusions : lieux relus, personnes sur preuve")
     merge_sub = merge_p.add_subparsers(dest="target", required=True)
 
     p = merge_sub.add_parser("places", help="Fusionne les lieux listés dans un YAML relu")
     _add_yaml(p)
+    _add_dry_run(p)
+    _add_date(p)
+
+    p = merge_sub.add_parser(
+        "people",
+        help="Fusionne les doublons prouvés ; dépose le reste en YAML d'arbitrage")
+    _add_scope(p)
+    p.add_argument("--yaml", default=None,
+                   help="exécuter les paires d'un YAML d'arbitrage relu, au lieu de détecter")
+    p.add_argument("--max-passes", type=int, default=5,
+                   help="bornes des passes de convergence (défaut : 5)")
     _add_dry_run(p)
     _add_date(p)
 
