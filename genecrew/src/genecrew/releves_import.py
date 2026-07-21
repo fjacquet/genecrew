@@ -190,6 +190,19 @@ def corps_note_releve(releve: ReleveIndexe, appariement: Appariement) -> str:
       reste vérifiable par un humain quoi qu'il arrive à l'interprétation LLM.
     Le marqueur d'idempotence (`marqueur_releve`) ouvre la note : c'est lui que
     `deja_importe` recherche en tête de note existante.
+
+    Une troisième exigence s'ajoute pour un rattachement FORCÉ (`--person`) :
+    `run_import_releve` construit alors `Appariement(verdict="net", facteurs=[])`
+    — un « NET (poids 0) / facteurs — » qui, lu des années plus tard, est
+    indiscernable d'un bug du moteur. Or un `net` MESURÉ ne peut structurellement
+    PAS avoir `facteurs=[]` : `_verdict_candidat` (releves.py) exige qu'au moins
+    un facteur FORT soit présent avant même de comparer le poids à `SEUIL_NET` —
+    la combinaison (verdict net, facteurs vides) est donc la signature fiable
+    d'une décision humaine, jamais d'une mesure. On ne peut pas l'écrire dans
+    `Appariement.facteurs` (`Literal` fermé, hors du champ de cette correction),
+    alors on l'affirme ici, dans le corps de note, pour que la provenance reste
+    lisible directement dans l'arbre sans avoir à déduire quoi que ce soit d'un
+    zéro opaque.
     """
     lignes = [
         marqueur_releve(releve.fonds, releve.reference),
@@ -199,6 +212,12 @@ def corps_note_releve(releve: ReleveIndexe, appariement: Appariement) -> str:
         f"Appariement : {appariement.verdict.upper()} (poids {appariement.poids})",
         f"  facteurs   : {', '.join(appariement.facteurs) or '—'}",
         f"  divergences: {', '.join(appariement.divergences) or '—'}",
+    ]
+    if appariement.verdict == "net" and not appariement.facteurs:
+        lignes.append(
+            "  Rattachement forcé par l'opérateur (option --person) : ce lien "
+            "n'est pas le produit d'un appariement mesuré.")
+    lignes += [
         "",
         "Source dérivée : un relevé est un dépouillement, pas l'acte original.",
         "",

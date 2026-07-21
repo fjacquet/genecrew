@@ -258,6 +258,30 @@ def test_note_dit_que_le_releve_est_une_source_derivee():
     assert "dérivée" in corps and "acte" in corps
 
 
+def test_note_affirme_le_rattachement_force():
+    """`verdict="net"` avec `facteurs=[]` est la signature exacte d'un
+    rattachement --person (voir `run_import_releve`) : le moteur
+    (`_verdict_candidat` dans releves.py) n'atteint jamais `net` sans qu'au
+    moins un facteur FORT soit présent — `set(facteurs) & FACTEURS_FORTS` est
+    vérifié AVANT même de comparer le poids au seuil. Un `net` mesuré ne peut
+    donc jamais avoir `facteurs=[]`. La note doit AFFIRMER la provenance
+    humaine plutôt que la laisser se déduire d'un « poids 0 » opaque."""
+    r = parse_releve(COLLAGE_ROSE, llm=_LLMStub(json.dumps(_JSON_ATTENDU)))
+    corps = corps_note_releve(
+        r, Appariement(verdict="net", gramps_id="I1", facteurs=[], poids=0))
+    assert "forcé" in corps.lower()
+    assert "--person" in corps
+
+
+def test_note_mesuree_ne_mentionne_pas_de_forcage():
+    """Garde contre un critère trop large : un `net` avec de VRAIS facteurs
+    (donc plausiblement issu du moteur) ne doit jamais être étiqueté forcé."""
+    r = parse_releve(COLLAGE_ROSE, llm=_LLMStub(json.dumps(_JSON_ATTENDU)))
+    corps = corps_note_releve(
+        r, Appariement(verdict="net", facteurs=["date complète", "lieu"], poids=8))
+    assert "forcé" not in corps.lower()
+
+
 # --- orchestration : collecte, appariement, écriture ---------------------------
 #
 # Les fixtures ci-dessous sont la forme JSON BRUTE que `person_from_json` sait
