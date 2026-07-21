@@ -222,24 +222,29 @@ def _a_un_deces(person: dict) -> bool:
     return idx is not None and idx >= 0
 
 
-def _orpheline(raison: str, note_handle: str) -> str:
-    """Complète une raison d'échec par le handle de la note restée orpheline. Pur.
+def _orpheline(raison: str, handle: str, objet: str = "note") -> str:
+    """Complète une raison d'échec par le handle de l'objet resté orphelin. Pur.
 
-    Une note créée que rien ne rattache ensuite est bel et bien dans la base, et
+    Un objet créé que rien ne rattache ensuite est bel et bien dans la base, et
     invisible : aucune personne, aucun événement n'y mène. Le handle est la seule
-    prise qu'un humain aura pour la retrouver et la supprimer — nommer le seul
-    handle de l'événement laisserait la note introuvable. Même registre, pour la
+    prise qu'un humain aura pour le retrouver et le supprimer — nommer le seul
+    handle de l'événement laisserait l'objet introuvable. Même registre, pour la
     même raison, que `releves_import._orpheline`.
+
+    `objet` nomme ce qui est resté : « note » (le cas d'origine) ou « citation »,
+    créée AVANT l'événement et donc seule dans l'arbre quand celui-ci échoue. Les
+    deux mots sont féminins, la phrase se conjugue sans autre paramètre.
     """
-    return (f"{raison} — note orpheline laissée dans l'arbre "
-            f"(handle {note_handle}), à supprimer à la main")
+    return (f"{raison} — {objet} orpheline laissée dans l'arbre "
+            f"(handle {handle}), à supprimer à la main")
 
 
 def _est_factice(handle: str) -> bool:
     """Le handle désigne-t-il un placeholder de simulation plutôt qu'un objet réel ?
 
-    `GrampsCreateNoteTool` rend `DRYRUN:note` sans rien écrire quand la simulation
-    est active — même idiome que `GrampsAttachTool` et `GrampsCreateEventTool`
+    `GrampsCreateNoteTool` rend `DRYRUN:note` et `GrampsCreateCitationTool`
+    `DRYRUN:citation` sans rien écrire quand la simulation est active — même idiome
+    que `GrampsAttachTool` et `GrampsCreateEventTool`
     (voir `evenements.creer_evenement_source`). `GrampsEnsureTagTool`, lui, fait un
     vrai `GET /tags/` même en simulation (`write_tools.py`) : un 503 passager sur
     ce GET peut donc faire échouer le tag PENDANT une simulation où la note a
@@ -247,6 +252,24 @@ def _est_factice(handle: str) -> bool:
     enverrait alors le relecteur supprimer un objet qui n'a jamais existé.
     """
     return str(handle).startswith("DRYRUN:")
+
+
+def _citation_restee(raison: str, citation_handle: str) -> str:
+    """Nomme la citation restée dans l'arbre quand la création du décès a échoué. Pur.
+
+    La citation est le seul objet créé AVANT le point de non-retour : dès que
+    l'événement échoue, elle est dans la base et plus rien n'y mène. Même quand
+    l'événement a été créé mais NON rattaché — il la porte, lui — le nettoyage à la
+    main passe par la suppression de cet orphelin, qui ne supprime pas la citation ;
+    les deux handles doivent donc figurer.
+
+    Un handle factice (« DRYRUN:citation ») n'a jamais été écrit : rien n'est
+    orphelin, et annoncer un objet à supprimer serait un faux — même garde que pour
+    la note.
+    """
+    if _est_factice(citation_handle):
+        return raison
+    return _orpheline(raison, citation_handle, "citation")
 
 
 def run_deces_event(client: GrampsClient, propositions_yaml, output_dir, *,
@@ -306,19 +329,22 @@ def run_deces_event(client: GrampsClient, propositions_yaml, output_dir, *,
             errors.append((prop.gramps_id, f"citation : {citation['error']}"))
             continue
 
+        citation_handle = citation["data"]["handle"]
         lieu_handle = resoudre_lieu(index, prop.lieu_nom) if prop.lieu_nom else None
 
         evt = creer_evenement_source(
             prop.handle, event_type="Death", dateval=dateval_iso(prop.date_iso),
-            place_handle=lieu_handle, citation_handle=citation["data"]["handle"],
+            place_handle=lieu_handle, citation_handle=citation_handle,
             dry_run=dry_run)
         if not evt["posee"]:
-            errors.append((prop.gramps_id, evt["raison"]))
+            errors.append((prop.gramps_id,
+                           _citation_restee(evt["raison"], citation_handle)))
             continue
         if not evt["attache"]:
             # L'événement EXISTE : on le dit en erreur (avec le handle de l'orphelin)
             # et NON en créé, pour ne pas annoncer un décès que l'arbre ne montre pas.
-            errors.append((prop.gramps_id, evt["raison"]))
+            errors.append((prop.gramps_id,
+                           _citation_restee(evt["raison"], citation_handle)))
             continue
 
         # L'événement est posé et rattaché : seulement MAINTENANT une commune non

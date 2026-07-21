@@ -481,6 +481,78 @@ def test_orphelin_rapporte_avec_son_handle(tmp_path, monkeypatch):
     assert "Erreurs : 1" in md
 
 
+def test_creation_d_evenement_refusee_nomme_la_citation_orpheline(tmp_path, monkeypatch):
+    """Défaut I3 : la citation est le seul objet créé AVANT le point de non-retour.
+
+    Quand la création de l'événement est refusée, elle reste dans la base et plus
+    rien n'y mène — aucun événement, aucune personne. Le module prenait un soin
+    extrême du handle de l'événement orphelin et de celui de la note orpheline, et
+    laissait tomber celui de la citation : rien ne permettait de la retrouver.
+    """
+    _stub_ecritures(monkeypatch, evenement={
+        "posee": False, "event_handle": None, "attache": False,
+        "raison": "création Death refusée : HTTP 500"})
+    chemin = run_deces_event(_arbre(SANS_DECES), _yaml_lot(tmp_path, [PROP_DATE]),
+                             tmp_path, date="2026-07-21")
+    md = chemin.read_text(encoding="utf-8")
+    assert "Décès créés : 0" in md
+    erreurs = _section(md, "Erreurs")
+    assert "HTTP 500" in erreurs
+    assert "cit1" in erreurs, "le handle de la citation orpheline manque au rapport"
+    assert "citation orpheline" in erreurs.lower()
+
+
+def test_evenement_orphelin_nomme_aussi_la_citation(tmp_path, monkeypatch):
+    """Même exigence sur l'autre chemin d'échec : l'événement existe mais n'est pas
+    rattaché. Supprimer l'orphelin à la main ne supprime pas la citation qu'il porte ;
+    les deux handles doivent figurer, sans quoi le nettoyage laisse la citation."""
+    _stub_ecritures(monkeypatch, evenement={
+        "posee": True, "event_handle": "EV_ORPH", "attache": False,
+        "raison": "Death créé mais NON rattaché (orphelin EV_ORPH) : timeout"})
+    chemin = run_deces_event(_arbre(SANS_DECES), _yaml_lot(tmp_path, [PROP_DATE]),
+                             tmp_path, date="2026-07-21")
+    erreurs = _section(chemin.read_text(encoding="utf-8"), "Erreurs")
+    assert "EV_ORPH" in erreurs
+    assert "cit1" in erreurs, "le handle de la citation orpheline manque au rapport"
+
+
+def test_deces_reussi_ne_declare_aucune_citation_orpheline(tmp_path, monkeypatch):
+    """Le pendant : quand l'événement est créé ET rattaché, la citation est portée
+    par lui. Annoncer une citation à supprimer enverrait détruire la source du
+    décès qu'on vient d'écrire."""
+    _stub_ecritures(monkeypatch)
+    chemin = run_deces_event(_arbre(SANS_DECES), _yaml_lot(tmp_path, [PROP_DATE]),
+                             tmp_path, date="2026-07-21")
+    md = chemin.read_text(encoding="utf-8")
+    assert "Décès créés : 1" in md
+    assert "citation orpheline" not in md.lower()
+
+
+def test_simulation_ne_rapporte_pas_de_citation_orpheline_factice(tmp_path, monkeypatch):
+    """`GrampsCreateCitationTool` rend `DRYRUN:citation` sans rien écrire en
+    simulation (`write_tools.py:550`). Si l'étape suivante échoue quand même —
+    l'événement passe par un vrai appel réseau chez d'autres outils — annoncer cette
+    citation comme orpheline enverrait le relecteur supprimer un objet qui n'a
+    jamais existé. Même garde `_est_factice` que pour la note."""
+    _stub_ecritures(monkeypatch, evenement={
+        "posee": False, "event_handle": None, "attache": False,
+        "raison": "création Death refusée : 503"})
+
+    class _CitationFactice:
+        def _run(self, **kw):
+            return json.dumps({"success": True,
+                               "data": {"handle": "DRYRUN:citation"}})
+
+    monkeypatch.setattr(deces_event, "GrampsCreateCitationTool",
+                        lambda: _CitationFactice())
+    chemin = run_deces_event(_arbre(SANS_DECES), _yaml_lot(tmp_path, [PROP_DATE]),
+                             tmp_path, date="2026-07-21", dry_run=True)
+    erreurs = _section(chemin.read_text(encoding="utf-8"), "Erreurs")
+    assert "503" in erreurs
+    assert "orpheline" not in erreurs.lower()
+    assert "DRYRUN:citation" not in erreurs
+
+
 def test_note_et_tag_poses_sur_la_personne(tmp_path, monkeypatch):
     vus = _stub_ecritures(monkeypatch)
     run_deces_event(_arbre(SANS_DECES), _yaml_lot(tmp_path, [PROP_DATE]), tmp_path,
