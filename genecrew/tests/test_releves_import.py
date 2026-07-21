@@ -6,8 +6,11 @@ import httpx
 import pytest
 from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient, GrampsConfig
 from crewai_custom_tools.tools.genealogy.gramps.write_tools import (
+    GrampsAttachCitationTool,
     GrampsAttachTool,
+    GrampsCreateCitationTool,
     GrampsCreateNoteTool,
+    GrampsEnsureSourceTool,
     GrampsEnsureTagTool,
 )
 
@@ -746,3 +749,60 @@ def test_citation_porte_la_reference_et_une_confiance_normal(monkeypatch):
     assert out["posee"] is True
     assert "106710046161418286" in vus["page"]
     assert vus["confidence"] == 2
+
+
+def _espionner_les_outils_citation(mocker) -> dict:
+    """Enregistre les kwargs reçus par les trois outils de citation."""
+    appels: dict[str, dict] = {}
+    for classe in (GrampsEnsureSourceTool, GrampsCreateCitationTool,
+                  GrampsAttachCitationTool):
+        original = classe._run
+
+        def espion(self, *args, _classe=classe, _original=original, **kwargs):
+            appels[_classe.__name__] = kwargs
+            return _original(self, *args, **kwargs)
+
+        mocker.patch.object(classe, "_run", espion)
+    return appels
+
+
+def test_dry_run_est_propage_aux_trois_outils_de_citation(mocker):
+    """Même défense en profondeur que `test_dry_run_est_propage_aux_trois_outils`,
+    mais pour les trois outils que `ecrire_citation` appelle : source, citation,
+    rattachement. `dry_run` doit PARTIR en argument explicite vers chacun — pas
+    seulement se déduire de `GENECREW_DRY_RUN`.
+
+    Le client mock répond aussi sur `/sources/` et `/events/e1` (au-delà de
+    `/people/`) : `GrampsEnsureSourceTool` liste les sources existantes même en
+    dry-run, et `GrampsAttachCitationTool` lit toujours l'objet cible avant
+    d'écrire — `_arbre_avec_evenement` seul ne les couvre pas (ses chemins hors
+    `/people/` rendent une liste vide, invalide pour ces deux lectures).
+    """
+    def h(request):
+        chemin = request.url.path
+        if chemin == "/api/people/":
+            return httpx.Response(200, json=[{
+                "gramps_id": "I0001", "handle": "h1",
+                "extended": {"events": [{"handle": "e1", "type": "Death"}]},
+            }])
+        if chemin == "/api/sources/":
+            return httpx.Response(200, json=[])
+        if chemin == "/api/events/e1":
+            return httpx.Response(
+                200, json={"handle": "e1", "gramps_id": "I0001", "citation_list": []})
+        return httpx.Response(200, json=[])
+
+    client = _client(h)
+    mocker.patch(
+        "crewai_custom_tools.tools.genealogy.gramps.write_tools.get_client",
+        return_value=client)
+    appels = _espionner_les_outils_citation(mocker)
+
+    r = parse_releve(COLLAGE_ROSE, llm=_LLMStub(json.dumps(_JSON_ATTENDU)))
+    app = Appariement(verdict="net", gramps_id="I0001", handle="h1")
+    out = ecrire_citation(client, r, app, dry_run=True)
+
+    assert out["posee"] is True
+    assert appels["GrampsEnsureSourceTool"]["dry_run"] is True
+    assert appels["GrampsCreateCitationTool"]["dry_run"] is True
+    assert appels["GrampsAttachCitationTool"]["dry_run"] is True
