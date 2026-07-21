@@ -116,3 +116,19 @@ def test_import_releve_person_est_parse():
 def test_import_releve_person_absent_vaut_none():
     args = build_parser().parse_args(["import", "releve"])
     assert args.person is None
+
+
+def test_merge_people_accepte_le_mode_detection():
+    args = build_parser().parse_args(
+        ["merge", "people", "--scope", "all", "--limit", "50", "--dry-run"])
+    assert (args.command, args.target) == ("merge", "people")
+    assert args.scope == "all"
+    assert args.limit == 50
+    assert args.dry_run is True
+    assert args.yaml is None
+    assert args.max_passes == 5
+
+
+def test_merge_people_accepte_un_yaml_relu():
+    args = build_parser().parse_args(["merge", "people", "--yaml", "arbitrage.yaml"])
+    assert args.yaml == "arbitrage.yaml"

@@ -19,7 +19,7 @@ When making changes, work inside `genecrew/src/genecrew/` for crew logic.
 - `crew.py` — the real audit crew (`@CrewBase Genecrew`, `Process.sequential`, 4 agents): `detective` (judges) → `historien` (external proof: MatchID/Gallica/Wikidata) → `standardisateur` (precise propositions, strict JSON validated by `PropositionsLot`, confidence ≤ 2) → `chroniqueur` (the **only** writer, append-only note/tag tools). Write isolation is structural. LLM per role via `build_llm(role)` (`MODEL_<ROLE>` env, fallback `MODEL`), **always `is_litellm=True`** — CrewAI's native provider hardcodes `"strict": true` on tool schemas, which Mistral rejects.
 - `config/agents.yaml` — `detective`/`chroniqueur` personas (French, static).
 - `config/tasks/audit.yaml` — `interpreter_anomalies` (Détective) → `rediger_annotations` (Chroniqueur), templated with `{anomalies_block}` and `{date}`. (`crew.py` sets `tasks_config` to this path; the stock `config/tasks.yaml` was deleted.)
-- `cli.py` — `build_parser()`, the CLI's verb grammar: `stats`, `propose {audit|places|deaths|military|gender|wikidata|dhs}`, `apply {case|gender|places|citations|all}`, `merge places`, `enrich wiki`, `import {place|releve}`, `crew audit`. Pure — reads the environment only for flag defaults. See `docs/adr/0012-cli-grammaire-verbes.md`.
+- `cli.py` — `build_parser()`, the CLI's verb grammar: `stats`, `propose {audit|places|deaths|military|gender|wikidata|dhs}`, `apply {case|gender|places|citations|all}`, `merge {places|people}`, `enrich wiki`, `import {place|releve}`, `crew audit`. Pure — reads the environment only for flag defaults. See `docs/adr/0012-cli-grammaire-verbes.md`.
 - `main.py` — the CLI dispatcher (`main()` calls `cli.build_parser()`, then routes on the `(command, target)` pair) **and** the CrewAI console entry points (`run`/`train`/`test`/`replay`). `run` delegates to a bounded dry-run `crew audit`. Sets up durable logging around every command.
 - `tools/custom_tool.py` — placeholder `BaseTool` subclass template for adding custom CrewAI tools.
 - `knowledge/user_preference.txt` — static knowledge file (currently placeholder content) available to the crew via CrewAI's knowledge sources.
@@ -106,6 +106,8 @@ uv run genecrew apply places --scope place:P0080 --dry-run  # cibler UN lieu ava
 uv run genecrew merge places --yaml <fusions.yaml>  # exécute les fusions relues (jamais auto)
 pbpaste | uv run genecrew import releve            # relevé collé → smart match (stdin ; simule par défaut)
 uv run genecrew import releve --file acte.txt --person I0421  # trancher un gris : forcer la personne
+uv run genecrew merge people --scope all --limit 200 --dry-run  # fusionne les doublons prouvés, YAML pour le reste
+uv run genecrew merge people --yaml <arbitrage.yaml>            # exécute les paires relues
 uv run genecrew propose wikidata --scope person:I0042  # pistes Wikidata ; scan complet = exception, borner avec --limit
 uv run genecrew propose dhs --scope person:I0042       # pistes DHS (projection de Wikidata via P902) ; aucune citation créée
 
@@ -151,3 +153,10 @@ gotchas — c'est elle qui impose l'ordre de livraison entre les deux dépôts.
 - **GPS des lieux**: coordonnées **WGS84** décimales ; GeoJSON = `[lon, lat]` (ne pas inverser) ; WKT Wikidata = `Point(lon lat)`, **longitude d'abord aussi** ; swisstopo : lire `lat`/`lon`, **jamais `x`/`y`** (grille suisse LV95). Le géocodage passe par des résolveurs `geo/` routés par pays (`crewai_custom_tools`).
 - **Communes fusionnées** : absentes de `geo.api.gouv.fr/communes`, qui ne connaît que les communes vivantes. `geo/france_ex_communes.py` bascule sur `/communes_associees_deleguees` (rattachement + code INSEE propre) puis Wikidata (SPARQL par `P374`), et pose **deux placerefs datées** — sous le département avant la fusion, sous la commune absorbante après. La borne est la dissolution **+ 1 jour** : poser `P576` telle quelle ferait démarrer le rattachement moderne un jour où la commune existait encore. **`wdt:P576` rend toujours un `dateTime` complet quelle que soit la précision réelle** (une dissolution à l'année sort `AAAA-01-01`), d'où le contrôle `wikibase:timePrecision == 11`. Rien n'est daté si Wikidata et l'API ne concordent pas sur le successeur.
 - **Ordre de livraison entre les deux dépôts** : la CI checkoute le voisin sur le **tag** `v<version>` lu dans `uv.lock`, pas sur `main`. Bumper la bibliothèque impose donc de **taguer et pousser** avant que la CI de genecrew puisse verdir — `uv sync` seul ne suffit pas, et l'échec se présente comme un `uv sync --locked` qui refuse le lock.
+- **Fusion de personnes irréversible** : `Person.merge()` supprime le titanic et unionne les
+  listes à plat — rien ne dit ensuite quel événement venait de qui. `merge people` ne fusionne
+  donc automatiquement que sur preuve **structurelle** (date complète identique, mêmes parents,
+  conjoint + enfant communs), jamais sur une ressemblance de nom : `marie pagan` et
+  `marie pagani` scorent 0.957 alors que ce sont deux lignées. `PersonMergeArgs` n'offre aucun
+  contrôle champ par champ, et **le genre n'est pas unionné** — d'où l'unique patch préalable.
+  La déduplication est transitive : relancer jusqu'à ce qu'une passe ne fusionne plus rien.

@@ -278,6 +278,27 @@ def lieux_merge_cmd(args) -> None:
     print(f"Rapport : {report}")
 
 
+def people_merge_cmd(args) -> None:
+    """Détecte et fusionne les doublons prouvés, ou exécute un YAML d'arbitrage relu."""
+    from pathlib import Path
+
+    from crewai_custom_tools.tools.genealogy.gramps.client import get_client
+
+    from genecrew.people_merge import run_people_merge, run_people_merge_yaml
+
+    client = get_client()
+    output_dir = Path(os.environ.get("GENECREW_OUTPUT_DIR", "output"))
+    date = args.date or __import__("datetime").date.today().isoformat()
+    if args.yaml:
+        report = run_people_merge_yaml(client, args.yaml, output_dir, date=date,
+                                       dry_run=args.dry_run)
+    else:
+        report = run_people_merge(client, output_dir, scope=args.scope, date=date,
+                                  limit=args.limit, max_passes=args.max_passes,
+                                  dry_run=args.dry_run)
+    print(f"Rapport : {report}")
+
+
 def deces_cmd(args) -> None:
     """Deterministic INSEE/MatchID death enrichment (read-only); print report paths."""
     from pathlib import Path
@@ -424,6 +445,7 @@ def main() -> None:
         ("apply", "citations"): lambda: deces_apply_cmd(args),
         ("apply", "all"): lambda: apply_all_cmd(args),
         ("merge", "places"): lambda: lieux_merge_cmd(args),
+        ("merge", "people"): lambda: people_merge_cmd(args),
         ("enrich", "wiki"): lambda: lieux_wiki_cmd(args),
         ("import", "place"): lambda: lieu_import_cmd(args),
         ("import", "releve"): lambda: releve_import_cmd(args),

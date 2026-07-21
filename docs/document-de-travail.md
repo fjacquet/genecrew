@@ -65,12 +65,18 @@ Chaque principe est normatif et a une conséquence concrète dans ce document.
 
 - **Écritures autonomes autorisées** : notes, sources, citations, tags qualité — et leur
   **rattachement append-only** à des objets existants (§ 4.5).
-- **Interdites aux agents, toujours en proposition pour revue humaine** : suppression, fusion,
-  modification de tout champ existant d'une personne, famille, événement ou lieu (dates, noms,
-  liens de parenté, hiérarchies de lieux…).
-- La garantie est **structurelle, pas rédactionnelle** : les outils dangereux n'existent pas
-  dans la bibliothèque. Aucune injection de prompt ne peut faire faire à un agent ce que ses
-  outils ne permettent pas.
+- **Interdites aux agents, toujours en proposition pour revue humaine** : suppression, fusion
+  — **sauf** la fusion de personnes adossée à une preuve structurelle vérifiable (date de
+  naissance complète identique, mêmes parents, conjoint et enfant communs), automatisée par
+  `merge people` — modification de tout champ existant d'une personne, famille, événement ou
+  lieu (dates, noms, liens de parenté, hiérarchies de lieux…). L'amendement est borné : il ne
+  repose sur aucun seuil numérique, et toute paire à preuve partielle repasse par un YAML relu.
+  Voir `docs/superpowers/specs/2026-07-20-fusion-doublons-personnes-design.md`.
+- La garantie est **structurelle, pas rédactionnelle** : les outils dangereux ne sont câblés à
+  **aucun agent** du crew. Un outil de fusion de personnes (`GrampsMergePeopleTool`) existe bien
+  dans la bibliothèque depuis `merge people`, mais il n'est donné à aucun agent — il n'est appelé
+  que par l'orchestration déterministe `people_merge.py`, hors de portée d'un LLM. Aucune injection
+  de prompt ne peut faire faire à un agent ce que ses outils ne permettent pas.
 - Ceinture supplémentaire (optionnelle, validée dans les docs CrewAI) : un hook global
   `@before_tool_call` (module `crewai.hooks`) peut bloquer par liste noire tout nom d'outil
   d'écriture pour les crews qui n'en ont pas besoin.

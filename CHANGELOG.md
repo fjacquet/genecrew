@@ -53,11 +53,42 @@ Non publié / non versionné (`0.1.0`) : entrées **datées par livraison**. La 
     défaut annonce ces créations sans les écrire. **Requiert `crewai_custom_tools` ≥ 0.23.0**
     (`GrampsCreatePersonTool`, `GrampsCreateEventTool`).
 
+- **Fusion des doublons de personnes en API** — nouvelle feuille CLI `merge people` (pas de verbe
+  neuf : la grammaire de l'ADR 0012 tient). Objectif : quand un doublon est prouvé, la fusion se
+  fait par l'API Gramps, plus à la main dans l'interface.
+  - `people_merge.py` — le **seul** code réseau du chantier : détecte les doublons (via la
+    bibliothèque), exécute l'étage **auto**, dépose le reste dans un **YAML relu**, et boucle
+    jusqu'à convergence — la déduplication est transitive : fusionner des parents dupliqués
+    débloque la règle « mêmes parents » à la passe suivante.
+  - `merge people --scope … --limit … --yaml … --max-passes … --dry-run` : détection+fusion, ou
+    exécution d'un YAML d'arbitrage relu.
+
+### Changed
+
+- **Amendement borné de la règle fondatrice** (`document-de-travail.md`). L'interdiction « toute
+  fusion reste en proposition pour revue humaine » est levée **uniquement** pour la fusion de
+  personnes adossée à une **preuve structurelle vérifiable** (date de naissance exacte identique
+  + mêmes parents ; ou date exacte identique seule ; ou conjoint + enfant commun). Aucun seuil
+  numérique ; toute preuve partielle repasse par un YAML relu ; suppression et autres fusions
+  restent interdites aux agents. La garantie d'isolation est reformulée : l'outil de fusion existe
+  désormais dans la bibliothèque mais **n'est câblé à aucun agent** — il n'est appelé que par
+  l'orchestration déterministe.
+
 ### Limites connues
 
 - **Jamais un parent, jamais une filiation** : les parents nommés ne sont ni créés ni rattachés,
   même existants — le rattachement d'un sujet créé à ses parents reste un geste manuel, relu.
 - Les **poids** de l'appariement sont un point de départ, à calibrer sur le premier lot réel.
+
+### Notes
+
+- Une fusion est **irréversible** (le titanic est supprimé). Filet : le patch de genre précède la
+  fusion et son échec — ou une contradiction de genres entre titanics — **abandonne** la grappe ;
+  le chemin YAML relu préserve le genre au même titre que l'auto ; le dry-run **effectif**
+  (`GENECREW_DRY_RUN` inclus) gouverne boucle, exécution et rapport ; le rapport liste chaque
+  fusion « Gardé | Supprimé » nominativement.
+- Consomme `crewai_custom_tools` **0.23.0** (voir son `CHANGELOG.md`) — cette version inclut les
+  outils de création de l'import de relevés **et** l'outil de fusion des doublons.
 
 ## 2026-07-20
 
