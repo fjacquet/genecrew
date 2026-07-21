@@ -397,6 +397,14 @@ def run_deces_event(client: GrampsClient, propositions_yaml, output_dir, *,
                                   errors, dry_run)
     out = Path(output_dir) / "deces"
     out.mkdir(parents=True, exist_ok=True)
-    report_path = out / f"{date}_apply_deaths_{Path(propositions_yaml).stem}.md"
+    # Le nom porte le MODE, sur le dry-run EFFECTIF (variable d'environnement comprise).
+    # Sans lui, la séquence que recommande le guide — simuler, relire, puis écrire —
+    # détruisait l'aperçu par l'écriture qu'il venait d'autoriser : deux passages du
+    # même jour sur le même YAML tombaient sur le même chemin. L'ADR 0014 fait pourtant
+    # de cet aperçu le seul garde-fou avant une écriture irréversible, et c'est aussi
+    # la seule chose à quoi confronter le rapport d'écriture ensuite.
+    suffixe = "simulation" if dry_run else "ecritures"
+    report_path = (out /
+                   f"{date}_apply_deaths_{Path(propositions_yaml).stem}_{suffixe}.md")
     report_path.write_text(report, encoding="utf-8")
     return report_path

@@ -159,6 +159,12 @@ gotchas — c'est elle qui impose l'ordre de livraison entre les deux dépôts.
   vérifiée **au moment de l'écriture** : `GrampsCreateEventTool` refuse d'écraser un
   `death_ref_index` existant, mais créerait quand même un second événement `Death` dans
   la liste — invisible dans les vues qui suivent l'index, bien présent en base.
+  Le lieu se résout par **nom + type** : `index_lieux` n'indexe que les types de feuille
+  des résolveurs `geo/` (`TYPES_LIEU_DECES` = `Municipality`, `City`) — liste
+  d'inclusion, car un contenant oublié (`Department`, `Canton`, `State`…) rattacherait
+  un décès à un département en silence. Le rapport porte le mode dans son nom
+  (`…_simulation.md` / `…_ecritures.md`) pour que l'écriture n'écrase pas l'aperçu qui
+  l'a autorisée.
 - **Write safety switch**: writes are gated by the per-command `--dry-run` flag OR the global `GENECREW_DRY_RUN` env var. The env can only *force* simulation; the **default when the var is absent is to simulate** (safe — via `effective_dry_run`, dans `crewai_custom_tools` depuis 0.12.0). Set `GENECREW_DRY_RUN=false` in `.env` to write for real. The report's `Mode:` line reflects the **effective** dry-run (env included), so it never claims writes that didn't happen.
 - Full-tree `propose audit`/`apply case` runs are slow (minutes: per-family N+1 fetch + O(n²) duplicate check); iterate with `--limit`.
 - **Crew write isolation & cost**: only the `chroniqueur` agent has write tools (append-only note/tag); the `detective` cannot write. A `crew audit` run costs ~23k LLM tokens/person (heavy read correlation) — always bound full-tree runs with `--limit`.

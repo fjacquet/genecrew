@@ -579,6 +579,48 @@ def test_dry_run_effectif_annonce_la_simulation(tmp_path, monkeypatch):
         assert kw.get("dry_run") is True, f"{nom} n'a pas reçu la simulation"
 
 
+def test_l_ecriture_n_ecrase_pas_l_apercu_qui_l_a_justifiee(tmp_path, monkeypatch):
+    """Défaut I4 : le nom du rapport ne dépendait que de la date et du fichier source.
+
+    La séquence recommandée par le guide utilisateur — simuler, relire, puis écrire —
+    détruisait donc l'aperçu, dont l'ADR 0014 fait « le seul garde-fou avant l'écriture
+    irréversible ». Après l'écriture, il ne restait plus rien à confronter au résultat.
+    """
+    _stub_ecritures(monkeypatch)
+    lot = _yaml_lot(tmp_path, [PROP_DATE])
+    apercu = run_deces_event(_arbre(SANS_DECES), lot, tmp_path, date="2026-07-21",
+                             dry_run=True)
+    ecriture = run_deces_event(_arbre(SANS_DECES), lot, tmp_path, date="2026-07-21")
+    assert apercu != ecriture
+    assert apercu.exists(), "l'aperçu a été écrasé par l'écriture qu'il a justifiée"
+    assert "simulation" in apercu.read_text(encoding="utf-8")
+    assert "écritures appliquées" in ecriture.read_text(encoding="utf-8")
+
+
+def test_le_nom_du_rapport_dit_le_mode(tmp_path, monkeypatch):
+    """Deux chemins distincts ne suffisent pas : lequel est l'aperçu doit se lire
+    sur le nom du fichier, sans l'ouvrir — c'est ainsi qu'on les retrouve dans
+    `output/deces/` des semaines plus tard."""
+    _stub_ecritures(monkeypatch)
+    lot = _yaml_lot(tmp_path, [PROP_DATE])
+    apercu = run_deces_event(_arbre(SANS_DECES), lot, tmp_path, date="2026-07-21",
+                             dry_run=True)
+    ecriture = run_deces_event(_arbre(SANS_DECES), lot, tmp_path, date="2026-07-21")
+    assert apercu.name == "2026-07-21_apply_deaths_props_simulation.md"
+    assert ecriture.name == "2026-07-21_apply_deaths_props_ecritures.md"
+
+
+def test_le_nom_du_rapport_suit_le_dry_run_EFFECTIF(tmp_path, monkeypatch):
+    """`GENECREW_DRY_RUN` peut forcer la simulation sans que le flag le dise. Un
+    rapport nommé « ecritures » alors que rien n'a été écrit rendrait le nom
+    trompeur, et ferait de nouveau écraser un aperçu par un autre aperçu."""
+    monkeypatch.setenv("GENECREW_DRY_RUN", "true")
+    _stub_ecritures(monkeypatch)
+    chemin = run_deces_event(_arbre(SANS_DECES), _yaml_lot(tmp_path, [PROP_DATE]),
+                             tmp_path, date="2026-07-21", dry_run=False)
+    assert chemin.name.endswith("_simulation.md")
+
+
 class _OutilEvenementSimule:
     """Réplique la charge que `GrampsCreateEventTool` rend réellement en dry-run."""
 

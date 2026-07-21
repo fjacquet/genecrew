@@ -34,16 +34,27 @@ premier qui **crée** une donnée cœur au lieu d'en corriger une. Garanti dans 
   force `attache=True` en simulation. Sans cette distinction, un aperçu lirait chaque
   simulation comme un rattachement échoué, et l'appelant s'arrêterait là : la note, le tag
   et le reste de la chaîne ne seraient jamais simulés, et l'humain ne verrait pas dans son
-  aperçu ce qui sera réellement écrit ;
+  aperçu ce qui sera réellement écrit. Le rapport de simulation et celui d'écriture
+  portent pour la même raison des **noms distincts** (`…_simulation.md` /
+  `…_ecritures.md`, sur le dry-run effectif) : au même nom, la séquence nominale
+  — simuler, relire, écrire — détruisait l'aperçu par l'écriture qu'il venait
+  d'autoriser, et ne laissait rien à quoi confronter le résultat ;
 - **confiance 2 seulement** : date de naissance concordante au jour près, le seul
   discriminateur d'homonymie accepté par le projet ;
 - **garde décès-absent**, vérifiée au moment de l'écriture — l'outil protège le
   pointeur `death_ref_index`, pas la liste : sans cette garde, un lot périmé créerait
   un **second** événement décès, invisible dans les vues, bien présent en base ;
 - **aucun lieu créé** : un lieu inconnu ou homonyme fait poser l'événement sans lieu,
-  signalé au rapport et renvoyé à `apply places` ;
+  signalé au rapport et renvoyé à `apply places`. L'index de résolution ne retient que
+  les types de **feuille** posés par les résolveurs `geo/` (`Municipality`, `City`) —
+  liste d'inclusion, parce que l'ensemble des contenants s'allonge à chaque pays
+  ajouté et qu'un contenant oublié rattacherait un décès à un département **en
+  silence**. Un type imprévu, ou un lieu que `apply places` n'a pas encore
+  standardisé (`Unknown`), tombe donc du côté sûr : non résolu, donc visible ;
 - un événement créé mais non rattaché est rapporté **en erreur avec son handle**,
-  jamais en succès.
+  jamais en succès. Il en va de même de la **citation**, seul objet créé avant le
+  point de non-retour : dès que l'événement échoue, elle reste dans l'arbre sans que
+  rien n'y mène, et son handle est la seule prise pour la supprimer.
 
 `apply citations` ne change pas : les deux commandes lisent le même YAML et y prennent
 des propositions disjointes.
