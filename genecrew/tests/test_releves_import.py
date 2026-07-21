@@ -17,12 +17,13 @@ from crewai_custom_tools.tools.genealogy.models.domain import ResolvedPlace
 
 from genecrew.deces_apply import source_title_for
 from genecrew.pistes import _normaliser
-from genecrew.releves import Appariement
+from genecrew.releves import Appariement, ReleveIndexe
 from genecrew.releves_import import (
     PROMPT_INTERPRETATION,
     TAG_RELEVE,
     _parents_par_handle,
     _prefixe_pays,
+    _raw_lieu,
     code_commune_prefixe,
     code_fonds,
     construire_lieux_resolus,
@@ -92,6 +93,39 @@ def test_parse_produit_un_releve_indexe():
     assert r.reference == "106710046161418286"
     assert r.evenement_date == "1894-12-10"
     assert [p.role for p in r.personnes_liees] == ["père", "mère"]
+
+
+def test_parse_capte_le_departement_quand_present():
+    donnees = {**_JSON_ATTENDU, "evenement_departement": "Cher", "evenement_pays": "France"}
+    r = parse_releve(COLLAGE_ROSE, llm=_LLMStub(json.dumps(donnees)))
+    assert r.evenement_departement == "Cher"
+
+
+def test_parse_departement_absent_vaut_vide():
+    r = parse_releve(COLLAGE_ROSE, llm=_LLMStub(json.dumps(_JSON_ATTENDU)))
+    assert r.evenement_departement == ""
+
+
+def _releve_lieu(commune="Saint-Martin-d'Auxigny", departement="Cher", pays="France"):
+    return ReleveIndexe(
+        fonds="CGHB", reference="R1", sujet_nom="JACQUET", sujet_prenom="Rose",
+        evenement_type="Death", evenement_lieu=commune,
+        evenement_departement=departement, evenement_pays=pays, texte_brut="…")
+
+
+def test_raw_lieu_assemble_commune_departement_pays():
+    r = _releve_lieu()
+    assert _raw_lieu(r) == "Saint-Martin-d'Auxigny, Cher, France"
+
+
+def test_raw_lieu_saute_les_champs_vides():
+    assert _raw_lieu(_releve_lieu(departement="")) == "Saint-Martin-d'Auxigny, France"
+    assert _raw_lieu(_releve_lieu(departement="", pays="")) == "Saint-Martin-d'Auxigny"
+
+
+def test_raw_lieu_sans_commune_est_vide():
+    # Pas de commune : rien à résoudre — la cascade ne doit pas partir sur « Cher, France ».
+    assert _raw_lieu(_releve_lieu(commune="")) == ""
 
 
 def test_texte_brut_est_conserve_integralement():

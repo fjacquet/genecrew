@@ -66,6 +66,7 @@ Rends UNIQUEMENT un objet JSON, sans commentaire, avec exactement ces clés :
   evenement_type   : "Death", "Birth" ou "Marriage"
   evenement_date   : la date de l'événement en ISO AAAA-MM-JJ, "" si absente
   evenement_lieu   : la commune de l'événement, sans le département ni le pays
+  evenement_departement : le département/canton/échelon intermédiaire, "" si absent
   evenement_pays   : le PAYS de l'événement, "" si vraiment inconnu
   naissance_estimee: l'ANNÉE de naissance si elle est approximative, sinon null
   personnes_liees  : [{{"nom": …, "role": "père"|"mère"|"conjoint"|"témoin"|"autre",
@@ -82,6 +83,9 @@ Règles :
   tort un lieu suisse sous la France — exactement la fausse concordance que le
   contrôle des lieux existe pour empêcher. Si rien n'indique ni n'implique le
   pays, laisse "". La commune (evenement_lieu) reste NUE, sans le pays.
+- evenement_departement : recopie l'échelon intermédiaire quand le relevé le donne
+  (« Cher », « Vaud »). Il sert à désambiguïser la commune lors de la création du
+  lieu ; laisse "" si le relevé ne le mentionne pas. N'en invente pas.
 - Les abréviations de relevé se lisent : prts=parents, prop=propriétaire,
   gdre=gendre, bfr=beau-frère, tem=témoin.
   (Cette liste vise les relevés FRANÇAIS — c'est un point de départ, pas une
@@ -441,6 +445,23 @@ autre type (Department, Region, State…) désigne un échelon plus large : son 
 serait INCOMPARABLE à celui d'une commune (voir le contrat de granularité de
 `code_commune_prefixe`).
 """
+
+
+def _raw_lieu(releve: ReleveIndexe) -> str:
+    """« commune, département, pays » pour la CASCADE de création de lieux.
+
+    C'est l'entrée de `run_lieu_import` (donc de `parse_pname`/`resolve_place`),
+    pas une clé d'appariement : on assemble ici la chaîne QUALIFIÉE que le
+    résolveur géographique attend, en sautant les échelons vides. Sans commune il
+    n'y a rien à résoudre — on rend "" pour que la cascade ne parte pas sur un
+    « Cher, France » qui résoudrait le département comme s'il était une commune.
+    """
+    commune = (releve.evenement_lieu or "").strip()
+    if not commune:
+        return ""
+    echelons = [commune, (releve.evenement_departement or "").strip(),
+                (releve.evenement_pays or "").strip()]
+    return ", ".join(e for e in echelons if e)
 
 
 def _prefixe_pays(country: str) -> str | None:

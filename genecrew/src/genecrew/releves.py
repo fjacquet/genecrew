@@ -127,6 +127,13 @@ class ReleveIndexe(BaseModel):
     # clé) ; c'est ce champ qui QUALIFIE la chaîne envoyée au résolveur géo, seule
     # à porter le pays que `parse_pname` lira. Défaut "" → rétrocompatible.
     evenement_pays: str = ""
+    # Le DÉPARTEMENT/échelon intermédiaire (« Cher »), extrait quand le relevé le
+    # donne. Il ne sert PAS l'appariement (le veto compare des codes commune) mais la
+    # CASCADE de création de lieux : « commune, département, pays » est ce que le
+    # résolveur géographique attend pour désambiguïser une commune homonyme en France.
+    # Sans lui, la création d'un décès pour un sujet créé retombe sur une résolution
+    # ambiguë — donc pas de lieu posé. Défaut "" → rétrocompatible.
+    evenement_departement: str = ""
     naissance_estimee: int | None = None
     personnes_liees: list[PersonneLiee] = Field(default_factory=list)
     texte_brut: str
