@@ -19,6 +19,7 @@ from genecrew.deces_apply import source_title_for
 from genecrew.pistes import _normaliser
 from genecrew.releves import Appariement
 from genecrew.releves_import import (
+    PROMPT_INTERPRETATION,
     TAG_RELEVE,
     _parents_par_handle,
     _prefixe_pays,
@@ -1092,66 +1093,140 @@ def test_code_commune_prefixe_refuse_resolved_none():
     assert code_commune_prefixe("France", None) is None
 
 
-def test_construire_lieux_resolus_clef_normalisee():
-    """La clé est `_normaliser(brut)` IMPÉRATIVEMENT : c'est ainsi que le moteur
-    cherche. Une clé sur le brut ne matcherait jamais (veto silencieusement inerte)."""
-    brut = "Saint-Martin-d'Auxigny, Cher, France"
-    out = construire_lieux_resolus({brut}, resolveur=lambda b: {brut: _resolved()}.get(b))
-    assert out == {_normaliser(brut): "FR:18209"}
+def test_construire_lieux_resolus_clef_nue_valeur_qualifiee():
+    """La clé du dict rendu est `_normaliser(commune_nue)` IMPÉRATIVEMENT : c'est
+    ainsi que le moteur cherche (par la commune NUE, des deux côtés). La chaîne
+    ENVOYÉE au résolveur, elle, est qualifiée (commune + pays) — seule elle porte
+    le pays que `parse_pname` lira. Dissocier la clé (nue) de la chaîne de
+    résolution (qualifiée) est le cœur de la correction."""
+    commune = "Saint-Martin-d'Auxigny"
+    chaine = "Saint-Martin-d'Auxigny, Cher, France"
+    out = construire_lieux_resolus(
+        {commune: chaine}, resolveur=lambda s: {chaine: _resolved()}.get(s))
+    assert out == {_normaliser(commune): "FR:18209"}
 
 
 def test_construire_lieux_resolus_ecarte_les_non_communes():
-    brut = "Cher, France"
+    commune = "Cher"
+    chaine = "Cher, France"
     out = construire_lieux_resolus(
-        {brut}, resolveur=lambda b: {brut: _resolved(place_type="Department", code="18")}.get(b))
+        {commune: chaine},
+        resolveur=lambda s: {chaine: _resolved(place_type="Department", code="18")}.get(s))
     assert out == {}
 
 
 def test_construire_lieux_resolus_une_exception_ne_fait_pas_tomber_les_autres():
     """Robustesse réseau : une exception (timeout, 429) sur UN lieu le fait
     SAUTER, jamais avorter la construction des autres."""
-    bon = "Saint-Martin-d'Auxigny, Cher, France"
+    bon = "Saint-Martin-d'Auxigny"
+    chaine_bon = "Saint-Martin-d'Auxigny, Cher, France"
 
-    def resolveur(b):
-        if b == "boum":
+    def resolveur(s):
+        if s == "boum, France":
             raise RuntimeError("timeout réseau")
-        return {bon: _resolved()}.get(b)
+        return {chaine_bon: _resolved()}.get(s)
 
-    out = construire_lieux_resolus({"boum", bon}, resolveur=resolveur)
+    out = construire_lieux_resolus(
+        {"boum": "boum, France", bon: chaine_bon}, resolveur=resolveur)
     assert out == {_normaliser(bon): "FR:18209"}
 
 
-def test_veto_lieu_ecarte_l_homonyme_d_une_autre_commune(monkeypatch):
-    """INTÉGRATION : deux homonymes candidats, l'un dont la commune a le MÊME code
-    INSEE que le relevé, l'autre un code DIFFÉRENT. Le veto écarte la commune
-    différente (aucun facteur « lieu » pour elle, elle sort du lot) ; seule la
-    même reste, produisant un `net`.
+def test_construire_cote_candidat_resout_depuis_la_hierarchie():
+    """Côté candidat : la RÉSOLUTION part de `ev.place` (hiérarchie complète,
+    donnée autoritaire de Gramps), la CLÉ de `_commune(ev)` (commune nue).
 
-    MUTATION clé-brute : si `construire_lieux_resolus` keyait sur le brut au lieu
-    de `_normaliser(brut)`, le moteur ne trouverait rien, retomberait sur
-    l'égalité de chaîne (aucun veto), l'homonyme à poids 7 resterait dans la marge
-    ex aequo (10-7=3) du bon à poids 10, et le verdict serait `gris` — ce test
-    tomberait sur `assert 'gris' == 'net'`."""
+    MUTATION `place_name` nu : le stub ne rend un code QUE pour la chaîne
+    QUALIFIÉE (la hiérarchie). Si le câblage passait la commune nue au résolveur,
+    aucun code ne sortirait — ce test tomberait."""
+    commune = "Saint-Martin-d'Auxigny"
+    hierarchie = "Saint-Martin-d'Auxigny, Cher, France"
+
+    def resolveur(s):
+        # Un code SEULEMENT sur la chaîne qualifiée ; la commune nue → rien.
+        return _resolved() if s == hierarchie else None
+
+    out = construire_lieux_resolus({commune: hierarchie}, resolveur=resolveur)
+    assert out == {_normaliser(commune): "FR:18209"}
+    # Preuve du repli : la commune nue envoyée seule ne résout pas.
+    assert construire_lieux_resolus({commune: commune}, resolveur=resolveur) == {}
+
+
+def test_construire_cote_releve_resout_avec_le_pays():
+    """Côté relevé : la chaîne de résolution est `commune, pays`. Avec le pays,
+    un code sort ; sans pays (commune nue seule), rien — repli sûr.
+
+    MUTATION sans-pays : résoudre le relevé sans concaténer `evenement_pays`
+    priverait `parse_pname` du pays, `code_commune_prefixe` rendrait None, et le
+    veto redeviendrait inerte côté relevé."""
+    commune = "Saint-Martin-d'Auxigny"
+
+    def resolveur(s):
+        return _resolved() if s == "Saint-Martin-d'Auxigny, France" else None
+
+    avec = construire_lieux_resolus(
+        {commune: "Saint-Martin-d'Auxigny, France"}, resolveur=resolveur)
+    assert avec == {_normaliser(commune): "FR:18209"}
+    sans = construire_lieux_resolus({commune: commune}, resolveur=resolveur)
+    assert sans == {}
+
+
+def test_prompt_interpretation_demande_le_pays_sans_defaut_france():
+    """Contrat du prompt : il extrait le PAYS quand le relevé l'indique ou
+    l'implique clairement, mais n'invente JAMAIS « France » par défaut — un défaut
+    français rangerait un lieu suisse sous « FR: », la fausse concordance que tout
+    ce dispositif existe pour empêcher."""
+    assert "evenement_pays" in PROMPT_INTERPRETATION
+    bas = PROMPT_INTERPRETATION.lower()
+    assert "pays" in bas
+    # L'interdiction explicite du défaut France doit figurer, noir sur blanc.
+    assert "france" in bas
+    assert "défaut" in bas or "par defaut" in bas or "n'invente" in bas
+
+
+def test_veto_lieu_ecarte_l_homonyme_d_une_autre_commune(monkeypatch):
+    """INTÉGRATION, forme RÉELLE de production : relevé à commune NUE + pays,
+    candidats dont l'`ev.place` porte la hiérarchie complète de l'arbre.
+
+    Deux homonymes candidats : l'un dont la commune a le MÊME code INSEE que le
+    relevé, l'autre un code DIFFÉRENT. Le code différent produit un VETO (verdict
+    du candidat « aucun » — il sort du lot), le même code produit le facteur
+    « lieu » ; seule la bonne reste, produisant un `net`.
+
+    MUTATION (le défaut historique) : si l'on revenait à résoudre les communes
+    NUES des deux côtés — relevé sans son `evenement_pays`, candidat depuis
+    `place_name` au lieu de `ev.place` — `parse_pname` ne verrait aucun pays,
+    aucun code ne sortirait, le veto retomberait sur l'égalité de chaîne (inerte),
+    l'homonyme resterait dans la marge ex aequo du bon, et le verdict serait
+    `gris` : ce test tomberait sur `assert 'gris' == 'net'`."""
     monkeypatch.delenv("GENECREW_DRY_RUN", raising=False)
-    lieu_rose = "Saint-Martin-d'Auxigny, Cher, France"
-    lieu_autre = "Bourges, Cher, France"
-    json_rose = dict(_JSON_ATTENDU, evenement_lieu=lieu_rose)
+    json_rose = dict(_JSON_ATTENDU, evenement_lieu="Saint-Martin-d'Auxigny",
+                     evenement_pays="France")
 
     bonne = _personne("I0001", "h1")
-    bonne["profile"]["death"]["place_name"] = lieu_rose
+    bonne["profile"]["death"] = {"place": "Saint-Martin-d'Auxigny, Cher, France",
+                                 "place_name": "Saint-Martin-d'Auxigny"}
     autre = _personne("I0002", "h2")
-    autre["profile"]["death"]["place_name"] = lieu_autre
+    autre["profile"]["death"] = {"place": "Bourges, Cher, France",
+                                 "place_name": "Bourges"}
 
+    # Table keyée par la CHAÎNE DE RÉSOLUTION (qualifiée) : côté relevé
+    # « commune, pays » ; côté candidat la hiérarchie de `ev.place`. Deux chaînes
+    # distinctes désignant la même commune rendent le même code — c'est voulu.
     table = {
-        lieu_rose: ResolvedPlace(name="Saint-Martin-d'Auxigny", place_type="Municipality",
-                                 code="18209", score=1.0, source="stub", query="x"),
-        lieu_autre: ResolvedPlace(name="Bourges", place_type="Municipality",
-                                  code="18033", score=1.0, source="stub", query="x"),
+        "Saint-Martin-d'Auxigny, France": ResolvedPlace(
+            name="Saint-Martin-d'Auxigny", place_type="Municipality",
+            code="18209", score=1.0, source="stub", query="x"),
+        "Saint-Martin-d'Auxigny, Cher, France": ResolvedPlace(
+            name="Saint-Martin-d'Auxigny", place_type="Municipality",
+            code="18209", score=1.0, source="stub", query="x"),
+        "Bourges, Cher, France": ResolvedPlace(
+            name="Bourges", place_type="Municipality",
+            code="18033", score=1.0, source="stub", query="x"),
     }
 
     out = run_import_releve(_arbre(bonne, autre), COLLAGE_ROSE,
                             llm=_LLMStub(json.dumps(json_rose)),
-                            resolveur_lieux=lambda b: table.get(b))
+                            resolveur_lieux=lambda s: table.get(s))
     assert out["appariement"].verdict == "net"
     assert out["appariement"].gramps_id == "I0001"
     assert "lieu" in out["appariement"].facteurs

@@ -117,7 +117,16 @@ class ReleveIndexe(BaseModel):
     sujet_prenom: str
     evenement_type: str = Field(description="Death | Birth | Marriage")
     evenement_date: str = ""            # ISO "1894-12-10", "" si absente
-    evenement_lieu: str = ""
+    evenement_lieu: str = ""            # commune NUE (sert de CLÉ dans lieux_resolus)
+    # Le PAYS de l'événement, extrait par le LLM quand le relevé l'indique ou
+    # l'implique clairement (un département français implique la France, un canton
+    # suisse la Suisse). Vide si vraiment inconnu — JAMAIS un défaut « France » :
+    # l'arbre a des branches suisses/allemandes, et un défaut français rangerait
+    # un lieu suisse sous « FR: », la fausse concordance de codes que le veto sur
+    # les lieux existe pour empêcher. `evenement_lieu` reste la commune nue (la
+    # clé) ; c'est ce champ qui QUALIFIE la chaîne envoyée au résolveur géo, seule
+    # à porter le pays que `parse_pname` lira. Défaut "" → rétrocompatible.
+    evenement_pays: str = ""
     naissance_estimee: int | None = None
     personnes_liees: list[PersonneLiee] = Field(default_factory=list)
     texte_brut: str

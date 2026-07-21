@@ -65,7 +65,8 @@ Rends UNIQUEMENT un objet JSON, sans commentaire, avec exactement ces clés :
   sujet_prenom     : son prénom
   evenement_type   : "Death", "Birth" ou "Marriage"
   evenement_date   : la date de l'événement en ISO AAAA-MM-JJ, "" si absente
-  evenement_lieu   : la commune de l'événement, sans le département
+  evenement_lieu   : la commune de l'événement, sans le département ni le pays
+  evenement_pays   : le PAYS de l'événement, "" si vraiment inconnu
   naissance_estimee: l'ANNÉE de naissance si elle est approximative, sinon null
   personnes_liees  : [{{"nom": …, "role": "père"|"mère"|"conjoint"|"témoin"|"autre",
                         "detail": …}}]
@@ -73,6 +74,14 @@ Rends UNIQUEMENT un objet JSON, sans commentaire, avec exactement ces clés :
 Règles :
 - N'invente rien. Un champ absent du texte vaut "" ou null.
 - Une date approximative ("vers 1821") ne va JAMAIS dans evenement_date.
+- evenement_pays : renseigne-le quand le relevé le dit OU l'implique clairement
+  par sa géographie — un département français (« Cher », « Isère ») implique
+  "France" ; un canton suisse (« Vaud », « Berne ») implique "Suisse". Mais
+  N'INVENTE JAMAIS un pays par DÉFAUT, et surtout PAS « France » : l'arbre
+  contient des branches suisses et allemandes, et un défaut français rangerait à
+  tort un lieu suisse sous la France — exactement la fausse concordance que le
+  contrôle des lieux existe pour empêcher. Si rien n'indique ni n'implique le
+  pays, laisse "". La commune (evenement_lieu) reste NUE, sans le pays.
 - Les abréviations de relevé se lisent : prts=parents, prop=propriétaire,
   gdre=gendre, bfr=beau-frère, tem=témoin.
   (Cette liste vise les relevés FRANÇAIS — c'est un point de départ, pas une
@@ -477,20 +486,27 @@ def code_commune_prefixe(country: str, resolved: ResolvedPlace | None) -> str | 
 
 
 def construire_lieux_resolus(
-    lieux_bruts: set[str],
+    lieux: dict[str, str],
     resolveur: Callable[[str], ResolvedPlace | None] | None = None,
 ) -> dict[str, str]:
     """Construit le dictionnaire `lieux_resolus` que le moteur d'appariement lit.
 
-    Pour chaque lieu brut non vide, on lit son pays par `parse_pname` (pur) et on
-    demande sa résolution au `resolveur` (réseau, INJECTÉ pour la testabilité — le
-    défaut appelle le vrai registre géographique). Le code n'est retenu que s'il
-    passe `code_commune_prefixe` (voir son asymétrie : absent = sûr, faux = veto
-    faux).
+    Le paramètre est un dict `{clé_nue: chaîne_de_résolution}`, et cette
+    DISSOCIATION est le cœur de la correction du veto. Le moteur (`_comparer_lieux`)
+    cherche ses codes par la commune NUE — `_normaliser(releve.evenement_lieu)`
+    d'un côté, `_normaliser(_commune(ev))` de l'autre — donc la CLÉ du dict rendu
+    DOIT rester la commune nue. Mais une commune nue ne porte pas de pays :
+    `parse_pname` en tirerait `country=''`, `code_commune_prefixe` rendrait None,
+    et le veto resterait inerte (le défaut historique). On envoie donc au résolveur
+    une chaîne QUALIFIÉE (commune + pays côté relevé, hiérarchie complète de l'arbre
+    côté candidat), seule à porter le pays — tout en gardant la clé nue.
 
-    La clé est `_normaliser(brut)` IMPÉRATIVEMENT : le moteur cherche ses codes en
-    appliquant `_normaliser` au lieu du relevé ET à la commune du candidat. Une
-    clé posée sur le brut ne matcherait jamais, et le veto serait silencieusement
+    Pour chaque paire, on lit le pays par `parse_pname(chaîne)` (pur) et on demande
+    la résolution de la même `chaîne` au `resolveur` (réseau, INJECTÉ pour la
+    testabilité — le défaut appelle le vrai registre géographique). Le code n'est
+    retenu que s'il passe `code_commune_prefixe` (asymétrie : absent = sûr, faux =
+    veto faux). La clé du dict rendu est `_normaliser(clé_nue)` IMPÉRATIVEMENT : une
+    clé posée autrement ne matcherait jamais, et le veto serait silencieusement
     inerte.
 
     ROBUSTESSE : chaque résolution est enveloppée dans un try/except large. Une
@@ -500,20 +516,22 @@ def construire_lieux_resolus(
     perdrait tout.
     """
     if resolveur is None:
-        resolveur = lambda brut: resolve_place(parse_pname(brut))  # noqa: E731
+        resolveur = lambda chaine: resolve_place(parse_pname(chaine))  # noqa: E731
     resultat: dict[str, str] = {}
-    for brut in lieux_bruts:
-        if not brut or not brut.strip():
+    for cle_nue, chaine in lieux.items():
+        if not cle_nue or not cle_nue.strip():
+            continue
+        if not chaine or not chaine.strip():
             continue
         try:
-            parsed = parse_pname(brut)
-            resolved = resolveur(brut)
+            parsed = parse_pname(chaine)
+            resolved = resolveur(chaine)
         except Exception as exc:  # réseau : timeout, 429… — on saute ce lieu
-            _LOG.warning("Résolution du lieu %r ignorée (%s)", brut, exc)
+            _LOG.warning("Résolution du lieu %r ignorée (%s)", chaine, exc)
             continue
         code = code_commune_prefixe(parsed.country, resolved)
         if code:
-            resultat[_normaliser(brut)] = code
+            resultat[_normaliser(cle_nue)] = code
     return resultat
 
 
@@ -600,11 +618,32 @@ def run_import_releve(client: GrampsClient, texte: str, *, llm=None,
         # chaque candidat sont résolus en code de commune, et une divergence de
         # code écarte le candidat. Le coût réseau est borné aux CANDIDATS du
         # blocage (pas à l'arbre entier) — les seuls lieux que `apparier`
-        # comparera jamais. Les chaînes vides sont écartées avant résolution.
-        lieux_bruts = {releve.evenement_lieu} | {
-            _commune(_evenement_compare(c, releve.evenement_type)) for c in candidats}
-        lieux_resolus = construire_lieux_resolus(
-            {b for b in lieux_bruts if b and b.strip()}, resolveur_lieux)
+        # comparera jamais.
+        #
+        # DEUX CÔTÉS, DEUX MÉCANISMES, une seule règle : CLÉ = commune NUE (ce que
+        # le moteur cherche), CHAÎNE DE RÉSOLUTION = qualifiée (seule à porter le
+        # pays que `parse_pname` lira). Sans cette dissociation, une commune nue
+        # rend `country=''` et le veto reste inerte (le défaut historique).
+        #  - Côté relevé : la commune est nue par construction (le prompt l'exige),
+        #    le pays vient du champ `evenement_pays` extrait par le LLM. La chaîne
+        #    de résolution est « commune, pays » quand le pays est connu, sinon la
+        #    commune seule (qui ne résoudra pas → repli sûr sur l'égalité de chaîne,
+        #    aucun veto sur une absence).
+        #  - Côté candidat : `ev.place` porte la hiérarchie complète de l'arbre
+        #    (« Saint-Martin-d'Auxigny, Cher, France »), donnée autoritaire de
+        #    Gramps où `parse_pname` lira le pays ; la clé reste la commune nue de
+        #    `_commune(ev)`. On se rabat sur la commune nue si `ev.place` est vide.
+        lieux: dict[str, str] = {}
+        pays = releve.evenement_pays.strip()
+        if releve.evenement_lieu and releve.evenement_lieu.strip():
+            lieux[releve.evenement_lieu] = (
+                f"{releve.evenement_lieu}, {pays}" if pays else releve.evenement_lieu)
+        for c in candidats:
+            ev = _evenement_compare(c, releve.evenement_type)
+            commune = _commune(ev)
+            if commune and commune.strip():
+                lieux[commune] = ev.place if (ev and ev.place) else commune
+        lieux_resolus = construire_lieux_resolus(lieux, resolveur_lieux)
         appariement = apparier(releve, people, rarete_patronymes(people),
                                _parents_par_handle(fetcher, people, candidats),
                                lieux_resolus=lieux_resolus)
