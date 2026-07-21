@@ -174,7 +174,21 @@ EOF
 
 Sans tag poussé, la CI de genecrew ne peut pas verdir : elle checkoute le voisin sur le tag lu dans `uv.lock`, et `uv sync --locked` refusera le lock.
 
-Reprendre le plan à la Task 2 une fois le tag poussé.
+**Cette porte ne bloque PAS les Tasks 2-9.** `crewai-custom-tools` est une dépendance
+**éditable** (`[tool.uv.sources] … path = "../crewai_custom_tools", editable = true`) : genecrew
+résout la bibliothèque vers l'arbre de travail local du dépôt voisin, pas vers une version
+publiée. Les champs de la Task 1 sont donc visibles depuis genecrew dès qu'ils sont commités
+localement — vérifié. La porte bloque uniquement **la CI et la fusion**, pas le développement.
+
+En contrepartie, tant que les Tasks 2-9 tournent, le dépôt voisin doit **rester** sur
+`feat/proposition-champs-structures` (ou sur `main` une fois la fusion faite). Si une autre
+session le bascule ailleurs, les champs disparaissent sous les pieds de genecrew et les tests
+se mettent à échouer sans que rien n'ait changé dans genecrew. Vérifier en cas d'échec
+inexpliqué :
+
+```bash
+cd /Users/fjacquet/Projects/crewai_custom_tools && git rev-parse --abbrev-ref HEAD
+```
 
 ---
 
@@ -194,16 +208,23 @@ Reprendre le plan à la Task 2 une fois le tag poussé.
   - `creer_evenement_source(person_handle: str, *, event_type: str, dateval: list[int] | None = None, place_handle: str | None = None, citation_handle: str | None = None, modifier: int = 0, quality: int = 0, dry_run: bool = False) -> dict` rendant les clés `posee: bool`, `event_handle: str | None`, `attache: bool`, `raison: str`.
   - Les deux sont consommés par la Task 7.
 
-- [ ] **Step 1 : synchroniser la bibliothèque publiée**
+- [ ] **Step 1 : vérifier que les champs de la Task 1 sont visibles**
 
 ```bash
 cd /Users/fjacquet/Projects/genecrew
-git checkout feat/deces-creation-evenement
-uv sync
-uv run python -c "from crewai_custom_tools.tools.genealogy.models.domain import PropositionAudit; print(PropositionAudit.model_fields['date_iso'].default == '')"
+git rev-parse --abbrev-ref HEAD      # doit être feat/deces-creation-evenement
+uv run python -c "from crewai_custom_tools.tools.genealogy.models.domain import PropositionAudit as P; print('date_iso' in P.model_fields, 'lieu_nom' in P.model_fields)"
 ```
 
-Attendu : `True`. Si `KeyError: 'date_iso'`, la Porte humaine 1 n'est pas terminée — s'arrêter et le signaler.
+Attendu : `True True`. La dépendance est **éditable** : elle résout vers l'arbre de travail du
+dépôt voisin, donc le commit local de la Task 1 suffit — ni tag ni fusion nécessaires ici.
+
+Si `False False`, le dépôt voisin a été basculé sur une autre branche par une session
+concurrente ; le signaler plutôt que d'essayer de le réparer :
+
+```bash
+cd /Users/fjacquet/Projects/crewai_custom_tools && git rev-parse --abbrev-ref HEAD
+```
 
 - [ ] **Step 2 : écrire les tests qui échouent**
 
