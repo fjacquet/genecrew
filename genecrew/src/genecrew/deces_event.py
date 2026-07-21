@@ -158,8 +158,14 @@ def _a_un_deces(person: dict) -> bool:
     créerait quand même un second événement Death et l'ajouterait à la liste —
     invisible dans les vues qui suivent l'index, bien présent dans la base. La garde
     doit donc être ici, en plus.
+
+    Le schéma Gramps type `death_ref_index` `int | None` : un pointeur nul est un
+    « pas de décès », pas une erreur. Comparer `None` à un entier lèverait un
+    `TypeError` qui avorterait le lot entier, sans rapport — le module frère
+    (`deces_apply._death_event_handle`) s'en protège déjà de la même façon.
     """
-    return person.get("death_ref_index", -1) >= 0
+    idx = person.get("death_ref_index", -1)
+    return idx is not None and idx >= 0
 
 
 def run_deces_event(client: GrampsClient, propositions_yaml, output_dir, *,
@@ -186,16 +192,31 @@ def run_deces_event(client: GrampsClient, propositions_yaml, output_dir, *,
     for prop in retenues:
         try:
             person = client.get_object("people", prop.handle)
-        except Exception:
-            errors.append((prop.gramps_id, "personne introuvable"))
+        except Exception as exc:
+            # « personne introuvable » sur un 503 ou un timeout dirait au relecteur
+            # « ce lot est périmé, abandonne cette proposition » là où il faut lire
+            # « réessaie » — et un décès parfaitement créable serait abandonné en
+            # silence. Seule la cause réelle distingue les deux.
+            errors.append((prop.gramps_id,
+                           f"lecture de la personne {prop.handle} impossible "
+                           f"({type(exc).__name__} : {exc})"))
             continue
         if _a_un_deces(person):
             refuses.append((prop.gramps_id,
                             "un décès existe déjà dans l'arbre (lot périmé ?)"))
             continue
 
-        title, author = source_title_for(prop.preuve_detail)
-        source_handle = _ensure_source(title, author)
+        # Registre non reconnu (`ValueError`) et source non créée (`RuntimeError`)
+        # sont des échecs DE CETTE proposition, pas du lot. Les laisser remonter
+        # avorterait la boucle APRÈS d'éventuelles créations irréversibles, et le
+        # rapport — seule trace qu'un humain lira — ne serait même pas écrit.
+        try:
+            title, author = source_title_for(prop.preuve_detail)
+            source_handle = _ensure_source(title, author)
+        except (ValueError, RuntimeError) as exc:
+            errors.append((prop.gramps_id, f"source : {exc}"))
+            continue
+
         citation = json.loads(GrampsCreateCitationTool()._run(
             source_handle=source_handle,
             page=citation_page(prop.preuve_detail, prop.preuve_url),
@@ -205,8 +226,6 @@ def run_deces_event(client: GrampsClient, propositions_yaml, output_dir, *,
             continue
 
         lieu_handle = resoudre_lieu(index, prop.lieu_nom) if prop.lieu_nom else None
-        if prop.lieu_nom and lieu_handle is None:
-            lieux_non_resolus.append((prop.gramps_id, prop.lieu_nom))
 
         evt = creer_evenement_source(
             prop.handle, event_type="Death", dateval=dateval_iso(prop.date_iso),
@@ -220,6 +239,13 @@ def run_deces_event(client: GrampsClient, propositions_yaml, output_dir, *,
             # et NON en créé, pour ne pas annoncer un décès que l'arbre ne montre pas.
             errors.append((prop.gramps_id, evt["raison"]))
             continue
+
+        # L'événement est posé et rattaché : seulement MAINTENANT une commune non
+        # résolue est bien « événement créé sans lieu », ce qu'annonce l'en-tête de
+        # la section. L'inscrire plus haut ferait cohabiter « Décès créés : 0 » et
+        # une liste de lieux d'événements qui n'existent pas.
+        if prop.lieu_nom and lieu_handle is None:
+            lieux_non_resolus.append((prop.gramps_id, prop.lieu_nom))
 
         # L'écriture irréversible est faite. Note et tag sont des annotations : leur
         # échec ne remet pas l'événement en cause, il se rapporte.

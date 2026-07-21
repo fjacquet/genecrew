@@ -57,6 +57,37 @@ def test_orphelin_signale_avec_son_handle(monkeypatch):
     assert "orphelin" in res["raison"].lower()
 
 
+def test_simulation_n_est_pas_un_orphelin(monkeypatch):
+    """En simulation l'outil rend `attached: False` sans avoir rien écrit.
+
+    Ce False ne désigne pas un objet perdu mais une écriture qui n'a pas eu lieu.
+    Le lire comme un orphelin rendait l'aperçu — celui sur lequel l'humain
+    s'appuie avant d'autoriser des écritures irréversibles — alarmant et
+    inexploitable, et court-circuitait chez l'appelant tout ce qui suit la
+    création (note, tag), qui n'était donc jamais simulé.
+    """
+    _stub_outil(monkeypatch, {"success": True, "data": {
+        "handle": "DRYRUN:event", "dry_run": True,
+        "created": False, "attached": False}})
+    res = creer_evenement_source("H1", event_type="Death", dateval=[23, 12, 2021],
+                                 dry_run=True)
+    assert res["posee"] is True
+    assert res["attache"] is True
+    assert "orphelin" not in res["raison"].lower()
+    assert "simulé" in res["raison"]
+
+
+def test_handle_synthetique_seul_suffit_a_reconnaitre_la_simulation(monkeypatch):
+    """Le drapeau `dry_run` de la charge est le marqueur nominal, mais un handle
+    « DRYRUN: » ne désigne jamais un vrai objet : s'y fier aussi évite de relire
+    une simulation comme un orphelin si la charge de l'outil changeait."""
+    _stub_outil(monkeypatch, {"success": True, "data": {
+        "handle": "DRYRUN:event", "created": False, "attached": False}})
+    res = creer_evenement_source("H1", event_type="Death", dry_run=True)
+    assert res["attache"] is True
+    assert "orphelin" not in res["raison"].lower()
+
+
 def test_creation_refusee(monkeypatch):
     _stub_outil(monkeypatch, {"success": False, "error": "500"})
     res = creer_evenement_source("H1", event_type="Death", dateval=[23, 12, 2021])
