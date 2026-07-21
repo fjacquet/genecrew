@@ -14,6 +14,7 @@ ROUTES = [
     (["apply", "gender"], "gender_apply_cmd"),
     (["apply", "places"], "lieux_apply_cmd"),
     (["apply", "citations", "--yaml", "relu.yaml"], "deces_apply_cmd"),
+    (["apply", "deaths", "--yaml", "relu.yaml"], "deces_event_cmd"),
     (["apply", "all"], "apply_all_cmd"),
     (["merge", "places", "--yaml", "f.yaml"], "lieux_merge_cmd"),
     (["enrich", "wiki"], "lieux_wiki_cmd"),

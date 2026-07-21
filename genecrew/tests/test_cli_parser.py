@@ -2,7 +2,7 @@ import pytest
 
 from genecrew.cli import build_parser
 
-# (argv, command, target) — les 15 feuilles de la nouvelle grammaire
+# (argv, command, target) — les 16 feuilles de la nouvelle grammaire
 LEAVES = [
     (["stats"], "stats", None),
     (["propose", "audit"], "propose", "audit"),
@@ -14,6 +14,7 @@ LEAVES = [
     (["apply", "gender"], "apply", "gender"),
     (["apply", "places"], "apply", "places"),
     (["apply", "citations", "--yaml", "relu.yaml"], "apply", "citations"),
+    (["apply", "deaths", "--yaml", "relu.yaml"], "apply", "deaths"),
     (["apply", "all"], "apply", "all"),
     (["merge", "places", "--yaml", "fusions.yaml"], "merge", "places"),
     (["enrich", "wiki"], "enrich", "wiki"),
