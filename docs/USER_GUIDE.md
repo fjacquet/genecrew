@@ -504,19 +504,35 @@ Chaque import rend un verdict motivé :
   garde toutes les vérifications (la personne doit exister, le type d'événement doit être géré,
   l'idempotence et la simulation s'appliquent). La note d'un rattachement forcé l'**affirme**
   explicitement, pour qu'on la distingue plus tard d'un appariement mesuré.
-- **`aucun`** — personne ne correspond. Rien n'est écrit. La recherche préalable est large (variantes
-  de graphie, fenêtre de dates) et sa requête figure au rapport, pour qu'« absent » ne veuille jamais
-  dire « mal cherché ».
+- **`aucun`** — personne ne correspond : le sujet est **créé**, avec son décès et sa citation (voir
+  « Ce qui se crée » ci-dessous). La recherche préalable est large (variantes de graphie, fenêtre de
+  dates) et sa requête figure au rapport, pour qu'« absent » ne veuille jamais dire « mal cherché » —
+  sinon on fabrique des doublons.
 
 Recoller le même relevé n'écrit rien : un marqueur porté par la référence du relevé rend l'opération
-idempotente.
+idempotente. Un sujet créé au premier passage est retrouvé par l'appariement au suivant (son décès
+posé le rend reconnaissable), et le marqueur de sa note coupe la réécriture.
+
+### Ce qui se crée
+
+- **Le sujet absent** (`aucun`) : la personne est créée — nom en casse canonique, **genre inféré** du
+  prénom (table INSEE+OFS, Inconnu si douteux) — puis son décès et sa citation. **Jamais un parent** :
+  une fiche orpheline se supprime, une filiation fausse contamine tout ce qui pend dessous. Les parents
+  nommés restent dans le texte relevé recopié, à créer à la main.
+- **Le décès absent d'un `net`** : quand la personne existe mais que son décès n'est pas dans l'arbre,
+  il est créé (date du relevé + lieu + citation) au lieu d'être rapporté. S'il existe déjà à la même
+  date, seule la citation vient, en confirmation.
+- **La naissance estimée** (« âge 73 » → *about 1821*) : posée **seulement si l'arbre n'a aucune
+  naissance** — jamais un écrasement d'une date connue.
+- **Le lieu de l'événement** : résolu et **créé en cascade** (hiérarchie + géocodage, mêmes résolveurs
+  que `propose places`) s'il manque. Une résolution ambiguë ou sous le seuil ne crée aucun lieu :
+  l'événement est posé sans lieu et le rapport le dit — jamais un lieu faux.
 
 ### Limites connues (assumées)
 
-- **Aucune création.** Si le sujet est absent de l'arbre, ou si l'événement (le décès, la naissance)
-  n'y est pas encore, l'import le **rapporte** au lieu de le créer. Créer une personne ou un événement
-  est une surface d'écriture qui mérite ta décision, pas un effet de bord — même posture qu'`apply
-  citations` (ADR 0011). À lever après avoir observé un vrai lot.
+- **Jamais un parent, jamais une filiation.** Les parents nommés au relevé ne sont ni créés ni
+  rattachés, même s'ils existent — c'est l'asymétrie ci-dessus. Le rattachement d'un sujet créé à ses
+  parents reste un geste manuel, relu.
 - **Le veto sur les lieux dépend du géocodage.** Deux communes distinctes sont départagées par leurs
   codes résolus (INSEE, AGS…) : quand le relevé et le candidat portent des codes commune divergents,
   le candidat est **vetoé** — écarté du lot, pas seulement privé de ses points. C'est ce qui empêche

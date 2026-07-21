@@ -1035,6 +1035,17 @@ def format_import_releve(resultat: dict) -> str:
         f"Résultat : {'écrit' if resultat['ecrit'] else 'non écrit'} "
         f"({resultat['raison']})",
     ]
+    # Détail des créations, avec leurs handles — pour retrouver ce qui a été écrit
+    # (ou, en simulation, ce qui le serait) sans fouiller l'arbre.
+    if resultat.get("sujet_cree"):
+        sc = resultat["sujet_cree"]
+        lignes.append(f"  Sujet CRÉÉ : handle {sc['handle']} (genre {sc['genre']})")
+    evt = resultat.get("evenement") or {}
+    if evt.get("event_handle"):
+        lignes.append(f"  {releve.evenement_type} créé : {evt['event_handle']} "
+                      f"(lieu {evt.get('lieu') or 'aucun'})")
+    if (resultat.get("naissance") or {}).get("event_handle"):
+        lignes.append(f"  Naissance estimée créée : {resultat['naissance']['event_handle']}")
     if app.verdict == "gris":
         lignes += ["", "Relis les candidats, puis relance en désignant le bon :",
                    "  genecrew import releve --file <fichier> --person <ID>"]

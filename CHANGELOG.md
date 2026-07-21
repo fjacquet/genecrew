@@ -41,12 +41,22 @@ Non publié / non versionné (`0.1.0`) : entrées **datées par livraison**. La 
     différents se contredisent ; une graphie divergente non résolue ne bloque pas (asymétrie
     assumée — une absence de mesure ne vaut jamais contradiction). Les lieux suisses, sans code
     commune, retombent sur la comparaison de graphies. La logique d'appariement vit dans genecrew
-    (`releves.py` moteur pur, `releves_import.py` orchestration) ; `crewai_custom_tools` inchangé.
+    (`releves.py` moteur pur, `releves_import.py` orchestration).
+  - **L'import CRÉE ce qui manque, il ne se contente plus de rapporter.** Un sujet absent
+    (`aucun`) est **créé** — nom en casse canonique, genre inféré du prénom (table INSEE+OFS,
+    Inconnu si douteux) — avec son décès et sa citation ; **jamais un parent** (fiche orpheline
+    supprimable vs filiation contaminante — les parents restent dans le texte recopié). Un décès
+    absent d'un `net` est créé (date + lieu + citation) au lieu d'être rapporté. La naissance
+    estimée (« âge 73 » → *about 1821*) est posée **seulement si l'arbre n'a aucune naissance**.
+    Le lieu de l'événement est résolu et **créé en cascade** (hiérarchie + géocodage) s'il manque ;
+    une résolution ambiguë pose l'événement sans lieu (jamais un lieu faux). La simulation par
+    défaut annonce ces créations sans les écrire. **Requiert `crewai_custom_tools` ≥ 0.23.0**
+    (`GrampsCreatePersonTool`, `GrampsCreateEventTool`).
 
 ### Limites connues
 
-- L'import ne **crée** ni personne ni événement : un sujet ou un événement absent est *rapporté*,
-  pas créé — même posture qu'`apply citations` (ADR 0011). À lever après un vrai lot en simulation.
+- **Jamais un parent, jamais une filiation** : les parents nommés ne sont ni créés ni rattachés,
+  même existants — le rattachement d'un sujet créé à ses parents reste un geste manuel, relu.
 - Les **poids** de l'appariement sont un point de départ, à calibrer sur le premier lot réel.
 
 ## 2026-07-20
