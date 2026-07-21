@@ -520,8 +520,9 @@ posé le rend reconnaissable), et le marqueur de sa note coupe la réécriture.
   une fiche orpheline se supprime, une filiation fausse contamine tout ce qui pend dessous. Les parents
   nommés restent dans le texte relevé recopié, à créer à la main.
 - **Le décès absent d'un `net`** : quand la personne existe mais que son décès n'est pas dans l'arbre,
-  il est créé (date du relevé + lieu + citation) au lieu d'être rapporté. S'il existe déjà à la même
-  date, seule la citation vient, en confirmation.
+  il est créé (date du relevé + lieu + citation) au lieu d'être rapporté. Si un décès existe déjà, seule
+  la citation vient, en confirmation (l'existence se juge sur le **type** d'événement, pas sur la date —
+  un relevé qui contredirait une date connue ne l'écrase jamais).
 - **La naissance estimée** (« âge 73 » → *about 1821*) : posée **seulement si l'arbre n'a aucune
   naissance** — jamais un écrasement d'une date connue.
 - **Le lieu de l'événement** : résolu et **créé en cascade** (hiérarchie + géocodage, mêmes résolveurs

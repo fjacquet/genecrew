@@ -474,6 +474,28 @@ def test_aucun_candidat_en_simulation_annonce_la_creation_sans_ecrire(monkeypatc
     assert out["raison"] == "simulation — créerait le sujet et son décès"
 
 
+def test_surface_c_idempotente_ne_redouble_pas_un_sujet_marque(monkeypatch):
+    """C1 — un sujet créé lors d'un passage PARTIEL précédent (personne + note
+    marquée, mais décès non posé) reconclut `aucun` à l'appariement (pas de date
+    discriminante). La garde d'idempotence le reconnaît par son marqueur — il partage
+    le patronyme, donc il est candidat au blocage — et NE crée PAS un doublon.
+    """
+    monkeypatch.setenv("GENECREW_DRY_RUN", "false")
+    m = marqueur_releve("Cercle Généalogique du Haut-Berry", "106710046161418286")
+    partiel = {
+        "gramps_id": "I0001", "handle": "h1", "gender": 0,
+        "primary_name": {"first_name": "Marie", "surname_list": [{"surname": "JACQUET"}]},
+        "birth_ref_index": -1, "death_ref_index": -1,
+        "parent_family_list": [], "extended": {"events": []}, "profile": {},
+    }
+    out = run_import_releve(_arbre(partiel, notes=[{"text": {"string": m}}]),
+                            COLLAGE_ROSE, llm=_llm())
+    assert out["appariement"].verdict == "aucun"
+    assert out["ecrit"] is False
+    assert "déjà importée" in out["raison"]
+    assert "I0001" in out["raison"]
+
+
 def test_deuxieme_passage_n_ecrit_rien(monkeypatch):
     monkeypatch.setenv("GENECREW_DRY_RUN", "false")
     m = marqueur_releve("Cercle Généalogique du Haut-Berry", "106710046161418286")

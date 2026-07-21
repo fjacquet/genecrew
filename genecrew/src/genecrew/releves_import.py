@@ -11,6 +11,8 @@ import json
 import logging
 import re
 import unicodedata
+
+import httpx
 from collections.abc import Callable
 
 from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient
@@ -498,10 +500,19 @@ def _creer_evenement(client: GrampsClient, releve: ReleveIndexe, person_handle: 
         place_handle=lieu_handle, citation_handle=citation_handle, dry_run=dry_run))
     if not evt["success"]:
         return {"posee": False, "raison": f"création {etype} refusée : {evt['error']}"}
+    data = evt["data"]
     posee = citation_handle is not None
-    return {"posee": posee, "event_handle": evt["data"]["handle"], "lieu": lieu_handle,
-            "raison": f"{etype} créé"
-                      + ("" if posee else f" (sans citation : {raison_cit})")}
+    attache = data.get("attached", True)
+    event_handle = data["handle"]
+    if not attache:
+        # L'événement EXISTE mais n'a pas pu être rattaché (orphelin). On le DIT, avec
+        # son handle — pas un « créé » trompeur — pour qu'un humain le retrouve.
+        raison = (f"{etype} créé mais NON rattaché (orphelin {event_handle}) : "
+                  f"{data.get('attach_error', '')}")
+    else:
+        raison = f"{etype} créé" + ("" if posee else f" (sans citation : {raison_cit})")
+    return {"posee": posee, "event_handle": event_handle, "lieu": lieu_handle,
+            "attache": attache, "raison": raison}
 
 
 def completer_naissance_estimee(client: GrampsClient, releve: ReleveIndexe,
@@ -621,11 +632,21 @@ def resoudre_ou_creer_lieu(client: GrampsClient, releve: ReleveIndexe, *,
     ambiguë ou score sous le seuil. Un None fait poser l'événement SANS lieu (rapporté)
     — jamais un lieu faux. En dry-run le handle rendu est synthétique (`DRYRUN:…`),
     que `GrampsCreateEventTool` ignore de toute façon.
+
+    `run_lieu_import` peut LEVER (`RuntimeError` si un maillon de la hiérarchie
+    échoue, ou une erreur réseau). Comme la cascade est appelée EN PLEINE écriture
+    d'un sujet créé (après personne + note + tag), on ne laisse pas l'exception
+    tuer l'import à mi-chemin et rendre le sujet orphelin invisible : on retombe
+    sur None (événement sans lieu), le repli déjà prévu pour l'ambiguïté.
     """
     raw = _raw_lieu(releve)
     if not raw:
         return None
-    out = run_lieu_import(client, raw, dry_run=dry_run)
+    try:
+        out = run_lieu_import(client, raw, dry_run=dry_run)
+    except (RuntimeError, httpx.HTTPError) as exc:
+        _LOG.warning("Cascade de lieu « %s » échouée, événement sans lieu : %s", raw, exc)
+        return None
     return out.get("handle")
 
 
@@ -746,6 +767,11 @@ def creer_sujet(client: GrampsClient, releve: ReleveIndexe, out: dict, *,
         out["raison"] = f"création du sujet refusée : {personne['error']}"
         return out
     handle = personne["data"]["handle"]
+    # Le sujet EXISTE désormais. On l'enregistre TOUT DE SUITE dans `out`, avant les
+    # écritures suivantes : si la note, le tag ou le rattachement échoue, le handle du
+    # sujet créé reste rapporté (sinon la fiche serait orpheline ET introuvable — la
+    # prise que `_orpheline` incarne pour la note doit aussi valoir pour la personne).
+    out["sujet_cree"] = {"handle": handle, "genre": genre}
 
     # Appariement synthétique : verdict `aucun`, handle du sujet créé. La note dira
     # « sujet créé » (sujet_cree=True), pas « rattachement forcé ».
@@ -754,23 +780,23 @@ def creer_sujet(client: GrampsClient, releve: ReleveIndexe, out: dict, *,
         text=corps_note_releve(releve, app, sujet_cree=True),
         note_type="Research", dry_run=dry_run))
     if not note["success"]:
-        out["raison"] = f"sujet créé mais note refusée : {note['error']}"
+        out["raison"] = f"sujet {handle} créé mais note refusée : {note['error']}"
         return out
     note_handle = note["data"]["handle"]
     tag = json.loads(GrampsEnsureTagTool()._run(name=TAG_RELEVE, dry_run=dry_run))
     if not tag["success"]:
-        out["raison"] = _orpheline(f"sujet créé, tag refusé : {tag['error']}", note_handle)
+        out["raison"] = _orpheline(
+            f"sujet {handle} créé, tag refusé : {tag['error']}", note_handle)
         return out
     attache = json.loads(GrampsAttachTool()._run(
         handle=handle, note_handle=note_handle,
         tag_handle=tag["data"]["handle"], dry_run=dry_run))
     if not attache["success"]:
         out["raison"] = _orpheline(
-            f"sujet créé, rattachement refusé : {attache['error']}", note_handle)
+            f"sujet {handle} créé, rattachement refusé : {attache['error']}", note_handle)
         return out
 
     evt = _creer_evenement(client, releve, handle, dry_run=dry_run)
-    out["sujet_cree"] = {"handle": handle, "genre": genre}
     out["evenement"] = evt
     # Naissance estimée du relevé : la fiche est vierge, aucune date à préserver.
     nais = completer_naissance_estimee(client, releve, handle,
@@ -830,6 +856,11 @@ def run_import_releve(client: GrampsClient, texte: str, *, llm=None,
     """
     dry_run = effective_dry_run(dry_run)
     releve = parse_releve(texte, llm=llm)
+
+    # Candidats du blocage : peuplés par le chemin apparié, consultés par la garde
+    # d'idempotence de la surface C. Vides sur le chemin forcé (`--person`), qui ne
+    # produit jamais un verdict `aucun`.
+    candidats: list[PersonFacts] = []
 
     if person is not None:
         # Chemin FORCÉ. On ne charge pas l'arbre entier : ni la rareté des
@@ -921,13 +952,23 @@ def run_import_releve(client: GrampsClient, texte: str, *, llm=None,
     if appariement.verdict == "aucun":
         # Surface C : aucun candidat → on CRÉE le sujet. La garde `dry_run` est ICI,
         # AVANT toute écriture : en simulation on annonce sans rien créer (aucun
-        # handle DRYRUN: ne doit atteindre les outils de rattachement). Pas
-        # d'idempotence à vérifier — il n'y a pas encore de personne à interroger ;
-        # au second passage, le sujet créé sera trouvé par l'appariement (verdict
-        # `net`/`gris`) et le marqueur de sa note coupera la réécriture.
+        # handle DRYRUN: ne doit atteindre les outils de rattachement).
         if dry_run:
             out["raison"] = "simulation — créerait le sujet et son décès"
             return out
+        # IDEMPOTENCE de la surface C (sinon DOUBLON). On ne peut pas se reposer sur
+        # « l'appariement redécouvrira le sujet au passage suivant » : si un passage
+        # précédent a créé la personne + sa note marquée PUIS échoué avant de poser le
+        # décès, la fiche reste sans événement discriminant et l'appariement conclut
+        # `aucun` À NOUVEAU. Mais cette fiche partage le patronyme du relevé : elle est
+        # donc dans `candidats`. On y cherche le marqueur AVANT de créer — s'il y est,
+        # l'import a déjà eu lieu (au moins partiellement), on ne redouble pas.
+        marqueur = marqueur_releve(releve.fonds, releve.reference)
+        for cand in candidats:
+            if cand.gramps_id and deja_importe(client, cand.gramps_id, marqueur):
+                out["raison"] = ("déjà importée — sujet créé lors d'un passage "
+                                 f"précédent ({cand.gramps_id})")
+                return out
         return creer_sujet(client, releve, out, dry_run=dry_run)
 
     marqueur = marqueur_releve(releve.fonds, releve.reference)
