@@ -26,6 +26,7 @@ from genecrew.releves_import import (
     _raw_lieu,
     code_commune_prefixe,
     code_fonds,
+    completer_evenement_principal,
     construire_lieux_resolus,
     corps_note_releve,
     deja_importe,
@@ -738,7 +739,7 @@ def test_person_force_le_net_et_pose_note_tag_citation(monkeypatch, mocker):
     # Append-only : l'ancien EN PREMIER, le neuf ajouté derrière.
     assert vu["put"][0]["note_list"] == ["n0", "n1"]
     assert vu["put"][0]["tag_list"] == ["t0", "t1"]
-    assert out["citation"]["posee"] is True
+    assert out["evenement"]["posee"] is True
     assert vu["event_put"][0]["citation_list"] == ["c1"]
 
 
@@ -872,7 +873,7 @@ def test_net_hors_simulation_pose_note_et_tag(monkeypatch, mocker):
     assert vu["put"][0]["note_list"] == ["n0", "n1"]
     assert vu["put"][0]["tag_list"] == ["t0", "t1"]
     # La citation : posée, confiance Normal (2), rattachée à l'événement plural.
-    assert out["citation"]["posee"] is True
+    assert out["evenement"]["posee"] is True
     assert vu["citations"][0]["confidence"] == 2
     assert vu["event_put"][0]["citation_list"] == ["c1"]
 
@@ -1318,3 +1319,115 @@ def test_veto_lieu_ecarte_l_homonyme_d_une_autre_commune(monkeypatch):
     assert out["appariement"].verdict == "net"
     assert out["appariement"].gramps_id == "I0001"
     assert "lieu" in out["appariement"].facteurs
+
+
+# --- Surface A : sur un net, un décès ABSENT est créé (pas seulement rapporté) ---
+
+def _releve_deces_complet():
+    return ReleveIndexe(
+        fonds="Cercle Généalogique du Haut-Berry", reference="106710046161418286",
+        sujet_nom="JACQUET", sujet_prenom="Rose", evenement_type="Death",
+        evenement_date="1894-12-10", evenement_lieu="Saint-Martin-d'Auxigny",
+        evenement_departement="Cher", evenement_pays="France", texte_brut="…")
+
+
+def test_surface_a_deces_absent_est_cree(monkeypatch, mocker):
+    """La bascule du chantier : sur un `net` dont la personne n'a PAS de décès,
+    l'import CRÉE le décès — date du relevé, lieu résolu en cascade, citation
+    rattachée à la création — au lieu de le rapporter. Sans ça, l'import ne
+    faisait que dupliquer le copier-coller.
+    """
+    monkeypatch.setenv("GENECREW_DRY_RUN", "false")
+    mocker.patch("genecrew.releves_import.run_lieu_import",
+                 return_value={"action": "ecrire", "handle": "P_SMA"})
+    vu = {"events": [], "person_put": []}
+
+    def h(request):
+        chemin = request.url.path
+        # handle_evenement : la personne existe mais ne porte qu'une NAISSANCE.
+        if chemin == "/api/people/" and "gramps_id" in request.url.params:
+            return httpx.Response(200, json=[{
+                "gramps_id": "I0001", "handle": "h1",
+                "extended": {"events": [{"handle": "eb", "type": "Birth"}]}}])
+        if request.method == "GET" and chemin == "/api/sources/":
+            return httpx.Response(200, json=[])
+        if request.method == "POST" and chemin == "/api/sources/":
+            return httpx.Response(201, json=[{"handle": "s1"}])
+        if request.method == "POST" and chemin == "/api/citations/":
+            return httpx.Response(201, json=[{"handle": "c1"}])
+        if request.method == "POST" and chemin == "/api/events/":
+            vu["events"].append(json.loads(request.content))
+            return httpx.Response(201, json=[{"handle": "e_new"}])
+        if request.method == "GET" and chemin == "/api/people/h1":
+            return httpx.Response(200, json={
+                "_class": "Person", "handle": "h1", "gramps_id": "I0001",
+                "event_ref_list": [{"_class": "EventRef", "ref": "eb", "role": "Primary"}],
+                "birth_ref_index": 0, "death_ref_index": -1})
+        if request.method == "PUT" and chemin == "/api/people/h1":
+            vu["person_put"].append(json.loads(request.content))
+            return httpx.Response(200, json={})
+        return httpx.Response(404)
+
+    client = _client(h)
+    mocker.patch(
+        "crewai_custom_tools.tools.genealogy.gramps.write_tools.get_client",
+        return_value=client)
+    app = Appariement(verdict="net", gramps_id="I0001", handle="h1",
+                      facteurs=["date complète"])
+    out = completer_evenement_principal(client, _releve_deces_complet(), app, dry_run=False)
+
+    assert out["cree"] is True and out["posee"] is True
+    assert out["event_handle"] == "e_new" and out["lieu"] == "P_SMA"
+    ev = vu["events"][0]
+    assert ev["type"] == "Death"
+    assert ev["date"]["dateval"] == [10, 12, 1894, False]
+    assert ev["place"] == "P_SMA"                      # lieu résolu en cascade
+    assert ev["citation_list"] == ["c1"]               # citation rattachée à la création
+    # Rattachement append-only : EventRef ajouté, death_ref_index posé sur le neuf.
+    put = vu["person_put"][0]
+    assert put["event_ref_list"][-1] == {"_class": "EventRef", "ref": "e_new",
+                                         "role": "Primary"}
+    assert put["death_ref_index"] == 1
+    assert put["birth_ref_index"] == 0                 # naissance inchangée
+
+
+def test_surface_a_lieu_non_resolu_cree_le_deces_sans_lieu(monkeypatch, mocker):
+    """Cascade refusée (lieu ambigu / sous le seuil) : le décès est tout de même
+    créé, mais SANS lieu — jamais un lieu faux. La citation reste posée."""
+    monkeypatch.setenv("GENECREW_DRY_RUN", "false")
+    mocker.patch("genecrew.releves_import.run_lieu_import",
+                 return_value={"action": "proposer", "handle": None})
+    vu = {"events": []}
+
+    def h(request):
+        chemin = request.url.path
+        if chemin == "/api/people/" and "gramps_id" in request.url.params:
+            return httpx.Response(200, json=[{
+                "gramps_id": "I0001", "handle": "h1", "extended": {"events": []}}])
+        if request.method == "GET" and chemin == "/api/sources/":
+            return httpx.Response(200, json=[])
+        if request.method == "POST" and chemin == "/api/sources/":
+            return httpx.Response(201, json=[{"handle": "s1"}])
+        if request.method == "POST" and chemin == "/api/citations/":
+            return httpx.Response(201, json=[{"handle": "c1"}])
+        if request.method == "POST" and chemin == "/api/events/":
+            vu["events"].append(json.loads(request.content))
+            return httpx.Response(201, json=[{"handle": "e_new"}])
+        if request.method == "GET" and chemin == "/api/people/h1":
+            return httpx.Response(200, json={"_class": "Person", "handle": "h1",
+                                             "event_ref_list": [], "death_ref_index": -1})
+        if request.method == "PUT" and chemin == "/api/people/h1":
+            return httpx.Response(200, json={})
+        return httpx.Response(404)
+
+    client = _client(h)
+    mocker.patch(
+        "crewai_custom_tools.tools.genealogy.gramps.write_tools.get_client",
+        return_value=client)
+    app = Appariement(verdict="net", gramps_id="I0001", handle="h1",
+                      facteurs=["date complète"])
+    out = completer_evenement_principal(client, _releve_deces_complet(), app, dry_run=False)
+
+    assert out["cree"] is True and out["lieu"] is None
+    assert "place" not in vu["events"][0]              # aucun lieu posé
+    assert vu["events"][0]["citation_list"] == ["c1"]

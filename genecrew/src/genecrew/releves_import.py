@@ -23,6 +23,7 @@ from crewai_custom_tools.tools.genealogy.gramps.write_tools import (
     GrampsAttachCitationTool,
     GrampsAttachTool,
     GrampsCreateCitationTool,
+    GrampsCreateEventTool,
     GrampsCreateNoteTool,
     GrampsEnsureSourceTool,
     GrampsEnsureTagTool,
@@ -360,60 +361,123 @@ def handle_evenement(client: GrampsClient, gramps_id: str, type_: str) -> str | 
     return None
 
 
-def ecrire_citation(client: GrampsClient, releve: ReleveIndexe,
-                    appariement: Appariement, *, dry_run: bool = False) -> dict:
-    """Pose la citation du relevé sur l'événement visé. Ne CRÉE jamais l'événement.
+def _creer_citation_releve(client: GrampsClient, releve: ReleveIndexe, *,
+                           dry_run: bool = False) -> tuple[str | None, str]:
+    """Garantit la source du relevé et crée sa citation. Rend (handle, raison).
 
-    Limite v1 assumée — même posture qu'`apply citations` (ADR 0011) : si
-    l'événement du relevé (le décès, la naissance) n'est pas déjà dans l'arbre,
-    on le RAPPORTE, on ne le crée pas. Créer un événement est une surface
-    d'écriture qui mérite sa propre décision, pas un effet de bord d'un import.
-    Le dict rendu le dit explicitement (`posee=False`, raison « absent »).
+    Handle None si une étape échoue (la raison nomme laquelle). Réutilisé par les
+    DEUX voies : la confirmation d'un événement existant (`ecrire_citation`, qui
+    rattache ensuite) et la création d'un événement, où le handle est passé
+    directement à `GrampsCreateEventTool` (qui rattache à la création).
 
-    ÉCRITURES NON ATOMIQUES — trois appels successifs : garantir la source,
-    créer la citation, la rattacher à l'événement. Gramps Web n'offre pas de
-    transaction ; un échec en cours de route est RENDU VISIBLE dans le dict
-    (`posee=False` + la raison nomme l'étape fautive) plutôt que masqué en
-    succès partiel.
-
-    `dry_run` est passé EXPLICITEMENT aux trois outils (comme pour les écritures
-    de note/tag) : l'invariant de simulation reste local à chaque appel et ne
-    dépend pas de la seule variable d'environnement.
+    Confiance Gramps `Normal` (entier 2), JAMAIS `High` : un relevé de cercle est
+    un dépouillement, une source DÉRIVÉE — pas l'acte original. La marquer plus
+    haut ferait passer un relevé pour un acte d'état civil ; `GrampsCreateCitationTool`
+    plafonne d'ailleurs à 2.
     """
-    dry_run = effective_dry_run(dry_run)
-    cible = handle_evenement(client, appariement.gramps_id, releve.evenement_type)
-    if not cible:
-        return {"posee": False,
-                "raison": f"événement {releve.evenement_type} absent de l'arbre — "
-                          "à créer à la main, l'import ne crée pas d'événement"}
-
     titre, auteur = source_title_for(f"Relevé — {releve.fonds}")
     source = json.loads(GrampsEnsureSourceTool()._run(
         title=titre, author=auteur, dry_run=dry_run))
     if not source["success"]:
-        return {"posee": False, "raison": f"source refusée : {source['error']}"}
-
-    # Confiance Gramps `Normal` (entier 2), JAMAIS `High` : un relevé de cercle
-    # est un dépouillement, une source DÉRIVÉE — pas l'acte original. Le marquer
-    # plus haut ferait passer un relevé pour un acte d'état civil. La valeur 2 est
-    # confirmée contre `GrampsCreateCitationTool`, qui plafonne d'ailleurs à 2.
+        return None, f"source refusée : {source['error']}"
     citation = json.loads(GrampsCreateCitationTool()._run(
         source_handle=source["data"]["handle"],
         page=f"Relevé n° {releve.reference}",
         confidence=2,
         dry_run=dry_run))
     if not citation["success"]:
-        return {"posee": False, "raison": f"citation refusée : {citation['error']}"}
+        return None, f"citation refusée : {citation['error']}"
+    return citation["data"]["handle"], "citation créée"
+
+
+def ecrire_citation(client: GrampsClient, releve: ReleveIndexe,
+                    appariement: Appariement, *, dry_run: bool = False) -> dict:
+    """CONFIRME un événement DÉJÀ présent en y posant la citation du relevé.
+
+    Ne crée jamais l'événement : quand il manque, le dict rendu le dit
+    (`posee=False`, raison « absent ») et c'est `completer_evenement_principal`
+    qui décide de le créer. Cette fonction ne couvre que le cas « l'événement
+    existe, on ajoute la preuve dérivée ».
+
+    ÉCRITURES NON ATOMIQUES — source garantie, citation créée, citation rattachée
+    à l'événement. Gramps Web n'offre pas de transaction ; un échec en cours de
+    route est RENDU VISIBLE (`posee=False` + l'étape fautive), jamais masqué.
+    `dry_run` est passé EXPLICITEMENT à chaque outil.
+    """
+    dry_run = effective_dry_run(dry_run)
+    cible = handle_evenement(client, appariement.gramps_id, releve.evenement_type)
+    if not cible:
+        return {"posee": False,
+                "raison": f"événement {releve.evenement_type} absent de l'arbre"}
+
+    citation_handle, raison = _creer_citation_releve(client, releve, dry_run=dry_run)
+    if citation_handle is None:
+        return {"posee": False, "raison": raison}
 
     # `object_type="events"` au PLURIEL : l'outil fait `GET/PUT /{object_type}/…`
     # et l'endpoint réel de Gramps Web est `/api/events/<handle>`. Un singulier
     # « event » viserait `/event/<handle>` (404) — écriture inopérante.
     attache = json.loads(GrampsAttachCitationTool()._run(
         object_type="events", handle=cible,
-        citation_handle=citation["data"]["handle"], dry_run=dry_run))
+        citation_handle=citation_handle, dry_run=dry_run))
     if not attache["success"]:
         return {"posee": False, "raison": f"rattachement refusé : {attache['error']}"}
     return {"posee": True, "raison": "citation posée"}
+
+
+def _dateval_iso(iso: str) -> list[int] | None:
+    """« AAAA-MM-JJ » → [jour, mois, année] pour un `dateval` Gramps ; None sinon.
+
+    On ne crée un événement DATÉ que sur une date pleine (le relevé de décès en
+    fournit une). Une chaîne vide ou mal formée rend None : l'événement est alors
+    créé sans date plutôt qu'avec une date inventée.
+    """
+    parts = (iso or "").split("-")
+    if len(parts) != 3:
+        return None
+    try:
+        annee, mois, jour = (int(p) for p in parts)
+    except ValueError:
+        return None
+    return [jour, mois, annee]
+
+
+def completer_evenement_principal(client: GrampsClient, releve: ReleveIndexe,
+                                  appariement: Appariement, *,
+                                  dry_run: bool = False) -> dict:
+    """Sur un `net`, garantit l'événement du relevé : citation si présent, CRÉATION si absent.
+
+    Deux issues, une seule intention — que la preuve du relevé se retrouve dans
+    l'arbre :
+      - l'événement (le décès, la naissance) EXISTE déjà → on y pose la citation
+        (`ecrire_citation`), rien de plus : `cree=False`.
+      - il est ABSENT → on le CRÉE (date du relevé + lieu résolu en cascade +
+        citation rattachée à la création), et `cree=True`.
+
+    Le lieu passe par `resoudre_ou_creer_lieu` : un lieu non résolu (ambigu, sous
+    le seuil) fait poser l'événement SANS lieu — jamais un lieu faux. La citation
+    est créée d'abord puis confiée à `GrampsCreateEventTool` (rattachement à la
+    création). `dry_run` traverse tout explicitement.
+    """
+    dry_run = effective_dry_run(dry_run)
+    cible = handle_evenement(client, appariement.gramps_id, releve.evenement_type)
+    if cible:
+        return {"cree": False, **ecrire_citation(client, releve, appariement, dry_run=dry_run)}
+
+    lieu_handle = resoudre_ou_creer_lieu(client, releve, dry_run=dry_run)
+    citation_handle, raison_cit = _creer_citation_releve(client, releve, dry_run=dry_run)
+    evt = json.loads(GrampsCreateEventTool()._run(
+        person_handle=appariement.handle, event_type=releve.evenement_type,
+        dateval=_dateval_iso(releve.evenement_date),
+        place_handle=lieu_handle, citation_handle=citation_handle, dry_run=dry_run))
+    if not evt["success"]:
+        return {"cree": False, "posee": False,
+                "raison": f"création {releve.evenement_type} refusée : {evt['error']}"}
+    posee = citation_handle is not None
+    return {"cree": True, "posee": posee, "event_handle": evt["data"]["handle"],
+            "lieu": lieu_handle,
+            "raison": f"{releve.evenement_type} créé"
+                      + ("" if posee else f" (sans citation : {raison_cit})")}
 
 
 def handle_personne(client: GrampsClient, gramps_id: str) -> str | None:
@@ -784,17 +848,20 @@ def run_import_releve(client: GrampsClient, texte: str, *, llm=None,
             f"rattachement refusé : {attache['error']}", note_handle)
         return out
 
-    # La citation vient APRÈS le rattachement de la note/tag : c'est un ajout, pas
-    # une condition du succès de l'import. Elle ne se pose que sur un événement
-    # EXISTANT (voir `ecrire_citation`) — quand l'événement manque, l'import reste
-    # « écrit » mais la raison le dit, pour que l'opérateur voie la citation
-    # manquante sans avoir à fouiller le dict.
-    citation = ecrire_citation(client, releve, appariement, dry_run=dry_run)
-    out["citation"] = citation
+    # L'événement du relevé vient APRÈS le rattachement de la note/tag : c'est un
+    # ajout, pas une condition du succès de l'import. `completer_evenement_principal`
+    # pose la citation sur l'événement s'il EXISTE, ou le CRÉE s'il manque (date +
+    # lieu en cascade + citation). L'import reste « écrit » dans les deux cas ; la
+    # raison dit ce qui s'est passé, sans avoir à fouiller le dict.
+    evt = completer_evenement_principal(client, releve, appariement, dry_run=dry_run)
+    out["evenement"] = evt
 
     out["ecrit"] = True
-    out["raison"] = ("importée" if citation["posee"]
-                     else f"importée sans citation ({citation['raison']})")
+    if evt.get("cree"):
+        out["raison"] = f"importée — {evt['raison']}"
+    else:
+        out["raison"] = ("importée" if evt["posee"]
+                         else f"importée sans citation ({evt['raison']})")
     return out
 
 
