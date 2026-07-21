@@ -7,6 +7,48 @@ Non publié / non versionné (`0.1.0`) : entrées **datées par livraison**. La 
 
 ---
 
+## 2026-07-21
+
+### Added
+
+- **`import releve` — import d'un relevé collé, avec smart match.** On colle un relevé de
+  dépouillement (un acte indexé par un cercle généalogique, trouvé en ligne) ; la commande
+  l'interprète, l'apparie à une personne de l'arbre, et écrit ce qui est certain. `stdin` par
+  défaut, ou `--file`. Feuille sous le verbe `import` existant — pas de nouveau verbe (ADR 0012).
+  Pourquoi coller et pas une source automatique : Geneanet n'expose aucune API de lecture et ses
+  CGU interdisent l'extraction (« robots »), l'accès partenaire étant réservé aux associations ;
+  le collage est la seule entrée légitime.
+  - **Le LLM lit, il ne décide pas.** Un seul appel interprète le texte libre en champs
+    structurés — seule étape non déterministe, seule étape payante. L'appariement, la
+    pondération et le verdict sont du code pur, testé hors ligne. Le texte collé est recopié
+    **intégralement** dans la note, pour que la source reste vérifiable quoi qu'il advienne de
+    l'interprétation.
+  - **Verdict motivé `net` / `gris` / `aucun`.** Règle pondérée : deux parents nommés (distinct
+    d'un seul), date complète, lieu, patronyme rare *mesuré sur l'arbre*, prénom, année
+    approximative. La divergence est un **veto**, pas un malus ; un facteur faible ne fait jamais
+    un `net` ; `gris` (plusieurs candidats) est un verdict explicite, pas un effet de seuil.
+    Les dates *approximatives ou calculées* (âge au décès) ne comptent pas comme dates exactes.
+  - **Écriture sûre.** Simulation par défaut (`GENECREW_DRY_RUN`) ; note + tag `ia-releve`
+    append-only ; citation de confiance **Normal**, jamais High — un relevé est un dépouillement,
+    pas l'acte ; idempotence par marqueur porté par la référence du relevé. Le rapport affiche le
+    mode **effectif**, jamais le mode demandé.
+  - **`--person <ID>`** tranche un `gris` en forçant la personne visée, sans contourner les
+    gardes (existence, type d'événement géré, idempotence, simulation) : il force *qui*, jamais
+    *le droit d'écrire*. La note d'un rattachement forcé l'affirme, pour la distinguer plus tard
+    d'un appariement mesuré.
+  - **Veto sur les lieux** par comparaison de codes commune **préfixés par pays** (`FR:`, `DE:`,
+    `US:`…), résolus via les résolveurs géographiques du projet : deux communes de codes
+    différents se contredisent ; une graphie divergente non résolue ne bloque pas (asymétrie
+    assumée — une absence de mesure ne vaut jamais contradiction). Les lieux suisses, sans code
+    commune, retombent sur la comparaison de graphies. La logique d'appariement vit dans genecrew
+    (`releves.py` moteur pur, `releves_import.py` orchestration) ; `crewai_custom_tools` inchangé.
+
+### Limites connues
+
+- L'import ne **crée** ni personne ni événement : un sujet ou un événement absent est *rapporté*,
+  pas créé — même posture qu'`apply citations` (ADR 0011). À lever après un vrai lot en simulation.
+- Les **poids** de l'appariement sont un point de départ, à calibrer sur le premier lot réel.
+
 ## 2026-07-20
 
 ### Changed
