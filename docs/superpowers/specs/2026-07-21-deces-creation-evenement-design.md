@@ -2,6 +2,12 @@
 
 > Conception validée le 2026-07-21. La v2 annoncée par l'ADR 0011 : les propositions
 > `type: date` que la v1 laissait de côté. Une cible d'`apply` de plus, pas un verbe de plus.
+>
+> **Révisée le 2026-07-21**, après vérification du code réel. La première rédaction
+> affirmait qu'aucun outil de création d'événement n'existait et prévoyait d'en construire
+> deux. C'était faux, et l'erreur venait d'une sortie de `grep` tronquée lue comme
+> complète. `GrampsCreateEventTool` existe et couvre l'essentiel. Le §5 dit ce qui est
+> déjà là ; la v2 est bien plus petite qu'annoncé.
 
 ## 1. Ce que c'est
 
@@ -29,11 +35,9 @@ sans une ligne de plus.
 ## 2. Ce que la v2 relâche, et ce qui l'encadre
 
 L'ADR 0011 tenait une garantie forte : *aucune donnée cœur modifiée, seule la liste de
-citations s'allonge*. La v2 la rompt, délibérément, et sur deux fronts :
-
-- elle **crée un fait** — un événement décès, avec sa date et son lieu ;
-- elle **modifie un scalaire de la personne** — le `death_ref_index`, sans lequel Gramps
-  aurait l'événement en base mais ne le reconnaîtrait pas comme *le* décès de l'intéressé.
+citations s'allonge*. La v2 la rompt, délibérément : elle **crée un fait** — un événement
+décès, avec sa date et son lieu — et fait pointer le `death_ref_index` de la personne
+dessus.
 
 C'est le troisième assouplissement du même patron (0009 genre, 0010 lieux) : périmètre
 étroit, garanti par le code et non par un prompt, réversible. Les garde-fous :
@@ -42,11 +46,15 @@ C'est le troisième assouplissement du même patron (0009 genre, 0010 lieux) : p
 - **dry-run par défaut** ;
 - **confiance 2 uniquement** — donc concordance de la date de naissance au jour près
   (`deces.py:101`), le seul discriminateur d'homonymie que le projet accepte ;
-- **garde décès-absent** — voir §3, vérifiée au moment de l'écriture ;
-- **tag + note** — voir §6, pour retrouver et annuler le lot en masse ;
+- **garde décès-absent** — §3, vérifiée au moment de l'écriture ;
+- **tag + note** — §6, pour retrouver et annuler le lot en masse ;
 - confiance Gramps de la citation plafonnée à 2 par l'outil.
 
-## 3. Le filtre, et pourquoi la troisième condition n'est pas redondante
+Deux protections viennent gratuitement de `GrampsCreateEventTool` : il ne pose le
+`death_ref_index` **que si la personne n'en avait pas** (un pointeur vital existant n'est
+jamais écrasé), et il est strictement append-only sur tous les autres champs de la personne.
+
+## 3. Le filtre, et pourquoi la garde reste nécessaire
 
 Une proposition est appliquée si, **et seulement si** :
 
@@ -59,12 +67,20 @@ La condition 3 écarte les YAML produits avant l'ajout des champs structurés (�
 proposition dont la date serait incomplète ; le motif est distinct au rapport, pour qu'un
 lot ancien ne se lise pas comme un lot vide.
 
-La quatrième condition semble doublonner avec la première : `deces.py:103` n'émet un
-`type: date` que si `person.death is None`. Elle ne doublonne pas. Le YAML est produit à
-une date, relu à une autre, appliqué à une troisième ; l'arbre bouge entre-temps, à la
-main ou par une autre commande. C'est la **garde d'invariant** de `apply deaths`, l'analogue
-du refus de tout changement non-casse dans `apply case` : une personne dont le
-`death_ref_index >= 0` est refusée et comptée au rapport, jamais écrasée.
+La condition 4 semble doublonner deux fois : avec `deces.py:103`, qui n'émet un `type: date`
+que si `person.death is None`, et avec la protection du `death_ref_index` dans l'outil
+bibliothèque. Elle ne doublonne ni l'une ni l'autre.
+
+- Contre `deces.py` : le YAML est produit à une date, relu à une autre, appliqué à une
+  troisième ; l'arbre bouge entre-temps, à la main ou par une autre commande.
+- Contre l'outil : celui-ci protège le **pointeur**, pas la **liste**. Sans la condition 4,
+  une personne déjà décédée dans l'arbre se verrait créer un **second événement décès**,
+  ajouté à son `event_ref_list` — invisible dans les vues qui suivent le `death_ref_index`,
+  bien présent dans la base.
+
+C'est donc la garde d'invariant de `apply deaths`, l'analogue du refus de tout changement
+non-casse dans `apply case`. Une personne dont le `death_ref_index >= 0` est refusée et
+comptée au rapport.
 
 Le cas « dates divergentes » (`deces.py:124`, priorité haute) est exclu mécaniquement : il
 naît en confiance 1. Trancher un conflit entre l'arbre et l'INSEE reste un geste humain,
@@ -102,61 +118,72 @@ sera refusé par `apply deaths` avec un motif explicite au rapport — pas un cr
 parce que la donnée est là, gratuite, au moment de la proposition — et parce que c'est la
 clé qui permettra plus tard une résolution de lieu sans ambiguïté.
 
-## 5. Deux outils nouveaux dans la bibliothèque
+## 5. Ce qui existe déjà — et le seul ajout bibliothèque
 
-Aucun outil de création d'événement n'existe : `write_tools.py` s'arrête à
-source / citation / note / tag / lieu / fusion. Deux ajouts, au patron des existants
-(`args_schema` pydantic, décorateur `@api_tool`, `effective_dry_run`, retour `ok(...)`,
-handle `DRYRUN:` en simulation).
+Vérifié dans le code, pas supposé.
 
-Le schéma généré (`models/gramps_generated.py`) fixe les formes, vérifiées et non
-supposées :
+**`GrampsCreateEventTool`** (`write_tools.py:783`) fait déjà tout le travail d'écriture :
 
-- `Event.type` est une **chaîne nue** (`"Death"`), pas un objet `EventType` ;
-- `Event.place` est un **handle nu** ;
-- `Event.date` est un `Date` : `dateval` (tableau mixte), `sortval`, `year`, `modifier`,
-  `quality`, `calendar` ;
-- `EventReference` porte `ref` et `role`.
+- POST de l'événement — `type` (chaîne nue, `"Death"`), `dateval` `[jour, mois, année]`
+  complété en `[…, False]`, `modifier`, `quality`, `place` (handle nu), `citation_list` ;
+- PUT de la personne — ajout d'un `EventRef` `{ref, role: "Primary"}` en append-only, et
+  `death_ref_index` posé **uniquement si absent** ;
+- un handle synthétique `DRYRUN:` de lieu ou de citation n'entre jamais dans un objet
+  réellement écrit ;
+- en cas d'échec du second write, il rend un **succès qualifié** — `attached: False`,
+  `attach_error`, et le handle de l'orphelin — plutôt qu'une erreur qui perdrait le handle.
 
-**`GrampsCreateEventTool`** — crée un événement typé.
-Entrées : `event_type`, `date_iso`, `place_handle` (optionnel), `citation_handles`,
-`note_handles`, `tag_handles`, `dry_run`.
-Il compose le `Date` Gramps depuis l'ISO : `dateval=[jour, mois, année, False]`,
-`modifier=0` (date exacte), `quality=0`, `calendar=0` (grégorien), `year`, et le `sortval`
-(voir §9). Une date incomplète (année seule) ou vide est **refusée** : une année seule
-n'est jamais discriminante, règle projet.
+Il n'envoie **jamais** de `sortval`, et tourne en production depuis `import releve` : la
+question du calcul côté serveur est donc déjà tranchée par l'usage, sans spike.
 
-**`GrampsAttachEventTool`** — rattache un événement à une personne.
-Ajoute `{ref, role: "Primary"}` au `event_ref_list` **et** positionne le `death_ref_index`
-sur le nouvel index quand le type est `Death`. Idempotent : un `ref` déjà présent n'est pas
-ajouté deux fois.
+Existent aussi : `GrampsEnsureSourceTool`, `GrampsCreateCitationTool`,
+`GrampsCreateNoteTool`, `GrampsEnsureTagTool`, `GrampsAttachTool` (note et/ou tag sur une
+**personne** — `/people/` est codé en dur), et la conversion ISO → `dateval`
+(`_dateval_iso`, `releves_import.py:438`).
+
+**Le seul ajout bibliothèque de la v2 : les trois champs du §4.** Aucun outil nouveau.
 
 ## 6. La séquence d'écriture
 
+`releves_import.py:481` contient déjà cette séquence sous le nom `_creer_evenement` —
+lieu, citation, événement, décodage de l'orphelin. Elle est privée à ce module.
+
+**Elle est extraite** vers `genecrew/src/genecrew/evenements.py`, avec `_dateval_iso`, et
+importée par les deux surfaces. Une seule implémentation de « créer un événement sourcé »,
+donc un seul endroit où le traitement de l'orphelin peut être juste ou faux.
+`releves_import.py` (73 Ko de tests offline) verrouille le comportement pendant le
+déplacement — c'est ce qui rend le refactor sûr.
+
 Par proposition retenue :
 
-1. `ensure_source` — INSEE ou Mémoire des hommes, `source_title_for` route déjà sur
+1. `ensure_source` — INSEE ou Mémoire des hommes, `source_title_for` route sur
    `preuve_detail` ; mutualisé sur le lot (une source par registre, pas par personne)
 2. `create_citation` — page = `citation_page(preuve_detail, preuve_url)`, la référence
    d'archive rejouable, confiance plafonnée à 2
-3. `ensure_tag` — `genecrew:deces`
-4. `create_note` — marqueur `[genecrew:deces:<date>]`, la phrase `action` de la
+3. résolution du lieu (§7) — sans création
+4. `create_event` — type `Death`, `dateval` issu de `date_iso`, lieu et citation ;
+   rattachement et `death_ref_index` compris
+5. `create_note` — marqueur `[genecrew:deces:<date>]`, la phrase `action` de la
    proposition, et le `preuve_url`
-5. `create_event` — citation, note et tag **déjà dans ses listes** : l'événement naît
-   complet
-6. `attach_event` — sur la personne, plus le `death_ref_index`
+6. `ensure_tag` — `genecrew:deces`
+7. `attach` — note et tag **sur la personne**
 
-L'ordre est choisi pour la forme de la panne. L'API Gramps Web n'offre pas de transaction
-multi-objets sur cette séquence ; le seul échec partiel possible est donc un événement
-complet mais **orphelin** (étape 6 en échec). Le rapport imprime alors son handle en clair
-sous « Erreurs », pour que la reprise ou le nettoyage se fasse sans fouiller la base. Mieux
-vaut une panne lisible qu'une panne cachée.
+**Note et tag vont sur la personne**, pas sur l'événement : `GrampsAttachTool` n'écrit que
+sur `/people/`, et c'est le patron déjà éprouvé par `import releve`. Marquer l'événement
+demanderait d'élargir l'outil à un `object_type` — un changement réel, remis à plus tard
+faute d'en avoir besoin ici. Contrepartie assumée : une personne touchée par plusieurs
+passages porte plusieurs marques, et le tag désigne la personne concernée plutôt que
+l'objet exact créé.
+
+L'ordre place les écritures irréversibles avant les écritures d'annotation. Si la note ou
+le tag échoue, l'événement est déjà créé et correctement rattaché ; le rapport le dit, avec
+les handles. L'API Gramps Web n'offre pas de transaction sur cette séquence : mieux vaut
+une panne lisible qu'une panne cachée.
 
 **Sur la note.** Elle fait volontairement doublon partiel avec la citation, qui porte déjà
 la référence d'archive. Ce qu'elle ajoute, et que rien d'autre ne dit : *cet événement
-lui-même a été créé par la machine, ce jour-là*. Une citation ne distingue pas un fait créé
-d'un fait sourcé après coup. Le tag donne le filtrage en masse dans Gramps Web (relire le
-lot, en supprimer un ou tous) ; la note donne le contexte quand on ouvre l'événement.
+a été créé par la machine, ce jour-là*. Une citation ne distingue pas un fait créé d'un
+fait sourcé après coup.
 
 ## 7. Le lieu
 
@@ -172,11 +199,12 @@ Refuser l'ambiguïté plutôt que deviner : deux lieux homonymes dans l'arbre, c
 exactement la situation où un choix automatique rattacherait un décès à la mauvaise
 commune, sans que rien ne le signale.
 
-**Aucun lieu n'est créé.** Créer un lieu — hiérarchie, code INSEE, GPS, résolveurs géo
-routés par pays — est le métier de `propose places` / `apply places`, qui ont leur propre
-cycle de relecture. Les y renvoyer garde chaque commande sur un seul type de donnée cœur,
-et évite d'embarquer le réseau des résolveurs dans une commande qui n'en a pas besoin.
-L'information n'est pas perdue : la commune figure déjà dans la page de citation.
+**Aucun lieu n'est créé.** `releves_import.resoudre_ou_creer_lieu` fait la cascade complète
+(résolveurs géo, hiérarchie, GPS) et **crée** le lieu manquant ; `apply deaths` ne
+l'appelle pas. Créer un lieu est le métier de `propose places` / `apply places`, qui ont
+leur propre cycle de relecture. Les y renvoyer garde chaque commande sur un seul type de
+donnée cœur, et évite d'embarquer le réseau des résolveurs dans une commande qui n'en a pas
+besoin. L'information n'est pas perdue : la commune figure déjà dans la page de citation.
 
 ## 8. Surface CLI, fichiers, ADR
 
@@ -190,46 +218,35 @@ prennent des propositions disjointes (`type: source` d'un côté, `type: date` d
 la frontière entre « j'ajoute une source » et « je crée un fait » reste lisible depuis la
 ligne de commande. `apply all` ne change pas non plus : il reste sur les écritures de forme.
 
-Nouveau fichier `genecrew/src/genecrew/deces_event.py`, plutôt qu'un gonflement de
-`deces_apply.py` (185 lignes, une responsabilité claire aujourd'hui). Les deux partagent
-`citation_page` et `source_title_for`, importés depuis `deces_apply`.
+Fichiers :
+
+- **créé** `genecrew/src/genecrew/evenements.py` — la brique partagée extraite de
+  `releves_import.py` (§6) ;
+- **créé** `genecrew/src/genecrew/deces_event.py` — le filtre, l'index de lieux,
+  l'orchestration et le rapport d'`apply deaths` ; plutôt qu'un gonflement de
+  `deces_apply.py` (185 lignes, une responsabilité claire aujourd'hui). Il importe
+  `citation_page` et `source_title_for` depuis `deces_apply`.
 
 Rapport : `output/deces/<date>_apply_deaths_<stem>.md`, aux compteurs de la v1 —
 événements créés, refusés (décès déjà présent), sans donnée machine exploitable (§3
 condition 3), hors périmètre (type ou confiance), erreurs — plus la section « Lieux non
-résolus ». La ligne `Mode:` reflète le dry-run
-**effectif**, variable d'environnement comprise, pour ne jamais annoncer une écriture qui
-n'a pas eu lieu.
+résolus ». La ligne `Mode:` reflète le dry-run **effectif**, variable d'environnement
+comprise, pour ne jamais annoncer une écriture qui n'a pas eu lieu.
 
 **ADR 0014** — création d'événements décès sourcés. Il énonce ce que la v2 relâche par
 rapport à 0011 (§2) et ce qui l'encadre, et referme le « hors périmètre v2 » que 0011
 avait laissé ouvert.
 
-## 9. À vérifier avant d'écrire le code applicatif
+## 9. Tests
 
-Deux points que le schéma généré ne tranche pas, et sur lesquels il ne faut pas parier.
-C'est la **première tâche du plan** :
-
-1. **Le `sortval` est-il calculé côté serveur au POST ?** Si oui, ne pas l'envoyer ; sinon,
-   le calculer côté client (jour julien grégorien = `date.toordinal() + 1721425`). Un
-   `sortval` faux ou nul casserait silencieusement tout le tri chronologique et les
-   règles R/D qui s'appuient dessus.
-2. **Le `death_ref_index` est-il recalculé par l'API** quand on PUT une personne dont le
-   `event_ref_list` contient un nouveau `Death` ? Si oui, ne pas le poser ; sinon, le poser
-   explicitement.
-
-Méthode : un aller-retour sur une personne de test — POST d'un événement décès daté, GET
-de l'événement et de la personne, lecture de `sortval` et de `death_ref_index`, puis
-nettoyage. Les deux questions se tranchent d'un coup.
-
-## 10. Tests
-
-Offline, dans `genecrew/tests/`, au patron existant du dépôt.
+Offline, dans `genecrew/tests/`, au patron du dépôt : `httpx.MockTransport`, fixture
+`GENECREW_DRY_RUN=false`, YAML écrit dans `tmp_path`.
 
 Purs :
 
-- composition du `Date` Gramps depuis un ISO — date complète ; année seule → refus ;
-  chaîne vide → refus ; calcul du `sortval` ;
+- conversion ISO → `dateval` — date complète ; année seule → `None` ; chaîne vide →
+  `None` (comportement existant de `_dateval_iso`, verrouillé à l'endroit de sa nouvelle
+  adresse) ;
 - normalisation et résolution de lieu — unique, absent, ambigu ;
 - le filtre des quatre conditions, **dont** le refus d'une personne ayant acquis un décès
   entre la proposition et l'application, et le refus d'un YAML sans champs structurés ;
@@ -237,23 +254,27 @@ Purs :
 
 Avec client simulé :
 
-- la séquence complète des six étapes en dry-run — aucune écriture, tous les handles
-  `DRYRUN:` ;
-- l'échec de l'étape 6, qui doit produire un orphelin **signalé avec son handle**.
+- la séquence complète en dry-run — aucune écriture, tous les handles `DRYRUN:` ;
+- un événement créé mais non rattaché (`attached: False`) — le rapport doit porter le
+  handle de l'orphelin ;
+- un échec de note ou de tag après création réussie — l'événement reste rapporté comme créé.
 
-Côté `crewai_custom_tools`, sa propre suite offline pour les deux nouveaux outils.
+`releves_import.py` garde sa suite existante inchangée : c'est elle qui prouve que
+l'extraction du §6 n'a rien cassé.
 
-## 11. Ordre de livraison entre les deux dépôts
+Côté `crewai_custom_tools`, un test des trois nouveaux champs (défauts vides, YAML ancien
+toujours chargeable).
+
+## 10. Ordre de livraison entre les deux dépôts
 
 La CI de genecrew checkoute le voisin sur le **tag** `v<version>` lu dans `uv.lock`, pas
 sur `main` : sans tag poussé, elle ne peut pas verdir, et `uv sync --locked` refuse le lock.
-Les deux outils vivant dans la bibliothèque, l'ordre est contraint :
+Le seul changement bibliothèque étant les trois champs du §4 :
 
-1. `crewai_custom_tools` — les trois champs de `PropositionAudit`, les deux outils, leurs
-   tests ;
-2. bump de version, **tag et push** ;
+1. `crewai_custom_tools` — les trois champs de `PropositionAudit` et leur test ;
+2. bump de version (0.23.1 → 0.24.0), **tag et push** ;
 3. `uv sync` depuis la racine de genecrew ;
-4. genecrew — `deces.py`, `militaires.py`, `deces_event.py`, `cli.py`, `main.py`, tests,
-   ADR 0014, documentation.
+4. genecrew — `evenements.py` (extraction), `deces.py`, `militaires.py`,
+   `deces_event.py`, `cli.py`, `main.py`, tests, ADR 0014, documentation.
 
 Cette friction est un contrôle qualité délibéré, pas un obstacle à contourner.
