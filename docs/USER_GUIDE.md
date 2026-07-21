@@ -517,13 +517,17 @@ idempotente.
   n'y est pas encore, l'import le **rapporte** au lieu de le créer. Créer une personne ou un événement
   est une surface d'écriture qui mérite ta décision, pas un effet de bord — même posture qu'`apply
   citations` (ADR 0011). À lever après avoir observé un vrai lot.
-- **Le veto sur les lieux ne joue pas encore.** Distinguer deux communes de façon sûre passera par les
-  résolveurs de codes (INSEE, AGS…) ; ce branchement est un chantier à part. En attendant, un lieu qui
-  ne concorde pas ne bloque pas — il ne compte simplement pas. Conséquence : un peu plus de `gris` à
-  relire, jamais de fausse écriture.
-- **Lieux suisses non résolus.** Le résolveur suisse ne rend pas de code commune ; les lieux suisses
-  retomberont donc toujours sur la comparaison de graphies. Direction sûre, mais moins discriminante
-  qu'en France ou en Allemagne.
+- **Le veto sur les lieux dépend du géocodage.** Deux communes distinctes sont départagées par leurs
+  codes résolus (INSEE, AGS…) : quand le relevé et le candidat portent des codes commune divergents,
+  le candidat est **vetoé** — écarté du lot, pas seulement privé de ses points. C'est ce qui empêche
+  un homonyme d'une autre commune de passer pour un `net`. Contrepartie à connaître : si le géocodage
+  attribue un mauvais code au **bon** candidat (résolution partielle, homonyme mal résolu), ce candidat
+  est vetoé et **disparaît** — il ne retombe pas dans une liste `gris` à relire. Le mode de défaillance
+  n'est donc pas « plus de gris », c'est un faux négatif silencieux. En pratique la résolution est
+  fiable sur les communes vivantes ; surveille les `aucun` inattendus sur un lieu que tu sais présent.
+- **Lieux suisses : pas de code, repli sur la graphie.** Le résolveur suisse ne rend pas de code
+  commune ; les lieux suisses retombent donc sur la comparaison de graphies (aucun code des deux côtés
+  ⇒ pas de veto possible). Direction sûre, mais moins discriminante qu'en France ou en Allemagne.
 - **Les poids sont un point de départ.** Si le premier lot réel produit des `net` douteux ou des
   `gris` évidents, ce sont les poids du moteur qu'on ajuste — c'est précisément à ça que sert la
   simulation par défaut.
