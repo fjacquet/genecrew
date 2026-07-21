@@ -104,3 +104,15 @@ def test_import_releve_accepte_un_fichier():
     args = build_parser().parse_args(["import", "releve", "--file", "acte.txt"])
     assert args.file == "acte.txt"
     assert args.dry_run is False
+
+
+def test_import_releve_person_est_parse():
+    """--person doit remonter jusqu'à args.person : c'est l'ID qui, plus tard,
+    force QUI on rattache (jamais le DROIT d'écrire — les gardes tiennent)."""
+    args = build_parser().parse_args(["import", "releve", "--person", "I0042"])
+    assert args.person == "I0042"
+
+
+def test_import_releve_person_absent_vaut_none():
+    args = build_parser().parse_args(["import", "releve"])
+    assert args.person is None

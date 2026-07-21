@@ -515,6 +515,169 @@ def test_type_evenement_non_gere_refuse_d_ecrire(monkeypatch):
     assert "Marriage" in out["raison"]
 
 
+# --- --person : le forçage désigne QUI, jamais le DROIT d'écrire -------------
+#
+# --person tranche un `gris` en désignant la bonne personne : il court-circuite
+# le blocage et la pondération (c'est son but), mais il doit continuer de passer
+# par TOUTES les gardes de sûreté du chemin normal — existence de la personne,
+# type d'événement géré, idempotence, simulation par défaut. Les mocks ci-dessous
+# distinguent les trois lectures `/people/?gramps_id=` par leur `extend` :
+# nu (résolution du handle), `note_list` (idempotence), `event_ref_list` (citation).
+
+_ID_FORCE = "I0421"
+_HANDLE_FORCE = "h42"
+
+
+def _handler_force(*, notes=(), evenements=(("ev1", "Death"),), existe=True,
+                   vu=None):
+    """Mock d'un arbre où SEULE la personne désignée est adressée par gramps_id.
+
+    Le chemin forcé ne pagine pas l'arbre : on ne répond donc jamais à une
+    lecture paginée ici. Si `existe` est faux, la résolution du handle rend une
+    liste vide — la personne est introuvable.
+    """
+    vu = vu if vu is not None else {}
+    vu.setdefault("notes", [])
+    vu.setdefault("tags", [])
+    vu.setdefault("put", [])
+    vu.setdefault("citations", [])
+    vu.setdefault("event_put", [])
+
+    def h(request):
+        chemin = request.url.path
+        params = request.url.params
+        if chemin == "/api/people/" and "gramps_id" in params:
+            if not existe:
+                return httpx.Response(200, json=[])
+            extend = params.get("extend")
+            if extend == "note_list":
+                return httpx.Response(200, json=[{
+                    "gramps_id": _ID_FORCE, "handle": _HANDLE_FORCE,
+                    "extended": {"notes": list(notes)}}])
+            if extend == "event_ref_list":
+                return httpx.Response(200, json=[{
+                    "gramps_id": _ID_FORCE, "handle": _HANDLE_FORCE,
+                    "extended": {"events": [{"handle": hv, "type": tv}
+                                            for hv, tv in evenements]}}])
+            # Lecture nue : la résolution du handle de la personne désignée.
+            return httpx.Response(200, json=[{"gramps_id": _ID_FORCE,
+                                              "handle": _HANDLE_FORCE}])
+        if request.method == "POST" and chemin == "/api/notes/":
+            vu["notes"].append(json.loads(request.content))
+            return httpx.Response(201, json=[{"new": {"handle": "n1"}}])
+        if request.method == "POST" and chemin == "/api/tags/":
+            vu["tags"].append(json.loads(request.content))
+            return httpx.Response(201, json=[{"new": {"handle": "t1"}}])
+        if request.method == "PUT" and chemin == f"/api/people/{_HANDLE_FORCE}":
+            vu["put"].append(json.loads(request.content))
+            return httpx.Response(200, json={})
+        if chemin == "/api/tags/":
+            return httpx.Response(200, json=[])
+        if request.method == "GET" and chemin == "/api/sources/":
+            return httpx.Response(200, json=[])
+        if request.method == "POST" and chemin == "/api/sources/":
+            return httpx.Response(201, json=[{"handle": "s1"}])
+        if request.method == "POST" and chemin == "/api/citations/":
+            vu["citations"].append(json.loads(request.content))
+            return httpx.Response(201, json=[{"handle": "c1"}])
+        if request.method == "GET" and chemin == "/api/events/ev1":
+            return httpx.Response(200, json={"_class": "Event", "handle": "ev1",
+                                             "citation_list": []})
+        if request.method == "PUT" and chemin == "/api/events/ev1":
+            vu["event_put"].append(json.loads(request.content))
+            return httpx.Response(200, json={})
+        if chemin == f"/api/people/{_HANDLE_FORCE}":
+            return httpx.Response(200, json={"gramps_id": _ID_FORCE,
+                                             "handle": _HANDLE_FORCE,
+                                             "note_list": ["n0"], "tag_list": ["t0"]})
+        return httpx.Response(200, json=[])
+
+    return h
+
+
+def test_person_force_le_net_et_pose_note_tag_citation(monkeypatch, mocker):
+    """--person tranche : le verdict devient `net` sur la personne DÉSIGNÉE, sans
+    charger l'arbre, et rejoint le MÊME chemin d'écriture que le net normal —
+    note créée, tag garanti, les deux ajoutés (append-only : l'ancien devant),
+    citation posée sur le décès existant.
+    """
+    monkeypatch.setenv("GENECREW_DRY_RUN", "false")
+    vu = {}
+    client = _client(_handler_force(vu=vu))
+    mocker.patch(
+        "crewai_custom_tools.tools.genealogy.gramps.write_tools.get_client",
+        return_value=client)
+
+    out = run_import_releve(client, COLLAGE_ROSE, llm=_llm(), person=_ID_FORCE)
+    assert out["dry_run"] is False
+    assert out["appariement"].verdict == "net"
+    assert out["appariement"].gramps_id == _ID_FORCE
+    assert out["appariement"].handle == _HANDLE_FORCE
+    assert out["ecrit"] is True
+    assert out["raison"] == "importée"
+    assert vu["notes"][0]["text"]["string"].startswith("[genecrew:releve:")
+    assert vu["tags"][0]["name"] == TAG_RELEVE
+    # Append-only : l'ancien EN PREMIER, le neuf ajouté derrière.
+    assert vu["put"][0]["note_list"] == ["n0", "n1"]
+    assert vu["put"][0]["tag_list"] == ["t0", "t1"]
+    assert out["citation"]["posee"] is True
+    assert vu["event_put"][0]["citation_list"] == ["c1"]
+
+
+def test_person_introuvable_refuse_sans_ecrire(monkeypatch):
+    """Forcer QUI n'est pas forcer le DROIT d'écrire dans le vide : un ID absent
+    de l'arbre est refusé explicitement, aucune écriture n'est tentée."""
+    monkeypatch.setenv("GENECREW_DRY_RUN", "false")
+    vu = {}
+    out = run_import_releve(_client(_handler_force(existe=False, vu=vu)),
+                            COLLAGE_ROSE, llm=_llm(), person="I9999")
+    assert out["ecrit"] is False
+    assert "introuvable" in out["raison"]
+    assert "I9999" in out["raison"]
+    assert vu["notes"] == []
+
+
+def test_person_ne_contourne_pas_la_garde_de_type(monkeypatch):
+    """LA garde qui prouve que --person force QUI, pas le DROIT d'écrire : la
+    personne désignée EXISTE, mais le relevé est un MARIAGE — un type que le
+    moteur ne compare pas. Le forçage ne saute pas cette garde de sûreté.
+    """
+    monkeypatch.setenv("GENECREW_DRY_RUN", "false")
+    vu = {}
+    out = run_import_releve(_client(_handler_force(vu=vu)), COLLAGE_ROSE,
+                            llm=_LLMStub(json.dumps(_JSON_MARIAGE)), person=_ID_FORCE)
+    assert out["ecrit"] is False
+    assert "Marriage" in out["raison"]
+    assert vu["notes"] == []
+
+
+def test_person_respecte_l_idempotence(monkeypatch):
+    """Un relevé déjà posé sur la personne désignée ne se réimporte pas, même
+    forcé : l'idempotence tient sous --person."""
+    monkeypatch.setenv("GENECREW_DRY_RUN", "false")
+    m = marqueur_releve("Cercle Généalogique du Haut-Berry", "106710046161418286")
+    vu = {}
+    out = run_import_releve(
+        _client(_handler_force(notes=[{"text": {"string": m}}], vu=vu)),
+        COLLAGE_ROSE, llm=_llm(), person=_ID_FORCE)
+    assert out["ecrit"] is False
+    assert out["raison"] == "déjà importée"
+    assert vu["notes"] == []
+
+
+def test_person_respecte_la_simulation_par_defaut(monkeypatch):
+    """GENECREW_DRY_RUN absent = on SIMULE, même sous --person : le forçage
+    désigne QUI, il ne force pas le DROIT d'écrire."""
+    monkeypatch.delenv("GENECREW_DRY_RUN", raising=False)
+    vu = {}
+    out = run_import_releve(_client(_handler_force(vu=vu)), COLLAGE_ROSE,
+                            llm=_llm(), person=_ID_FORCE)
+    assert out["dry_run"] is True
+    assert out["ecrit"] is False
+    assert out["raison"] == "simulation"
+    assert vu["notes"] == []
+
+
 # --- l'écriture, quand tout concorde ----------------------------------------
 
 def test_net_hors_simulation_pose_note_et_tag(monkeypatch, mocker):

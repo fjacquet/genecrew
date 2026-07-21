@@ -366,7 +366,11 @@ def releve_import_cmd(args) -> None:
     texte = Path(args.file).read_text(encoding="utf-8") if args.file else sys.stdin.read()
     if not texte.strip():
         raise SystemExit("Rien à importer : le relevé est vide.")
-    resultat = run_import_releve(get_client(), texte, dry_run=args.dry_run)
+    # `--person` (args.person, None par défaut) force QUI on rattache, jamais le
+    # DROIT d'écrire : il tranche un `gris` en désignant la bonne personne, mais
+    # l'import reste soumis à toutes les gardes de sûreté (voir run_import_releve).
+    resultat = run_import_releve(get_client(), texte, dry_run=args.dry_run,
+                                 person=args.person)
     print(format_import_releve(resultat))
 
 

@@ -370,9 +370,36 @@ def ecrire_citation(client: GrampsClient, releve: ReleveIndexe,
     return {"posee": True, "raison": "citation posée"}
 
 
+def handle_personne(client: GrampsClient, gramps_id: str) -> str | None:
+    """Le handle de la personne DÉSIGNÉE par son gramps_id, ou None si elle n'existe pas.
+
+    Sert le forçage par `--person`. Le principe qui prime : `--person` force QUI
+    on rattache, JAMAIS le DROIT d'écrire. Court-circuiter le blocage et la
+    pondération est légitime (c'est comme ça qu'on tranche un `gris`), mais poser
+    une note sur un gramps_id qui n'existe pas serait un écrit dans le vide — on
+    vérifie donc l'existence AVANT de construire quoi que ce soit dessus.
+
+    Un seul appel, même patron de lecture que `deja_importe` / `handle_evenement` :
+    filtre serveur sur `gramps_id`. Le handle est indispensable — c'est lui, pas
+    l'ID, que le rattachement (`GrampsAttachTool`) consomme.
+    """
+    gens = client.get_json("/people/", params={"gramps_id": gramps_id}) or []
+    if not gens:
+        return None
+    return gens[0].get("handle")
+
+
 def run_import_releve(client: GrampsClient, texte: str, *, llm=None,
-                      dry_run: bool = False) -> dict:
+                      dry_run: bool = False, person: str | None = None) -> dict:
     """Interprète, apparie, écrit si le verdict est net. Rend le verdict ET sa raison.
+
+    `person` (un gramps_id) est le forçage manuel de `--person` : le propriétaire
+    de l'arbre a lu les candidats d'un `gris` et désigne le bon. Ce forçage
+    court-circuite l'appariement — le blocage et la pondération — mais SURTOUT
+    PAS les gardes de sûreté : `--person` force QUI on rattache, jamais le DROIT
+    d'écrire. Un import forcé passe donc, comme le chemin normal, par l'existence
+    de la personne, la garde de type d'événement, l'idempotence et la simulation
+    par défaut, et REJOINT le même chemin d'écriture (il ne le duplique pas).
 
     Le dict rendu porte toujours les cinq mêmes clés (`releve`, `appariement`,
     `ecrit`, `raison`, `dry_run`) : l'appelant n'a jamais à deviner pourquoi
@@ -405,33 +432,53 @@ def run_import_releve(client: GrampsClient, texte: str, *, llm=None,
     """
     dry_run = effective_dry_run(dry_run)
     releve = parse_releve(texte, llm=llm)
-    fetcher = FactsFetcher(client)
-    # `iter_people_batches` pagine réellement : on aplatit, l'appariement a
-    # besoin de l'arbre ENTIER (la rareté des patronymes est mesurée dessus,
-    # et un candidat manquant ferait conclure « absent de l'arbre »).
-    people = [p for lot in iter_people_batches(client, fetcher, "all", TAILLE_LOT, None)
-              for p in lot]
-    # L'index parental ne se construit que pour les CANDIDATS du blocage : c'est
-    # la seule chose que `apparier` en consultera, et chaque personne indexée
-    # coûte une requête `/families/` par famille parentale. Sur l'arbre entier
-    # (~2 100 personnes) c'était ~1 000 requêtes par relevé importé, pour n'en
-    # servir qu'une poignée — assez pour réveiller le limiteur de débit Redis de
-    # Gramps Web, et `get_family_facts` n'avale que les 404 : un 429 avorterait
-    # l'import. `candidats_blocage` est pure et refaite à l'identique par
-    # `apparier`, donc le verdict est inchangé.
-    candidats = candidats_blocage(releve, people)
-    appariement = apparier(releve, people, rarete_patronymes(people),
-                           _parents_par_handle(fetcher, people, candidats))
+
+    if person is not None:
+        # Chemin FORCÉ. On ne charge pas l'arbre entier : ni la rareté des
+        # patronymes ni la pondération n'ont de sens quand un humain a déjà
+        # tranché QUI. On vérifie seulement que la personne désignée EXISTE —
+        # forcer QUI n'autorise pas à écrire dans le vide (voir handle_personne).
+        handle = handle_personne(client, person)
+        if not handle:
+            return {"releve": releve, "appariement": None, "ecrit": False,
+                    "raison": f"personne {person} introuvable", "dry_run": dry_run}
+        # On REMPLACE le résultat de l'appariement par un `net` ciblé, puis on
+        # rejoint le chemin d'écriture commun. `facteurs` reste vide : ce net ne
+        # vient d'aucun facteur mesuré mais d'une décision humaine — la note le
+        # dira honnêtement (« poids 0 », facteurs « — »).
+        appariement = Appariement(verdict="net", gramps_id=person, handle=handle,
+                                  facteurs=[])
+    else:
+        fetcher = FactsFetcher(client)
+        # `iter_people_batches` pagine réellement : on aplatit, l'appariement a
+        # besoin de l'arbre ENTIER (la rareté des patronymes est mesurée dessus,
+        # et un candidat manquant ferait conclure « absent de l'arbre »).
+        people = [p for lot in iter_people_batches(client, fetcher, "all", TAILLE_LOT, None)
+                  for p in lot]
+        # L'index parental ne se construit que pour les CANDIDATS du blocage : c'est
+        # la seule chose que `apparier` en consultera, et chaque personne indexée
+        # coûte une requête `/families/` par famille parentale. Sur l'arbre entier
+        # (~2 100 personnes) c'était ~1 000 requêtes par relevé importé, pour n'en
+        # servir qu'une poignée — assez pour réveiller le limiteur de débit Redis de
+        # Gramps Web, et `get_family_facts` n'avale que les 404 : un 429 avorterait
+        # l'import. `candidats_blocage` est pure et refaite à l'identique par
+        # `apparier`, donc le verdict est inchangé.
+        candidats = candidats_blocage(releve, people)
+        appariement = apparier(releve, people, rarete_patronymes(people),
+                               _parents_par_handle(fetcher, people, candidats))
+
     out = {"releve": releve, "appariement": appariement, "ecrit": False,
            "raison": "", "dry_run": dry_run}
 
-    # Garde de type, AVANT tout le reste : sur un type que le moteur ne compare
-    # pas (tout sauf Death/Birth — voir TYPES_EVENEMENT_GERES), aucun facteur
-    # d'événement n'est tiré, et pourtant « deux parents nommés » pèse 8 à lui
-    # seul, c'est-à-dire exactement SEUIL_NET. Un relevé de mariage peut donc
-    # sortir `net` sans qu'on ait jamais regardé le mariage. Écrire là poserait
-    # une note sur un type que la chaîne ne sait pas traiter : on refuse, en le
-    # disant.
+    # Garde de type, AVANT tout le reste et POUR LES DEUX CHEMINS (apparié comme
+    # forcé) : sur un type que le moteur ne compare pas (tout sauf Death/Birth —
+    # voir TYPES_EVENEMENT_GERES), aucun facteur d'événement n'est tiré, et
+    # pourtant « deux parents nommés » pèse 8 à lui seul, c'est-à-dire exactement
+    # SEUIL_NET. Un relevé de mariage peut donc sortir `net` sans qu'on ait jamais
+    # regardé le mariage — et un `--person` forcerait ce net directement. Écrire là
+    # poserait une note sur un type que la chaîne ne sait pas traiter : on refuse,
+    # en le disant. C'est ici que se prouve que `--person` force QUI, pas le DROIT
+    # d'écrire.
     if releve.evenement_type not in TYPES_EVENEMENT_GERES:
         out["raison"] = (
             f"type d'événement non géré : {releve.evenement_type} "
