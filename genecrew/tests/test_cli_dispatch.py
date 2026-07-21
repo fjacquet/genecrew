@@ -49,6 +49,12 @@ def test_stats_routes_without_a_target(monkeypatch, tmp_path):
     assert called["ok"] is True
 
 
+def test_merge_people_est_route():
+    from genecrew.cli import build_parser
+    args = build_parser().parse_args(["merge", "people"])
+    assert (args.command, args.target) == ("merge", "people")
+
+
 def test_there_is_no_separate_military_apply_leaf():
     """La fusion revendiquée par le spec : une seule feuille pour tous les registres.
 

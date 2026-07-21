@@ -363,6 +363,50 @@ sont réversibles via l'historique des transactions Gramps (ADR 0001).
 
 ---
 
+## Fusion des doublons de personnes
+
+Deux GEDCOM d'origines différentes réunis dans un même arbre produisent des doublons — souvent
+avec des parents eux-mêmes dupliqués. `merge people` détecte ces doublons et **fusionne en API**
+ceux qui sont prouvés, au lieu de te faire cliquer dans Gramps. Une fusion est **irréversible**
+(le doublon est supprimé) : la commande ne fusionne automatiquement que sur une **preuve
+structurelle** — jamais sur une ressemblance de nom (`Pagan`/`Pagani`, deux lignées distinctes,
+ont 0,957 de similarité). Voir la décision `docs/adr/0013-fusion-doublons-preuve-structurelle.md`.
+
+Trois étages : **auto** (fusionné) sur preuve forte, **arbitrage** (déposé en YAML relu) sur
+preuve partielle, **rejet** (écarté) sur nom seul. Les trois règles de l'étage auto exigent un nom
+complet identique **et** l'une de : date de naissance exacte identique + mêmes parents ; date
+exacte identique seule ; même conjoint + enfant commun.
+
+```bash
+# 1) Détection + fusion de l'étage auto (lancer d'abord en --dry-run) ; dépose le YAML d'arbitrage :
+uv run genecrew merge people --scope all --limit 200 --dry-run
+uv run genecrew merge people --scope all --limit 200        # si GENECREW_DRY_RUN=false
+
+# 2) Exécuter les paires d'arbitrage conservées après relecture humaine :
+uv run genecrew merge people --yaml <arbitrage.yaml> --dry-run
+uv run genecrew merge people --yaml <arbitrage.yaml>
+```
+
+La déduplication est **transitive** : fusionner des parents dupliqués débloque la règle « mêmes
+parents » à la passe suivante. La commande boucle donc jusqu'à convergence (bornée par
+`--max-passes`, défaut 5) ; si le rapport indique qu'une passe a encore fusionné, **relance**.
+
+Fichiers produits sous `output/doublons/` :
+
+- `<AAAA-MM-JJ>_arbitrage_doublons_<scope>.yaml` — les paires à **preuve partielle**, à relire
+  avant de les repasser via `--yaml`.
+- `<AAAA-MM-JJ>_fusions_doublons_<scope>.md` — le rapport : une ligne par passe, et la liste
+  nominative **« Gardé (phoenix) | Supprimé (titanic) »** de chaque fusion réellement faite.
+
+Le double interrupteur dry-run s'applique comme ailleurs (`--dry-run` par appel **et**
+`GENECREW_DRY_RUN` global) et gouverne la boucle, l'exécution **et** le rapport : une simulation
+ne fusionne rien, ne relit pas le serveur en boucle, et le rapport ne prétend jamais l'inverse.
+Garde-fous : le genre du survivant est corrigé **avant** la fusion (sinon `Person.merge()` le
+perdrait) et son échec — ou une contradiction de genres entre doublons — **abandonne** la grappe ;
+la suppression et les autres fusions restent interdites (ADR 0013).
+
+---
+
 ## Pistes depuis les archives en ligne
 
 Interroge des bases externes pour trouver, pour une personne de l'arbre, une fiche qui pourrait
