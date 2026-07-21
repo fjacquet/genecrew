@@ -504,6 +504,28 @@ def _creer_evenement(client: GrampsClient, releve: ReleveIndexe, person_handle: 
                       + ("" if posee else f" (sans citation : {raison_cit})")}
 
 
+def completer_naissance_estimee(client: GrampsClient, releve: ReleveIndexe,
+                                person_handle: str, *, gramps_id: str | None = None,
+                                verifier_existant: bool = True,
+                                dry_run: bool = False) -> dict | None:
+    """Surface B : écrit la naissance ESTIMÉE (`about AAAA`) si l'arbre n'a rien.
+
+    Ne s'applique qu'à un relevé qui PORTE une année approximative (« âge 73 » →
+    ~1821) sans être lui-même une naissance (sinon le primaire EST l'événement).
+    On ne remplace JAMAIS une date connue : quand `verifier_existant`, on saute dès
+    qu'une naissance existe. Sur un sujet CRÉÉ, la vérification est inutile (la
+    fiche est vierge) — d'où le drapeau. Événement sans lieu, en `about` (modifier
+    3) et estimé (quality 1). Rend None quand il n'y a rien à écrire.
+    """
+    if not releve.naissance_estimee or releve.evenement_type == "Birth":
+        return None
+    if verifier_existant and handle_evenement(client, gramps_id, "Birth"):
+        return None
+    return _creer_evenement(client, releve, person_handle, event_type="Birth",
+                            dateval=[0, 0, releve.naissance_estimee], modifier=3,
+                            quality=1, avec_lieu=False, dry_run=dry_run)
+
+
 def handle_personne(client: GrampsClient, gramps_id: str) -> str | None:
     """Le handle de la personne DÉSIGNÉE par son gramps_id, ou None si elle n'existe pas.
 
@@ -750,8 +772,14 @@ def creer_sujet(client: GrampsClient, releve: ReleveIndexe, out: dict, *,
     evt = _creer_evenement(client, releve, handle, dry_run=dry_run)
     out["sujet_cree"] = {"handle": handle, "genre": genre}
     out["evenement"] = evt
+    # Naissance estimée du relevé : la fiche est vierge, aucune date à préserver.
+    nais = completer_naissance_estimee(client, releve, handle,
+                                       verifier_existant=False, dry_run=dry_run)
+    if nais is not None:
+        out["naissance"] = nais
     out["ecrit"] = True
-    out["raison"] = f"sujet créé (genre {genre}) — {evt['raison']}"
+    out["raison"] = (f"sujet créé (genre {genre}) — {evt['raison']}"
+                     + (" + naissance estimée" if nais is not None else ""))
     return out
 
 
@@ -945,12 +973,22 @@ def run_import_releve(client: GrampsClient, texte: str, *, llm=None,
     evt = completer_evenement_principal(client, releve, appariement, dry_run=dry_run)
     out["evenement"] = evt
 
+    # Surface B : la naissance estimée du relevé, posée seulement si l'arbre n'en a
+    # aucune (ne remplace jamais une date connue).
+    nais = completer_naissance_estimee(
+        client, releve, appariement.handle, gramps_id=appariement.gramps_id,
+        dry_run=dry_run)
+    if nais is not None:
+        out["naissance"] = nais
+
     out["ecrit"] = True
     if evt.get("cree"):
         out["raison"] = f"importée — {evt['raison']}"
     else:
         out["raison"] = ("importée" if evt["posee"]
                          else f"importée sans citation ({evt['raison']})")
+    if nais is not None:
+        out["raison"] += " + naissance estimée"
     return out
 
 

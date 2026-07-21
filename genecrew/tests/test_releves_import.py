@@ -27,6 +27,7 @@ from genecrew.releves_import import (
     code_commune_prefixe,
     code_fonds,
     completer_evenement_principal,
+    completer_naissance_estimee,
     construire_lieux_resolus,
     corps_note_releve,
     creer_sujet,
@@ -652,8 +653,8 @@ _ID_FORCE = "I0421"
 _HANDLE_FORCE = "h42"
 
 
-def _handler_force(*, notes=(), evenements=(("ev1", "Death"),), existe=True,
-                   vu=None):
+def _handler_force(*, notes=(), evenements=(("ev1", "Death"), ("eb", "Birth")),
+                   existe=True, vu=None):
     """Mock d'un arbre où SEULE la personne désignée est adressée par gramps_id.
 
     Le chemin forcé ne pagine pas l'arbre : on ne répond donc jamais à une
@@ -841,7 +842,8 @@ def test_net_hors_simulation_pose_note_et_tag(monkeypatch, mocker):
                 and request.url.params.get("extend") == "event_ref_list"):
             return httpx.Response(200, json=[{
                 "gramps_id": "I0001", "handle": "h1",
-                "extended": {"events": [{"handle": "ev1", "type": "Death"}]}}])
+                "extended": {"events": [{"handle": "ev1", "type": "Death"},
+                                        {"handle": "eb", "type": "Birth"}]}}])
         if request.method == "GET" and chemin == "/api/sources/":
             return httpx.Response(200, json=[])
         if request.method == "POST" and chemin == "/api/sources/":
@@ -1508,3 +1510,87 @@ def test_surface_c_cree_le_sujet_puis_son_deces(monkeypatch, mocker):
     assert any(put.get("event_ref_list") == [{"_class": "EventRef", "ref": "e_new",
                                               "role": "Primary"}]
                for put in vu["person_put"])
+
+
+# --- Surface B : naissance estimée, écrite seulement si l'arbre n'a rien ---
+
+def _releve_avec_naissance_estimee(annee=1821):
+    return ReleveIndexe(
+        fonds="CGHB", reference="R1", sujet_nom="JACQUET", sujet_prenom="Rose",
+        evenement_type="Death", evenement_date="1894-12-10",
+        evenement_lieu="Saint-Martin-d'Auxigny", evenement_pays="France",
+        naissance_estimee=annee, texte_brut="…")
+
+
+def test_surface_b_naissance_estimee_creee_si_arbre_vide(monkeypatch, mocker):
+    """L'arbre n'a AUCUNE naissance : on pose « about 1821 » (estimée, sans lieu)."""
+    monkeypatch.setenv("GENECREW_DRY_RUN", "false")
+    vu = {"events": []}
+
+    def h(request):
+        chemin = request.url.path
+        if chemin == "/api/people/" and "gramps_id" in request.url.params:
+            # aucune naissance dans l'arbre
+            return httpx.Response(200, json=[{
+                "gramps_id": "I0001", "handle": "h1",
+                "extended": {"events": [{"handle": "ev1", "type": "Death"}]}}])
+        if request.method == "GET" and chemin == "/api/sources/":
+            return httpx.Response(200, json=[])
+        if request.method == "POST" and chemin == "/api/sources/":
+            return httpx.Response(201, json=[{"handle": "s1"}])
+        if request.method == "POST" and chemin == "/api/citations/":
+            return httpx.Response(201, json=[{"handle": "c1"}])
+        if request.method == "POST" and chemin == "/api/events/":
+            vu["events"].append(json.loads(request.content))
+            return httpx.Response(201, json=[{"handle": "eb_new"}])
+        if request.method == "GET" and chemin == "/api/people/h1":
+            return httpx.Response(200, json={"_class": "Person", "handle": "h1",
+                                             "event_ref_list": [], "birth_ref_index": -1})
+        if request.method == "PUT" and chemin == "/api/people/h1":
+            return httpx.Response(200, json={})
+        return httpx.Response(404)
+
+    client = _client(h)
+    mocker.patch(
+        "crewai_custom_tools.tools.genealogy.gramps.write_tools.get_client",
+        return_value=client)
+    out = completer_naissance_estimee(client, _releve_avec_naissance_estimee(), "h1",
+                                      gramps_id="I0001", dry_run=False)
+    assert out is not None
+    ev = vu["events"][0]
+    assert ev["type"] == "Birth"
+    assert ev["date"]["dateval"] == [0, 0, 1821, False]   # jour/mois inconnus
+    assert ev["date"]["modifier"] == 3                    # about
+    assert ev["date"]["quality"] == 1                     # estimée
+    assert "place" not in ev                              # une naissance estimée n'a pas de lieu
+
+
+def test_surface_b_ne_remplace_pas_une_naissance_connue(monkeypatch, mocker):
+    """L'arbre a DÉJÀ une naissance : on n'écrit rien (jamais d'écrasement)."""
+    monkeypatch.setenv("GENECREW_DRY_RUN", "false")
+    posts = []
+
+    def h(request):
+        chemin = request.url.path
+        if chemin == "/api/people/" and "gramps_id" in request.url.params:
+            return httpx.Response(200, json=[{
+                "gramps_id": "I0001", "handle": "h1",
+                "extended": {"events": [{"handle": "eb", "type": "Birth"}]}}])
+        if request.method == "POST":
+            posts.append(chemin)
+            return httpx.Response(201, json=[{"handle": "x"}])
+        return httpx.Response(404)
+
+    client = _client(h)
+    mocker.patch(
+        "crewai_custom_tools.tools.genealogy.gramps.write_tools.get_client",
+        return_value=client)
+    out = completer_naissance_estimee(client, _releve_avec_naissance_estimee(), "h1",
+                                      gramps_id="I0001", dry_run=False)
+    assert out is None
+    assert not any(c == "/api/events/" for c in posts)     # rien créé
+
+
+def test_surface_b_sans_estimation_ne_fait_rien():
+    r = _releve_avec_naissance_estimee(annee=None)
+    assert completer_naissance_estimee(None, r, "h1", gramps_id="I0001") is None
