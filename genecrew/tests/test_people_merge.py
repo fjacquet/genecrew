@@ -245,3 +245,26 @@ def test_yaml_preserve_le_genre_du_titanic(monkeypatch, tmp_path):
     assert genre.appels, "aucun patch de genre émis — le M du titanic serait perdu"
     assert genre.appels[0]["handle"] == "hI1"
     assert genre.appels[0]["gender"] == 1
+
+
+def test_yaml_personne_introuvable_paire_ignoree_sans_planter(monkeypatch, tmp_path):
+    """Un handle absent de l'arbre (get_person_facts -> None) ne doit pas planter :
+    la paire est ignorée, l'erreur consignée, aucune fusion émise. Chemin d'erreur
+    d'un module de fusions irréversibles — testé, pas seulement supposé."""
+    present = PersonFacts(gramps_id="I1", handle="hI1", name="", surname="Dupont",
+                          given="Jean", sex="M")
+    fetcher = _FetcherEspion([present])  # hI2 absent -> get_person_facts rend None
+    monkeypatch.setattr(people_merge, "FactsFetcher", lambda client: fetcher)
+    fusion, genre = _OutilEspion(), _OutilEspion()
+    monkeypatch.setattr(people_merge, "GrampsMergePeopleTool", lambda: fusion)
+    monkeypatch.setattr(people_merge, "GrampsUpdateGenderTool", lambda: genre)
+    monkeypatch.delenv("GENECREW_DRY_RUN", raising=False)
+    yaml_path = tmp_path / "arbitrage.yaml"
+    yaml_path.write_text(
+        "- {gramps_id_a: I1, handle_a: hI1, gramps_id_b: I2, handle_b: hI2}\n",
+        encoding="utf-8")
+    path = people_merge.run_people_merge_yaml(object(), yaml_path, tmp_path,
+                                              date="2026-07-21", dry_run=False)
+    assert fusion.appels == []
+    rapport = path.read_text(encoding="utf-8")
+    assert "introuvable" in rapport or "| 1 | 0 | 1 |" in rapport
