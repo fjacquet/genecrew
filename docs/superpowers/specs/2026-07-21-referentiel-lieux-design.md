@@ -170,28 +170,75 @@ Le filtre par sous-classes (`?item wdt:P31/wdt:P279* wd:Q56061`, *entité territ
 administrative*) a par ailleurs été essayé puis **rejeté** : l'endpoint public rend un 504 sur la
 fermeture transitive, y compris pour un pays aussi petit que la Pologne.
 
-Les cinq règles retenues sont déterministes et ne demandent aucune liste de QID à maintenir :
+#### Le piège des conteneurs intermédiaires
+
+Une première version de ces règles posait que le parent est soit une entité de l'univers, soit le
+pays. **Elle était fausse, et spectaculairement**, ce qui n'a été découvert qu'en faisant passer la
+vraie charge Wikidata dans le mapper — les jeux d'essai écrits à la main ne pouvaient pas
+l'exposer. Sur les 125 entités françaises, **12 seulement** étaient retenues, toutes ultramarines.
+
+La cause :
+
+```
+Q18338206 Auvergne-Rhône-Alpes --P131--> Q212429 France métropolitaine --P131--> Q142 France
+                                          (aucun code ISO 3166-2)
+```
+
+Les régions métropolitaines ne pendent pas sous la France mais sous *France métropolitaine*, qui
+n'a pas de code ISO et n'entre donc pas dans l'univers. Toutes les régions tombaient, puis les
+96 départements avec elles, faute de parent résolu. La collision `FR-69` elle-même disparaissait,
+le Rhône mourant avant d'être retenu.
+
+D'où la notion d'**ancre pays** : la requête demande, en plus, si le pays est atteignable depuis
+l'entité en un, deux ou trois sauts de `P131`.
+
+#### Les règles
 
 1. Univers = entités portant un code ISO du préfixe pays, non dissoutes.
-2. **Parent** = la valeur de `P131` qui appartient elle-même à l'ensemble ISO retenu du pays ; à
-   défaut, le pays ; à défaut, l'entité est **écartée**. Cette règle neutralise au passage les
-   `P131` historiques : le Rhône pointe encore vers Rhône-Alpes, dissoute et donc hors ensemble.
-3. **Niveau** = 1 si le parent est le pays, 2 si le parent est une entité de niveau 1. Plus
-   profond ⇒ écartée.
+2. **Parents candidats** = les valeurs de `P131` qui appartiennent à l'univers **et** portent un
+   code ISO différent de celui de l'entité. La comparaison des codes est indispensable : sans
+   elle, deux entités en collision se prennent mutuellement pour parent et aucune ne se résout.
+   Les `P131` historiques se neutralisent d'eux-mêmes, une entité dissoute n'étant pas dans
+   l'univers.
+3. **Niveau.** S'il existe des parents candidats, le niveau vaut 1 + celui du parent **le moins
+   profond** — le rattachement le plus direct fait foi. Sinon, si **aucun** `P131` de l'entité ne
+   pointe dans l'univers et que l'ancre pays existe (ou que l'entité n'a aucun `P131`), le niveau
+   vaut 1. Sinon l'entité est écartée.
 4. Niveau supérieur au nombre de niveaux configurés pour le pays (§4) ⇒ écartée.
 5. Deux entités retenues partageant un même code ISO ⇒ **collision signalée, aucune écriture**.
+   Les entités d'une collision sont ordonnées par QID, pour que deux exécutions rendent le même
+   résultat.
 
-Contrôle sur les quatre cas réels relevés :
+La condition « aucun `P131` dans l'univers » de la règle 3 porte tout le poids du garde-fou.
+Sans elle, l'ancre repêche Venise-la-ville, dont le seul parent partage son code ISO, et la
+promeut au rang de région. Et c'est aussi pourquoi l'ancre s'arrête à **trois** sauts : à quatre,
+elle rattrape l'entité sans libellé de `IT-82`, dont la chaîne remonte par une commune puis une
+province, et la fait collisionner avec la Sicile.
 
-| Cas | Traitement |
-|---|---|
-| `PL-KI` Kielce, une ville | parent = une voïvodie ⇒ niveau 2, or la Pologne n'a qu'un niveau ⇒ écartée (règle 4) |
-| `IT-VE` Q641 *Venise* | parent = ville métropolitaine de Venise, elle-même de niveau 2 ⇒ niveau 3 ⇒ écartée (règle 3). Q3678587 est retenue |
-| `IT-82` Q134470541 sans libellé | parent = Petralia Soprana, hors ensemble ISO et ≠ pays ⇒ écartée (règle 2). Q1460 *Sicile* est retenue |
-| `FR-69` Q46130 *Rhône* le département et Q18914778 *Rhône* la circonscription départementale | les deux ont un parent valide au même niveau ⇒ **collision signalée, aucune des deux écrite** (règle 5) |
+#### Résultats mesurés sur la charge réelle
+
+| Pays | Retenues | Collisions | Écartées |
+|---|---|---|---|
+| France | 121 (26 de niveau 1, 95 de niveau 2) | `FR-69` | `FR-75C` Paris, `FR-PF` Polynésie française |
+| Italie | 124 (20 régions, 104 provinces) | aucune | `IT-82` entité sans libellé, `IT-VE` Venise la ville |
+| Suisse | 26 cantons | aucune | un sommet portant `CH-BE` |
+| Pologne | 16 voïvodies | aucune | `PL-KI` Kielce |
+| Algérie | 58 wilayas | aucune | aucune |
+
+Paris et la Polynésie française pendent sous *Métropole du Grand Paris* et *France d'outre-mer*,
+au-delà de la portée de l'ancre. Les repêcher en allongeant celle-ci les classerait au niveau 1,
+donc en `Region` — ce que Paris n'est pas. Ils sont **signalés comme écartés**, à traiter à la
+main.
+
+#### Rien n'est écarté en silence
+
+`map_subdivisions` rend **trois** listes : les subdivisions retenues, les collisions, et les
+**entités écartées** avec leur motif. Le rapport de `propose referentiel` porte les trois. Sans ce
+troisième canal, l'appelant ne peut pas distinguer « ce pays a 12 subdivisions » de « 113 entités
+sont tombées » — c'est exactement ce qui a masqué le défaut décrit plus haut.
 
 Conséquence sur les comptes du §3.2 : ils dénombrent les codes ISO **avant** application de ces
-règles. La Pologne tombe donc de 17 à 16, et l'Italie perd les deux entités écartées.
+règles.
 
 ## 4. Types Gramps : natifs uniquement
 
@@ -373,10 +420,18 @@ SPARQL, le mapper `payload → Subdivision`, l'affectation du niveau par `P131`,
 préfixe ISO, le filtre d'exclusion, la logique d'appariement, le rendu des rapports, et la règle
 §8. Le réseau se limite à deux points — le GET SPARQL et les lectures/écritures Gramps.
 
-**Jeux d'essai figés** : une charge SPARQL réelle par pays, capturée et versionnée. Elle doit
-contenir les cas qui ont fait basculer le design — `IT-NA` en ville métropolitaine, `IT-25`
-numérique face à `FR-01` numérique de l'autre niveau, une entité parasite à exclure, une
-subdivision sans code national propre.
+**Jeux d'essai figés — non négociable.** Une charge SPARQL **réelle** par pays, capturée et
+versionnée, sur laquelle portent les tests de bout en bout. Des lignes écrites à la main les
+complètent pour les cas qu'une charge réelle ne contient pas (cycle de rattachement, charge vide,
+entité sans libellé), mais elles ne peuvent pas les remplacer : la première version de ces tests
+portait des QID inventés — `Q1225` est Bruce Springsteen, pas la Vénétie — et c'est précisément ce
+qui a laissé passer le défaut des conteneurs intermédiaires. **Tout QID écrit dans un test doit
+avoir été vérifié en ligne.**
+
+Les fixtures doivent contenir les cas qui ont fait basculer la conception : `IT-NA` en ville
+métropolitaine, `IT-25` numérique face à `FR-01` numérique de l'autre niveau, la chaîne
+`région › France métropolitaine › France`, la collision `FR-69`, et une subdivision sans code
+national propre.
 
 **Cas d'appariement à couvrir** : QID déjà posé ; nom identique mais langue différente (`Bayern`
 contre `Bavière`) ; deux lieux de même nom et même type sous le même parent, qui doivent produire
