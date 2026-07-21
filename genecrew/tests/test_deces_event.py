@@ -263,8 +263,13 @@ def _section(md: str, titre: str) -> str:
     Chercher un handle « quelque part dans le texte » ne verrouille rien : le
     tableau des décès créés le contient tout aussi bien que la liste des erreurs.
     Un rapport ne dit ce qu'il dit que par la section où il le dit.
+
+    Une section absente rend "" plutôt que de lever : une assertion de présence
+    échoue alors en nommant ce qu'elle cherchait, au lieu d'un `ValueError` nu.
     """
     lignes = md.splitlines()
+    if f"## {titre}" not in lignes:
+        return ""
     reste = lignes[lignes.index(f"## {titre}") + 1:]
     fin = next((i for i, ligne in enumerate(reste) if ligne.startswith("## ")),
                len(reste))
