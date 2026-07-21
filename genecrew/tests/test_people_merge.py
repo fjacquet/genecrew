@@ -147,3 +147,101 @@ def test_grappe_sans_gender_patch_ignore_la_contradiction():
         [grappe], par_handle)
     assert grappes_valides == [grappe]
     assert erreurs == []
+
+
+def test_grappe_titanics_tous_du_meme_genre_non_ecartee():
+    """Phoenix inconnu, titanics TOUS M : pas de contradiction, le patch est légitime.
+    La grappe ne doit pas être écartée (revue Task 8, exigence (c))."""
+    phoenix = _personne("I1", "hI1", "U")
+    par_handle = {phoenix.handle: phoenix,
+                  "hI2": _personne("I2", "hI2", "M"),
+                  "hI3": _personne("I3", "hI3", "M")}
+    grappe = MergeCluster(phoenix_handle="hI1", phoenix_gramps_id="I1",
+                          titanic_handles=["hI2", "hI3"],
+                          titanic_gramps_ids=["I2", "I3"], gender_patch=1)
+    grappes_valides, erreurs = people_merge.filtrer_grappes_contradictoires(
+        [grappe], par_handle)
+    assert grappes_valides == [grappe]
+    assert erreurs == []
+
+
+# --- Défaut 1 (revue Task 8) : effective_dry_run normalisé -------------------
+
+def _fait_une_fusion(grappes, *, dry_run=False):
+    """Faux executer_grappes : rend toujours une fusion, pour tester la boucle."""
+    _fait_une_fusion.appels += 1
+    return [("I1", "I2")], []
+
+
+def test_env_force_simulation_une_seule_passe(monkeypatch, tmp_path):
+    """Sous GENECREW_DRY_RUN=true (simulation venue de l'env) et dry_run=False explicite,
+    run_people_merge ne doit exécuter qu'UNE passe — pas max_passes — car rien ne change
+    côté serveur. Sans la normalisation, la boucle relit 5 fois inutilement."""
+    monkeypatch.setenv("GENECREW_DRY_RUN", "true")
+    monkeypatch.setattr(people_merge, "_collecter", lambda *a, **k: ([], {}))
+    monkeypatch.setattr(people_merge, "etager", lambda *a, **k: ([], []))
+    monkeypatch.setattr(people_merge, "plan_fusions", lambda *a, **k: ["grappe-factice"])
+    monkeypatch.setattr(people_merge, "filtrer_grappes_contradictoires",
+                        lambda g, ph: (g, []))
+    _fait_une_fusion.appels = 0
+    monkeypatch.setattr(people_merge, "executer_grappes", _fait_une_fusion)
+    path = people_merge.run_people_merge(
+        object(), tmp_path, scope="all", date="2026-07-21", max_passes=5, dry_run=False)
+    assert _fait_une_fusion.appels == 1
+    rapport = path.read_text(encoding="utf-8")
+    assert "simulation" in rapport
+    # Une seule passe : si la boucle avait ignoré l'env et tourné 5 fois, le stub
+    # (une fusion par appel) aurait gonflé le total à 5.
+    assert "Fusions automatiques : 1" in rapport
+
+
+# --- Défaut 3 (revue Task 8) : le rapport liste les personnes fusionnées -----
+
+def test_rapport_liste_les_fusions_phoenix_titanic():
+    """Une suppression irréversible doit laisser une trace nominative : quel titanic
+    a été absorbé par quel phoenix, pas seulement un compteur (revue Task 8)."""
+    rapport = people_merge.render_people_merge_report(
+        "2026-07-21", passes=[(1, 1, 0)], arbitrage=[], ignores=[], dry_run=False,
+        fusions=[("I1", "I2")])
+    assert "I1" in rapport
+    assert "I2" in rapport
+
+
+# --- Défaut 2 (revue Task 8) : le chemin YAML relu ne perd pas le genre -------
+
+class _FetcherEspion:
+    def __init__(self, personnes):
+        self._p = {p.handle: p for p in personnes}
+
+    def get_person_facts(self, handle):
+        return self._p.get(handle)
+
+
+def test_yaml_preserve_le_genre_du_titanic(monkeypatch, tmp_path):
+    """Paire relue : phoenix de genre inconnu (mais plus complet) + titanic M. Le chemin
+    YAML doit préserver le M — via un patch de genre AVANT la fusion, comme le chemin auto.
+    Sans le correctif, phoenix=A/titanic=B figés + gender_patch=None perdaient le M."""
+    from crewai_custom_tools.tools.genealogy.models.domain import EventFact
+    phoenix_u = PersonFacts(
+        gramps_id="I1", handle="hI1", name="", surname="Dupont", given="Jean", sex="U",
+        birth=EventFact(type="Birth", sortval=677000, year=1850, place_name="Bourges"),
+        parent_family_handles=["F1"])
+    titanic_m = PersonFacts(gramps_id="I2", handle="hI2", name="", surname="Dupont",
+                            given="Jean", sex="M")
+    fetcher = _FetcherEspion([phoenix_u, titanic_m])
+    monkeypatch.setattr(people_merge, "FactsFetcher", lambda client: fetcher)
+    fusion, genre = _OutilEspion(), _OutilEspion()
+    monkeypatch.setattr(people_merge, "GrampsMergePeopleTool", lambda: fusion)
+    monkeypatch.setattr(people_merge, "GrampsUpdateGenderTool", lambda: genre)
+    monkeypatch.delenv("GENECREW_DRY_RUN", raising=False)
+    yaml_path = tmp_path / "arbitrage.yaml"
+    yaml_path.write_text(
+        "- {gramps_id_a: I1, handle_a: hI1, gramps_id_b: I2, handle_b: hI2}\n",
+        encoding="utf-8")
+    people_merge.run_people_merge_yaml(object(), yaml_path, tmp_path,
+                                       date="2026-07-21", dry_run=False)
+    # Le phoenix (I1, plus complet) est de genre inconnu : son genre est patché à
+    # 1 (M) AVANT toute fusion, faute de quoi le M du titanic disparaîtrait.
+    assert genre.appels, "aucun patch de genre émis — le M du titanic serait perdu"
+    assert genre.appels[0]["handle"] == "hI1"
+    assert genre.appels[0]["gender"] == 1
