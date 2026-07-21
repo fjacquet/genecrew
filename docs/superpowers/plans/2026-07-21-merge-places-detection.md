@@ -200,7 +200,15 @@ def test_apostrophe_typographique_equivaut_a_l_ascii():
 def test_ligature_oe_equivaut_a_oe():
     """NFD décompose les accents, pas les ligatures : Vœuil-et-Giget est une commune réelle."""
     assert normaliser_nom_lieu("Vœuil-et-Giget") == normaliser_nom_lieu("Voeuil-et-Giget")
-    assert normaliser_nom_lieu("Æbelø") == normaliser_nom_lieu("Aebelo")
+    assert normaliser_nom_lieu("Œuilly") == normaliser_nom_lieu("Oeuilly")
+    assert normaliser_nom_lieu("Ænes") == normaliser_nom_lieu("Aenes")
+
+
+def test_les_lettres_barrees_ne_sont_pas_des_ligatures():
+    """Frontière délibérée : `ø` n'est pas une ligature mais une lettre à part entière,
+    qu'Unicode ne décompose pas. La table couvre les ligatures et rien d'autre — la
+    translittérer sans translittérer aussi `ł` ou `đ` serait arbitraire."""
+    assert normaliser_nom_lieu("Tønder") != normaliser_nom_lieu("Tonder")
 
 
 def test_l_apostrophe_reste_un_separateur_et_ne_disparait_pas():
@@ -270,7 +278,7 @@ cd /Users/fjacquet/Projects/fusions-lieux/crewai_custom_tools
 uv run python -m pytest tests/test_genealogy_place_duplicates.py -q
 ```
 
-Attendu : PASS, 5 tests.
+Attendu : PASS, 6 tests.
 
 - [ ] **Step 5 : commiter**
 
@@ -429,7 +437,7 @@ cd /Users/fjacquet/Projects/fusions-lieux/crewai_custom_tools
 uv run python -m pytest tests/test_genealogy_place_duplicates.py -q
 ```
 
-Attendu : PASS, 12 tests.
+Attendu : PASS, 13 tests.
 
 - [ ] **Step 5 : commiter**
 
@@ -591,7 +599,7 @@ cd /Users/fjacquet/Projects/fusions-lieux/crewai_custom_tools
 uv run python -m pytest tests/test_genealogy_place_duplicates.py -q
 ```
 
-Attendu : PASS, 19 tests.
+Attendu : PASS, 20 tests.
 
 - [ ] **Step 5 : commiter**
 
@@ -799,7 +807,7 @@ cd /Users/fjacquet/Projects/fusions-lieux/crewai_custom_tools
 uv run python -m pytest tests/test_genealogy_place_duplicates.py -q && uv run python -m pytest tests/ -q
 ```
 
-Attendu : le fichier au vert (27 tests), puis la suite complète au vert.
+Attendu : le fichier au vert (28 tests), puis la suite complète au vert.
 
 - [ ] **Step 5 : commiter**
 
@@ -1649,6 +1657,14 @@ EOF
 ### PORTE HUMAINE 2 : validation sur l'arbre réel
 
 **Aucun agent n'exécute cette étape.**
+
+**Prérequis** : l'arbre de travail n'a **pas** de fichier `.env` — il est ignoré par git, donc absent de tout worktree, et sans lui la commande échoue sur `Missing environment variable: GRAMPS_API_URL`. Copier celui du clone principal avant de lancer :
+
+```bash
+cp /Users/fjacquet/Projects/genecrew/.env /Users/fjacquet/Projects/fusions-lieux/genecrew/.env
+```
+
+Ce fichier porte des secrets : il reste ignoré par git dans le worktree comme ailleurs, et n'a pas à être commité.
 
 ```bash
 cd /Users/fjacquet/Projects/fusions-lieux/genecrew
