@@ -1395,7 +1395,7 @@ def render_referentiel_yaml(resultats: list[ResultatPays],
     return yaml.safe_dump(doc, allow_unicode=True, sort_keys=False)
 
 
-def _lire_places(client) -> list[dict]:
+def lire_places(client) -> list[dict]:
     places, page = [], 1
     while True:
         lot = client.get_json("/places/", params={"page": page, "pagesize": 200})
@@ -1411,7 +1411,7 @@ def run_referentiel(client, output_dir, *, date: str,
     codes = codes_pays or sorted(PAYS_REFERENTIEL)
     resultats = [charger_pays(PAYS_REFERENTIEL[code]) for code in codes]
     entites = charger_entites_pays([PAYS_REFERENTIEL[code].qid for code in codes])
-    doublons = doublons_de_larbre(_lire_places(client))
+    doublons = doublons_de_larbre(lire_places(client))
 
     out = Path(output_dir) / "referentiel"
     out.mkdir(parents=True, exist_ok=True)
@@ -1632,7 +1632,7 @@ from crewai_custom_tools.tools.genealogy.gramps.write_tools import (
 )
 from crewai_custom_tools.tools.genealogy.models.domain import Subdivision
 
-from genecrew.referentiel import _lire_places      # même lecture paginée, pas de copie
+from genecrew.referentiel import lire_places       # même lecture paginée, pas de copie
 
 _WIKIDATA = "https://www.wikidata.org/wiki/"
 
@@ -1735,7 +1735,7 @@ def run_referentiel_apply(client, yaml_path, output_dir, *, date: str,
     doc = yaml.safe_load(Path(yaml_path).read_text(encoding="utf-8")) or {}
     subs = [Subdivision(**s) for s in doc.get("subdivisions", [])]
 
-    places = _lire_places(client)
+    places = lire_places(client)
     par_qid = index_par_qid(places)
     par_nom_type = index_par_nom_type(places)
     par_nom = index_par_nom_contenant(places)
