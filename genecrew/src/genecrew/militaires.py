@@ -48,6 +48,7 @@ def build_militaire_proposition(person: PersonFacts, row: dict, score: float,
                    + (f" à {lieu}" if lieu else "")
                    + f" — {base}, avec la fiche Mémoire des hommes en citation.",
             preuve_url=row.get("lien_ark", ""), preuve_detail=detail,
+            date_iso=insee_iso, lieu_nom=lieu,
             priorite="moyenne", confiance=confiance)
 
     tree_iso = event_iso(person.death)

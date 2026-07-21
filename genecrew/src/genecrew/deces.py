@@ -107,6 +107,9 @@ def build_deces_proposition(person: PersonFacts, match: dict, score: float,
             action=f"Renseigner le décès : {insee_iso}"
                    + (f" à {lieu}" if lieu else "") + ", avec la source INSEE en citation.",
             preuve_url=_match_url(match), preuve_detail=detail,
+            # Mêmes valeurs que la phrase ci-dessus, en donnée machine : c'est ce que
+            # `apply deaths` applique. La phrase reste ce que l'humain relit.
+            date_iso=insee_iso, lieu_nom=lieu,
             priorite="moyenne", confiance=confiance)
 
     tree_iso = event_iso(person.death)
