@@ -25,10 +25,12 @@ from crewai_custom_tools.tools.genealogy.gramps.write_tools import (
     GrampsCreateCitationTool,
     GrampsCreateEventTool,
     GrampsCreateNoteTool,
+    GrampsCreatePersonTool,
     GrampsEnsureSourceTool,
     GrampsEnsureTagTool,
     effective_dry_run,
 )
+from crewai_custom_tools.tools.genealogy.standardize.names import normalize_case
 from crewai_custom_tools.tools.genealogy.geo.registry import resolve_place
 from crewai_custom_tools.tools.genealogy.models.domain import PersonFacts, ResolvedPlace
 from crewai_custom_tools.tools.genealogy.standardize.places import parse_pname
@@ -207,7 +209,8 @@ def marqueur_releve(fonds: str, reference: str) -> str:
     return f"[genecrew:releve:{code_fonds(fonds)}:{reference}]"
 
 
-def corps_note_releve(releve: ReleveIndexe, appariement: Appariement) -> str:
+def corps_note_releve(releve: ReleveIndexe, appariement: Appariement, *,
+                      sujet_cree: bool = False) -> str:
     """Le corps de la note posée sur la personne.
 
     Deux exigences priment sur la mise en forme :
@@ -241,7 +244,12 @@ def corps_note_releve(releve: ReleveIndexe, appariement: Appariement) -> str:
         f"  facteurs   : {', '.join(appariement.facteurs) or '—'}",
         f"  divergences: {', '.join(appariement.divergences) or '—'}",
     ]
-    if appariement.verdict == "net" and not appariement.facteurs:
+    if sujet_cree:
+        lignes.append(
+            "  Sujet CRÉÉ par l'import : aucun candidat ne correspondait dans "
+            "l'arbre. Fiche à compléter et à relire ; ses parents ne sont PAS "
+            "créés (voir le texte relevé).")
+    elif appariement.verdict == "net" and not appariement.facteurs:
         lignes.append(
             "  Rattachement forcé par l'opérateur (option --person) : ce lien "
             "n'est pas le produit d'un appariement mesuré.")
@@ -463,20 +471,36 @@ def completer_evenement_principal(client: GrampsClient, releve: ReleveIndexe,
     cible = handle_evenement(client, appariement.gramps_id, releve.evenement_type)
     if cible:
         return {"cree": False, **ecrire_citation(client, releve, appariement, dry_run=dry_run)}
+    return {"cree": True, **_creer_evenement(
+        client, releve, appariement.handle, dry_run=dry_run)}
 
-    lieu_handle = resoudre_ou_creer_lieu(client, releve, dry_run=dry_run)
+
+def _creer_evenement(client: GrampsClient, releve: ReleveIndexe, person_handle: str, *,
+                     event_type: str | None = None, dateval: list[int] | None = None,
+                     modifier: int = 0, quality: int = 0, avec_lieu: bool = True,
+                     dry_run: bool = False) -> dict:
+    """Crée un événement sur une personne : lieu résolu (option), citation, rattachement.
+
+    Brique partagée des surfaces qui CRÉENT un événement — un décès absent d'un
+    `net` (via `completer_evenement_principal`), le décès d'un sujet créé, la
+    naissance estimée. Par défaut le type et la date viennent du relevé ; on peut
+    les forcer (naissance estimée : Birth, `about AAAA`). `avec_lieu=False` saute
+    la cascade (une naissance estimée n'a pas de lieu). Un lieu non résolu fait
+    poser l'événement SANS lieu — jamais un lieu faux.
+    """
+    etype = event_type or releve.evenement_type
+    lieu_handle = resoudre_ou_creer_lieu(client, releve, dry_run=dry_run) if avec_lieu else None
+    dv = dateval if dateval is not None else _dateval_iso(releve.evenement_date)
     citation_handle, raison_cit = _creer_citation_releve(client, releve, dry_run=dry_run)
     evt = json.loads(GrampsCreateEventTool()._run(
-        person_handle=appariement.handle, event_type=releve.evenement_type,
-        dateval=_dateval_iso(releve.evenement_date),
+        person_handle=person_handle, event_type=etype, dateval=dv,
+        modifier=modifier, quality=quality,
         place_handle=lieu_handle, citation_handle=citation_handle, dry_run=dry_run))
     if not evt["success"]:
-        return {"cree": False, "posee": False,
-                "raison": f"création {releve.evenement_type} refusée : {evt['error']}"}
+        return {"posee": False, "raison": f"création {etype} refusée : {evt['error']}"}
     posee = citation_handle is not None
-    return {"cree": True, "posee": posee, "event_handle": evt["data"]["handle"],
-            "lieu": lieu_handle,
-            "raison": f"{releve.evenement_type} créé"
+    return {"posee": posee, "event_handle": evt["data"]["handle"], "lieu": lieu_handle,
+            "raison": f"{etype} créé"
                       + ("" if posee else f" (sans citation : {raison_cit})")}
 
 
@@ -675,6 +699,62 @@ def construire_lieux_resolus(
     return resultat
 
 
+def creer_sujet(client: GrampsClient, releve: ReleveIndexe, out: dict, *,
+                dry_run: bool = False) -> dict:
+    """Sur `aucun` candidat : CRÉE le sujet, puis son événement + note/tag/citation.
+
+    L'asymétrie du spec, tenue par le code : on crée le SUJET (fiche orpheline
+    qu'on supprime sans dommage si elle est fausse), JAMAIS un parent (une
+    filiation fausse contamine tout ce qui pend dessous). Les parents nommés
+    restent dans le texte brut recopié, à créer et rattacher à la main.
+
+    Le genre est inféré du prénom (`genre_infere`, U si douteux) ; le nom est mis
+    en casse canonique (le relevé le donne en majuscules). Le sujet créé rejoint
+    exactement le chemin d'écriture d'un `net` — note marquée (idempotence), tag,
+    rattachement append-only — puis `_creer_evenement` pose le décès (date + lieu
+    en cascade + citation). Appelée UNIQUEMENT hors simulation : le garde-fou
+    `dry_run` de `run_import_releve` retourne « simulation » avant d'arriver ici,
+    donc aucun handle synthétique `DRYRUN:` n'atteint les outils de rattachement.
+    """
+    genre = genre_infere(releve.sujet_prenom)
+    personne = json.loads(GrampsCreatePersonTool()._run(
+        first_name=normalize_case(releve.sujet_prenom),
+        surname=normalize_case(releve.sujet_nom), gender=genre, dry_run=dry_run))
+    if not personne["success"]:
+        out["raison"] = f"création du sujet refusée : {personne['error']}"
+        return out
+    handle = personne["data"]["handle"]
+
+    # Appariement synthétique : verdict `aucun`, handle du sujet créé. La note dira
+    # « sujet créé » (sujet_cree=True), pas « rattachement forcé ».
+    app = Appariement(verdict="aucun", handle=handle, facteurs=[])
+    note = json.loads(GrampsCreateNoteTool()._run(
+        text=corps_note_releve(releve, app, sujet_cree=True),
+        note_type="Research", dry_run=dry_run))
+    if not note["success"]:
+        out["raison"] = f"sujet créé mais note refusée : {note['error']}"
+        return out
+    note_handle = note["data"]["handle"]
+    tag = json.loads(GrampsEnsureTagTool()._run(name=TAG_RELEVE, dry_run=dry_run))
+    if not tag["success"]:
+        out["raison"] = _orpheline(f"sujet créé, tag refusé : {tag['error']}", note_handle)
+        return out
+    attache = json.loads(GrampsAttachTool()._run(
+        handle=handle, note_handle=note_handle,
+        tag_handle=tag["data"]["handle"], dry_run=dry_run))
+    if not attache["success"]:
+        out["raison"] = _orpheline(
+            f"sujet créé, rattachement refusé : {attache['error']}", note_handle)
+        return out
+
+    evt = _creer_evenement(client, releve, handle, dry_run=dry_run)
+    out["sujet_cree"] = {"handle": handle, "genre": genre}
+    out["evenement"] = evt
+    out["ecrit"] = True
+    out["raison"] = f"sujet créé (genre {genre}) — {evt['raison']}"
+    return out
+
+
 def run_import_releve(client: GrampsClient, texte: str, *, llm=None,
                       dry_run: bool = False, person: str | None = None,
                       resolveur_lieux: Callable[[str], ResolvedPlace | None] | None = None,
@@ -809,9 +889,18 @@ def run_import_releve(client: GrampsClient, texte: str, *, llm=None,
     if appariement.verdict == "gris":
         out["raison"] = "gris — relecture requise"
         return out
+
     if appariement.verdict == "aucun":
-        out["raison"] = "aucun candidat — création du sujet différée"
-        return out
+        # Surface C : aucun candidat → on CRÉE le sujet. La garde `dry_run` est ICI,
+        # AVANT toute écriture : en simulation on annonce sans rien créer (aucun
+        # handle DRYRUN: ne doit atteindre les outils de rattachement). Pas
+        # d'idempotence à vérifier — il n'y a pas encore de personne à interroger ;
+        # au second passage, le sujet créé sera trouvé par l'appariement (verdict
+        # `net`/`gris`) et le marqueur de sa note coupera la réécriture.
+        if dry_run:
+            out["raison"] = "simulation — créerait le sujet et son décès"
+            return out
+        return creer_sujet(client, releve, out, dry_run=dry_run)
 
     marqueur = marqueur_releve(releve.fonds, releve.reference)
     if deja_importe(client, appariement.gramps_id, marqueur):

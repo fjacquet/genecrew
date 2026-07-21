@@ -29,6 +29,7 @@ from genecrew.releves_import import (
     completer_evenement_principal,
     construire_lieux_resolus,
     corps_note_releve,
+    creer_sujet,
     deja_importe,
     ecrire_citation,
     format_import_releve,
@@ -459,13 +460,17 @@ def test_gris_n_ecrit_pas_meme_hors_simulation(monkeypatch):
     assert out["raison"] == "gris — relecture requise"
 
 
-def test_aucun_candidat_n_ecrit_pas(monkeypatch):
-    monkeypatch.setenv("GENECREW_DRY_RUN", "false")
+def test_aucun_candidat_en_simulation_annonce_la_creation_sans_ecrire(monkeypatch):
+    # Aucun candidat + simulation par défaut : rien n'est créé, mais le rapport
+    # annonce ce qui SERAIT fait (le sujet). La garde dry-run passe AVANT toute
+    # écriture — aucun handle DRYRUN: n'atteint les outils de rattachement.
+    monkeypatch.delenv("GENECREW_DRY_RUN", raising=False)
     etranger = _personne("I0009", "h9", prenom="Jean", nom="DURAND")
     out = run_import_releve(_arbre(etranger), COLLAGE_ROSE, llm=_llm())
     assert out["appariement"].verdict == "aucun"
+    assert out["dry_run"] is True
     assert out["ecrit"] is False
-    assert "aucun candidat" in out["raison"]
+    assert out["raison"] == "simulation — créerait le sujet et son décès"
 
 
 def test_deuxieme_passage_n_ecrit_rien(monkeypatch):
@@ -1431,3 +1436,75 @@ def test_surface_a_lieu_non_resolu_cree_le_deces_sans_lieu(monkeypatch, mocker):
     assert out["cree"] is True and out["lieu"] is None
     assert "place" not in vu["events"][0]              # aucun lieu posé
     assert vu["events"][0]["citation_list"] == ["c1"]
+
+
+# --- Surface C : aucun candidat -> le sujet est CRÉÉ (l'exemple Rose lui-même) ---
+
+def test_surface_c_cree_le_sujet_puis_son_deces(monkeypatch, mocker):
+    """Le cœur de la demande : un relevé dont le sujet est ABSENT de l'arbre crée
+    la personne (nom en casse canonique, genre inféré), pose sa note marquée + tag,
+    puis crée son décès (date + lieu en cascade + citation). Jamais un parent.
+    """
+    monkeypatch.setenv("GENECREW_DRY_RUN", "false")
+    mocker.patch("genecrew.releves_import.infer_sex", return_value=_inf("F", 0.99))
+    mocker.patch("genecrew.releves_import.run_lieu_import",
+                 return_value={"action": "ecrire", "handle": "P_SMA"})
+    vu = {"person": [], "notes": [], "events": [], "person_put": []}
+
+    def h(request):
+        chemin = request.url.path
+        if request.method == "POST" and chemin == "/api/people/":
+            vu["person"].append(json.loads(request.content))
+            return httpx.Response(201, json=[{"handle": "h_new"}])
+        if request.method == "POST" and chemin == "/api/notes/":
+            vu["notes"].append(json.loads(request.content))
+            return httpx.Response(201, json=[{"handle": "n1"}])
+        if request.method == "GET" and chemin == "/api/tags/":
+            return httpx.Response(200, json=[])
+        if request.method == "POST" and chemin == "/api/tags/":
+            return httpx.Response(201, json=[{"handle": "t1"}])
+        if request.method == "GET" and chemin == "/api/people/h_new":
+            return httpx.Response(200, json={
+                "_class": "Person", "handle": "h_new", "note_list": [], "tag_list": [],
+                "event_ref_list": [], "death_ref_index": -1})
+        if request.method == "PUT" and chemin == "/api/people/h_new":
+            vu["person_put"].append(json.loads(request.content))
+            return httpx.Response(200, json={})
+        if request.method == "GET" and chemin == "/api/sources/":
+            return httpx.Response(200, json=[])
+        if request.method == "POST" and chemin == "/api/sources/":
+            return httpx.Response(201, json=[{"handle": "s1"}])
+        if request.method == "POST" and chemin == "/api/citations/":
+            return httpx.Response(201, json=[{"handle": "c1"}])
+        if request.method == "POST" and chemin == "/api/events/":
+            vu["events"].append(json.loads(request.content))
+            return httpx.Response(201, json=[{"handle": "e_new"}])
+        return httpx.Response(404)
+
+    client = _client(h)
+    mocker.patch(
+        "crewai_custom_tools.tools.genealogy.gramps.write_tools.get_client",
+        return_value=client)
+    out = {"releve": _releve_deces_complet(), "appariement": None,
+           "ecrit": False, "raison": "", "dry_run": False}
+    out = creer_sujet(client, _releve_deces_complet(), out, dry_run=False)
+
+    assert out["ecrit"] is True
+    assert out["sujet_cree"] == {"handle": "h_new", "genre": 0}   # 0 = F inféré
+    # Personne créée : nom mis en casse (JACQUET -> Jacquet), genre inféré.
+    p = vu["person"][0]
+    assert p["primary_name"]["first_name"] == "Rose"
+    assert p["primary_name"]["surname_list"][0]["surname"] == "Jacquet"
+    assert p["gender"] == 0
+    # Note marquée (idempotence) et affirmant la création.
+    corps = vu["notes"][0]["text"]["string"]
+    assert corps.startswith("[genecrew:releve:")
+    assert "Sujet CRÉÉ" in corps
+    # Décès créé sur le sujet : date, lieu en cascade, citation.
+    ev = vu["events"][0]
+    assert ev["type"] == "Death" and ev["date"]["dateval"] == [10, 12, 1894, False]
+    assert ev["place"] == "P_SMA" and ev["citation_list"] == ["c1"]
+    # Le décès est rattaché au sujet créé (un des PUT porte l'EventRef).
+    assert any(put.get("event_ref_list") == [{"_class": "EventRef", "ref": "e_new",
+                                              "role": "Primary"}]
+               for put in vu["person_put"])
