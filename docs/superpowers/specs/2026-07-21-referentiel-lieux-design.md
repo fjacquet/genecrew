@@ -158,12 +158,40 @@ Découper sur la forme du code serait un piège : en France les régions sont al
 (`FR-ARA`) et les départements numériques (`FR-01`) ; **en Italie c'est l'inverse** — `IT-25` est
 la Lombardie, `IT-NA` est Naples.
 
-### 3.4 Filtrage du bruit
+### 3.4 Filtrage : par le rattachement, sans aucune liste de QID
 
-Des entités parasites portent un `P300` : `montagne`, `position géographique`,
-`circonscription électorale`, une ville isolée en Pologne. Le filtre est une **liste d'exclusion**
-sur `P31`, jamais une liste d'inclusion — l'inclusion aurait raté les villes métropolitaines
-italiennes, c'est-à-dire l'erreur qu'on vient d'écarter en 3.1.
+Une première lecture des sondages laissait croire à des entités parasites (`montagne`,
+`circonscription électorale`, `grande ville`). Vérification faite, **c'est faux** : un code ISO
+correspond à une entité et une seule, à trois exceptions près sur les neuf pays. Les types
+étranges venaient de `P31` **multivaluées** sur des entités parfaitement légitimes — Paris est à la
+fois commune, département et capitale nationale.
+
+Le filtre par sous-classes (`?item wdt:P31/wdt:P279* wd:Q56061`, *entité territoriale
+administrative*) a par ailleurs été essayé puis **rejeté** : l'endpoint public rend un 504 sur la
+fermeture transitive, y compris pour un pays aussi petit que la Pologne.
+
+Les cinq règles retenues sont déterministes et ne demandent aucune liste de QID à maintenir :
+
+1. Univers = entités portant un code ISO du préfixe pays, non dissoutes.
+2. **Parent** = la valeur de `P131` qui appartient elle-même à l'ensemble ISO retenu du pays ; à
+   défaut, le pays ; à défaut, l'entité est **écartée**. Cette règle neutralise au passage les
+   `P131` historiques : le Rhône pointe encore vers Rhône-Alpes, dissoute et donc hors ensemble.
+3. **Niveau** = 1 si le parent est le pays, 2 si le parent est une entité de niveau 1. Plus
+   profond ⇒ écartée.
+4. Niveau supérieur au nombre de niveaux configurés pour le pays (§4) ⇒ écartée.
+5. Deux entités retenues partageant un même code ISO ⇒ **collision signalée, aucune écriture**.
+
+Contrôle sur les quatre cas réels relevés :
+
+| Cas | Traitement |
+|---|---|
+| `PL-KI` Kielce, une ville | parent = une voïvodie ⇒ niveau 2, or la Pologne n'a qu'un niveau ⇒ écartée (règle 4) |
+| `IT-VE` Q641 *Venise* | parent = ville métropolitaine de Venise, elle-même de niveau 2 ⇒ niveau 3 ⇒ écartée (règle 3). Q3678587 est retenue |
+| `IT-82` Q134470541 sans libellé | parent = Petralia Soprana, hors ensemble ISO et ≠ pays ⇒ écartée (règle 2). Q1460 *Sicile* est retenue |
+| `FR-69` Q46130 *Rhône* le département et Q18914778 *Rhône* la circonscription départementale | les deux ont un parent valide au même niveau ⇒ **collision signalée, aucune des deux écrite** (règle 5) |
+
+Conséquence sur les comptes du §3.2 : ils dénombrent les codes ISO **avant** application de ces
+règles. La Pologne tombe donc de 17 à 16, et l'Italie perd les deux entités écartées.
 
 ## 4. Types Gramps : natifs uniquement
 
@@ -186,11 +214,11 @@ Ni `Canton` ni `Wilaya` ne sont natifs. **Aucun type personnalisé nouveau ne se
 | Pologne | `Region` (16) | — |
 | Syrie | `Province` (14) | — |
 
-Les comptes de ce tableau sont ceux **après** filtrage du bruit (§3.4) et peuvent donc être
+Les comptes de ce tableau sont ceux **après** application des règles du §3.4 et sont donc
 inférieurs aux totaux ISO du §3.2. Deux écarts connus : la France compte 124 entrées ISO pour
 18 régions et 101 départements, le reliquat étant les **collectivités d'outre-mer**, rattachées
 directement au pays par `P131` et donc traitées en niveau 1 (`Region`) ; la Pologne compte 17
-entrées ISO pour 16 voïvodies, la dernière étant une ville isolée qu'exclut le filtre.
+entrées ISO pour 16 voïvodies, la dernière étant `PL-KI` Kielce, une ville, qu'écarte la règle 4.
 
 Règle sous-jacente : `State` quand l'entité est un État fédéré d'une fédération (Suisse,
 Allemagne, États-Unis) ; `Region` / `Department` / `Province` par profondeur dans les États
