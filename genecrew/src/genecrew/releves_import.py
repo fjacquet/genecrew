@@ -8,8 +8,10 @@ fausseté dans l'arbre — est déterministe et vit dans `releves.py`.
 from __future__ import annotations
 
 import json
+import logging
 import re
 import unicodedata
+from collections.abc import Callable
 
 from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient
 from crewai_custom_tools.tools.genealogy.gramps.facts import FactsFetcher
@@ -22,18 +24,25 @@ from crewai_custom_tools.tools.genealogy.gramps.write_tools import (
     GrampsEnsureTagTool,
     effective_dry_run,
 )
-from crewai_custom_tools.tools.genealogy.models.domain import PersonFacts
+from crewai_custom_tools.tools.genealogy.geo.registry import resolve_place
+from crewai_custom_tools.tools.genealogy.models.domain import PersonFacts, ResolvedPlace
+from crewai_custom_tools.tools.genealogy.standardize.places import parse_pname
 
 from genecrew.batching import iter_people_batches
 from genecrew.crew import build_llm
 from genecrew.deces_apply import source_title_for
+from genecrew.pistes import _normaliser
 from genecrew.releves import (
     Appariement,
     ReleveIndexe,
+    _commune,
+    _evenement_compare,
     apparier,
     candidats_blocage,
     rarete_patronymes,
 )
+
+_LOG = logging.getLogger(__name__)
 
 TAG_RELEVE = "ia-releve"
 
@@ -408,8 +417,110 @@ def handle_personne(client: GrampsClient, gramps_id: str) -> str | None:
     return gens[0].get("handle")
 
 
+_PREFIXES_PAYS: dict[str, str] = {
+    "France": "FR",
+    "Allemagne": "DE",
+    "États-Unis": "US",
+    "Suisse": "CH",
+}
+
+_TYPES_COMMUNE: frozenset[str] = frozenset({"Municipality", "City"})
+"""Les seuls `place_type` que la bibliothèque géographique rend pour une COMMUNE.
+
+« Municipality » côté France/Allemagne/Suisse/Nominatim, « City » côté USA. Tout
+autre type (Department, Region, State…) désigne un échelon plus large : son code
+serait INCOMPARABLE à celui d'une commune (voir le contrat de granularité de
+`code_commune_prefixe`).
+"""
+
+
+def _prefixe_pays(country: str) -> str | None:
+    """Le préfixe pays d'un code de commune, ou None hors des pays connus.
+
+    `country` est le label normalisé de `parse_pname(...).country` (« France »,
+    « Suisse », « Allemagne », « États-Unis »). Ce préfixe empêche un code
+    français de se confondre avec un code étranger de même numéro : un INSEE
+    `18209` et un numéro OFS suisse `18209` sont deux chaînes ÉGALES sans être la
+    même commune — sans préfixe, le moteur y verrait une concordance et écrirait
+    une fausseté. Tout pays hors table (chaîne vide, « Italie »…) rend None.
+    """
+    return _PREFIXES_PAYS.get(country)
+
+
+def code_commune_prefixe(country: str, resolved: ResolvedPlace | None) -> str | None:
+    """« <PREFIXE>:<code> » d'une commune résolue, ou None si le moindre doute.
+
+    `country` est le label issu de `parse_pname(...).country`. On ne rend un code
+    QUE si TOUT tient : une résolution non nulle et non ambiguë, un `place_type`
+    qui est bien celui d'une COMMUNE (contrat de granularité — un lieu résolu au
+    département ou au hameau donnerait un code incomparable à une commune, donc un
+    veto sur une ABSENCE et non sur une contradiction), un code non vide, et un
+    pays dont on connaît le préfixe.
+
+    Le pourquoi de cette prudence est une ASYMÉTRIE des coûts d'erreur. Une entrée
+    ABSENTE de `lieux_resolus` est sûre : `_comparer_lieux` retombe sur l'égalité
+    de chaîne et ne produit jamais de veto. Une entrée FAUSSE, elle, produit un
+    veto faux — et un candidat vetoé ne revient JAMAIS devant le relecteur humain.
+    Dans le doute, on n'ajoute donc RIEN : on ne peuple `lieux_resolus` que de ce
+    qu'on sait démontrablement être une commune.
+    """
+    if resolved is None or resolved.ambiguous:
+        return None
+    if resolved.place_type not in _TYPES_COMMUNE:
+        return None
+    if not resolved.code:
+        return None
+    prefixe = _prefixe_pays(country)
+    if prefixe is None:
+        return None
+    return f"{prefixe}:{resolved.code}"
+
+
+def construire_lieux_resolus(
+    lieux_bruts: set[str],
+    resolveur: Callable[[str], ResolvedPlace | None] | None = None,
+) -> dict[str, str]:
+    """Construit le dictionnaire `lieux_resolus` que le moteur d'appariement lit.
+
+    Pour chaque lieu brut non vide, on lit son pays par `parse_pname` (pur) et on
+    demande sa résolution au `resolveur` (réseau, INJECTÉ pour la testabilité — le
+    défaut appelle le vrai registre géographique). Le code n'est retenu que s'il
+    passe `code_commune_prefixe` (voir son asymétrie : absent = sûr, faux = veto
+    faux).
+
+    La clé est `_normaliser(brut)` IMPÉRATIVEMENT : le moteur cherche ses codes en
+    appliquant `_normaliser` au lieu du relevé ET à la commune du candidat. Une
+    clé posée sur le brut ne matcherait jamais, et le veto serait silencieusement
+    inerte.
+
+    ROBUSTESSE : chaque résolution est enveloppée dans un try/except large. Une
+    exception réseau (timeout, 429 du limiteur de débit) sur UN lieu le fait
+    SAUTER — journalisée en warning — sans jamais avorter l'import : perdre un
+    code fait retomber ce lieu sur l'égalité de chaîne (sûr), avorter l'import
+    perdrait tout.
+    """
+    if resolveur is None:
+        resolveur = lambda brut: resolve_place(parse_pname(brut))  # noqa: E731
+    resultat: dict[str, str] = {}
+    for brut in lieux_bruts:
+        if not brut or not brut.strip():
+            continue
+        try:
+            parsed = parse_pname(brut)
+            resolved = resolveur(brut)
+        except Exception as exc:  # réseau : timeout, 429… — on saute ce lieu
+            _LOG.warning("Résolution du lieu %r ignorée (%s)", brut, exc)
+            continue
+        code = code_commune_prefixe(parsed.country, resolved)
+        if code:
+            resultat[_normaliser(brut)] = code
+    return resultat
+
+
 def run_import_releve(client: GrampsClient, texte: str, *, llm=None,
-                      dry_run: bool = False, person: str | None = None) -> dict:
+                      dry_run: bool = False, person: str | None = None,
+                      resolveur_lieux: Callable[[str], ResolvedPlace | None] | None = None,
+                      ) -> dict:
     """Interprète, apparie, écrit si le verdict est net. Rend le verdict ET sa raison.
 
     `person` (un gramps_id) est le forçage manuel de `--person` : le propriétaire
@@ -444,10 +555,12 @@ def run_import_releve(client: GrampsClient, texte: str, *, llm=None,
     demanderait un DELETE — la chaîne d'import est délibérément append-only et
     ne détruit rien.
 
-    `apparier` est appelé SANS `lieux_resolus` : peupler ce dictionnaire
-    demande d'appeler les résolveurs géographiques (réseau), ce qui fera l'objet
-    d'un chantier dédié. Sa valeur par défaut est sûre — le moteur retombe sur
-    une comparaison de chaînes et ne produit jamais de veto sur un lieu.
+    `apparier` reçoit un `lieux_resolus` peuplé par `construire_lieux_resolus` :
+    c'est ce qui ACTIVE le veto sur les lieux (une commune franchement AUTRE
+    écarte le candidat). Le coût réseau est borné aux CANDIDATS du blocage, pas à
+    l'arbre — voir plus bas. `resolveur_lieux` n'existe que pour la testabilité :
+    None (le défaut) déclenche la résolution réseau réelle ; un stub permet aux
+    tests d'injecter des codes sans réseau.
     """
     dry_run = effective_dry_run(dry_run)
     releve = parse_releve(texte, llm=llm)
@@ -483,8 +596,18 @@ def run_import_releve(client: GrampsClient, texte: str, *, llm=None,
         # l'import. `candidats_blocage` est pure et refaite à l'identique par
         # `apparier`, donc le verdict est inchangé.
         candidats = candidats_blocage(releve, people)
+        # On ACTIVE le veto sur les lieux : le lieu du relevé et la commune de
+        # chaque candidat sont résolus en code de commune, et une divergence de
+        # code écarte le candidat. Le coût réseau est borné aux CANDIDATS du
+        # blocage (pas à l'arbre entier) — les seuls lieux que `apparier`
+        # comparera jamais. Les chaînes vides sont écartées avant résolution.
+        lieux_bruts = {releve.evenement_lieu} | {
+            _commune(_evenement_compare(c, releve.evenement_type)) for c in candidats}
+        lieux_resolus = construire_lieux_resolus(
+            {b for b in lieux_bruts if b and b.strip()}, resolveur_lieux)
         appariement = apparier(releve, people, rarete_patronymes(people),
-                               _parents_par_handle(fetcher, people, candidats))
+                               _parents_par_handle(fetcher, people, candidats),
+                               lieux_resolus=lieux_resolus)
 
     out = {"releve": releve, "appariement": appariement, "ecrit": False,
            "raison": "", "dry_run": dry_run}

@@ -13,13 +13,18 @@ from crewai_custom_tools.tools.genealogy.gramps.write_tools import (
     GrampsEnsureSourceTool,
     GrampsEnsureTagTool,
 )
+from crewai_custom_tools.tools.genealogy.models.domain import ResolvedPlace
 
 from genecrew.deces_apply import source_title_for
+from genecrew.pistes import _normaliser
 from genecrew.releves import Appariement
 from genecrew.releves_import import (
     TAG_RELEVE,
     _parents_par_handle,
+    _prefixe_pays,
+    code_commune_prefixe,
     code_fonds,
+    construire_lieux_resolus,
     corps_note_releve,
     deja_importe,
     ecrire_citation,
@@ -1031,3 +1036,122 @@ def test_rapport_sur_personne_introuvable_ne_plante_pas(monkeypatch):
     texte = format_import_releve(out)
     assert "I9999" in texte
     assert "introuvable" in texte
+
+
+# --- résolution géographique : peupler lieux_resolus pour activer le veto ------
+#
+# Fonctions PURES, résolution réseau INJECTÉE via un stub. Ce qui protège
+# l'arbre : une entrée ABSENTE de lieux_resolus est sûre (le moteur retombe sur
+# l'égalité de chaîne, aucun veto), une entrée FAUSSE produit un veto faux et un
+# candidat vetoé ne revient jamais devant le relecteur. Le contrat de granularité
+# — n'ajouter QUE ce qu'on sait être une commune — sert cette asymétrie.
+
+def _resolved(place_type="Municipality", code="18209", ambiguous=False):
+    """Un `ResolvedPlace` minimal pour les tests (name/place_type/score/source/query
+    sont requis par le modèle de la bibliothèque voisine)."""
+    return ResolvedPlace(name="Saint-Martin-d'Auxigny", place_type=place_type,
+                         code=code, ambiguous=ambiguous, score=1.0,
+                         source="stub", query="x")
+
+
+def test_prefixe_pays_mappe_les_pays_connus():
+    assert _prefixe_pays("France") == "FR"
+    assert _prefixe_pays("Allemagne") == "DE"
+    assert _prefixe_pays("États-Unis") == "US"
+    assert _prefixe_pays("Suisse") == "CH"
+
+
+def test_prefixe_pays_rend_none_hors_liste():
+    assert _prefixe_pays("Italie") is None
+    assert _prefixe_pays("") is None
+
+
+def test_code_commune_prefixe_commune_francaise():
+    assert code_commune_prefixe("France", _resolved()) == "FR:18209"
+
+
+def test_code_commune_prefixe_refuse_un_lieu_qui_n_est_pas_commune():
+    """Contrat de granularité : un lieu résolu au département donnerait un code
+    INCOMPARABLE à une commune — veto sur une absence, pas sur une contradiction."""
+    assert code_commune_prefixe("France", _resolved(place_type="Department")) is None
+
+
+def test_code_commune_prefixe_refuse_ambigu():
+    assert code_commune_prefixe("France", _resolved(ambiguous=True)) is None
+
+
+def test_code_commune_prefixe_refuse_code_absent():
+    assert code_commune_prefixe("France", _resolved(code=None)) is None
+
+
+def test_code_commune_prefixe_refuse_pays_inconnu():
+    assert code_commune_prefixe("Italie", _resolved()) is None
+
+
+def test_code_commune_prefixe_refuse_resolved_none():
+    assert code_commune_prefixe("France", None) is None
+
+
+def test_construire_lieux_resolus_clef_normalisee():
+    """La clé est `_normaliser(brut)` IMPÉRATIVEMENT : c'est ainsi que le moteur
+    cherche. Une clé sur le brut ne matcherait jamais (veto silencieusement inerte)."""
+    brut = "Saint-Martin-d'Auxigny, Cher, France"
+    out = construire_lieux_resolus({brut}, resolveur=lambda b: {brut: _resolved()}.get(b))
+    assert out == {_normaliser(brut): "FR:18209"}
+
+
+def test_construire_lieux_resolus_ecarte_les_non_communes():
+    brut = "Cher, France"
+    out = construire_lieux_resolus(
+        {brut}, resolveur=lambda b: {brut: _resolved(place_type="Department", code="18")}.get(b))
+    assert out == {}
+
+
+def test_construire_lieux_resolus_une_exception_ne_fait_pas_tomber_les_autres():
+    """Robustesse réseau : une exception (timeout, 429) sur UN lieu le fait
+    SAUTER, jamais avorter la construction des autres."""
+    bon = "Saint-Martin-d'Auxigny, Cher, France"
+
+    def resolveur(b):
+        if b == "boum":
+            raise RuntimeError("timeout réseau")
+        return {bon: _resolved()}.get(b)
+
+    out = construire_lieux_resolus({"boum", bon}, resolveur=resolveur)
+    assert out == {_normaliser(bon): "FR:18209"}
+
+
+def test_veto_lieu_ecarte_l_homonyme_d_une_autre_commune(monkeypatch):
+    """INTÉGRATION : deux homonymes candidats, l'un dont la commune a le MÊME code
+    INSEE que le relevé, l'autre un code DIFFÉRENT. Le veto écarte la commune
+    différente (aucun facteur « lieu » pour elle, elle sort du lot) ; seule la
+    même reste, produisant un `net`.
+
+    MUTATION clé-brute : si `construire_lieux_resolus` keyait sur le brut au lieu
+    de `_normaliser(brut)`, le moteur ne trouverait rien, retomberait sur
+    l'égalité de chaîne (aucun veto), l'homonyme à poids 7 resterait dans la marge
+    ex aequo (10-7=3) du bon à poids 10, et le verdict serait `gris` — ce test
+    tomberait sur `assert 'gris' == 'net'`."""
+    monkeypatch.delenv("GENECREW_DRY_RUN", raising=False)
+    lieu_rose = "Saint-Martin-d'Auxigny, Cher, France"
+    lieu_autre = "Bourges, Cher, France"
+    json_rose = dict(_JSON_ATTENDU, evenement_lieu=lieu_rose)
+
+    bonne = _personne("I0001", "h1")
+    bonne["profile"]["death"]["place_name"] = lieu_rose
+    autre = _personne("I0002", "h2")
+    autre["profile"]["death"]["place_name"] = lieu_autre
+
+    table = {
+        lieu_rose: ResolvedPlace(name="Saint-Martin-d'Auxigny", place_type="Municipality",
+                                 code="18209", score=1.0, source="stub", query="x"),
+        lieu_autre: ResolvedPlace(name="Bourges", place_type="Municipality",
+                                  code="18033", score=1.0, source="stub", query="x"),
+    }
+
+    out = run_import_releve(_arbre(bonne, autre), COLLAGE_ROSE,
+                            llm=_LLMStub(json.dumps(json_rose)),
+                            resolveur_lieux=lambda b: table.get(b))
+    assert out["appariement"].verdict == "net"
+    assert out["appariement"].gramps_id == "I0001"
+    assert "lieu" in out["appariement"].facteurs
