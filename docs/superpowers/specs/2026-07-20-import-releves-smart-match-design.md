@@ -92,6 +92,25 @@ qui pend dessous.
 graphie, fenêtre de dates — et sa requête exacte figure au rapport. Sinon « absent » veut
 dire « mal cherché », et on fabrique des doublons.
 
+**Décisions de création (fixées le 2026-07-21).** Le §5 mandate trois écritures que la
+première livraison avait à tort différées en « rapport ». Elles sont désormais construites,
+avec ces deux choix tranchés :
+
+- **Lieu d'un événement créé — cascade.** Quand l'import crée un événement (le décès d'un
+  sujet créé, ou un décès absent d'un `net`), la commune du relevé est résolue puis créée
+  si absente, avec sa hiérarchie et son géocodage, par la machinerie de lieux existante
+  (`run_lieu_import` : mêmes résolveurs que `propose places`). Une résolution ambiguë ou
+  sous le seuil ne crée aucun lieu : l'événement est posé sans lieu et le rapport le dit
+  (jamais un lieu faux). L'extraction capte pour cela `evenement_departement` en plus de
+  `evenement_pays`, sans quoi une commune homonyme ne se résout pas en France.
+- **Genre d'un sujet créé — inféré.** Le prénom du sujet créé passe par l'inférence de genre
+  déjà en place (table INSEE+OFS, `infer_sex`) ; prénom absent de la table ⇒ genre Inconnu
+  (U). Cohérent avec `apply gender` (réversible), jamais un fait posé sans base.
+
+La **filiation reste hors création** : un sujet créé n'est jamais rattaché automatiquement à
+ses parents, même existants — l'asymétrie ci-dessus le proscrit. Les parents restent
+rapportés.
+
 ## 6. Citation, idempotence, conflits
 
 **La citation dit ce qu'elle est.** Source Gramps par fonds (« Cercle Généalogique du

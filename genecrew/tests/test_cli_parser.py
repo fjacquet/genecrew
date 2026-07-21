@@ -94,6 +94,30 @@ def test_propose_accepte_les_deux_sources_d_archives(cible):
 # docs/BACKLOG.md — donc son rejet n'est pas un comportement spécifique à verrouiller.
 
 
+def test_import_releve_lit_stdin_par_defaut():
+    args = build_parser().parse_args(["import", "releve"])
+    assert (args.command, args.target) == ("import", "releve")
+    assert args.file is None
+
+
+def test_import_releve_accepte_un_fichier():
+    args = build_parser().parse_args(["import", "releve", "--file", "acte.txt"])
+    assert args.file == "acte.txt"
+    assert args.dry_run is False
+
+
+def test_import_releve_person_est_parse():
+    """--person doit remonter jusqu'à args.person : c'est l'ID qui, plus tard,
+    force QUI on rattache (jamais le DROIT d'écrire — les gardes tiennent)."""
+    args = build_parser().parse_args(["import", "releve", "--person", "I0042"])
+    assert args.person == "I0042"
+
+
+def test_import_releve_person_absent_vaut_none():
+    args = build_parser().parse_args(["import", "releve"])
+    assert args.person is None
+
+
 def test_merge_people_accepte_le_mode_detection():
     args = build_parser().parse_args(
         ["merge", "people", "--scope", "all", "--limit", "50", "--dry-run"])

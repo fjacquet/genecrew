@@ -491,6 +491,110 @@ accès programmatique non documenté).
 
 ---
 
+## Importer un relevé trouvé en ligne
+
+Tu tombes sur un relevé de dépouillement — un acte indexé par un cercle généalogique, publié sur
+Geneanet ou ailleurs — et tu veux le verser dans l'arbre. `import releve` lit le texte que tu
+**colles**, l'interprète, cherche à qui il correspond, et écrit ce qui est certain.
+
+```bash
+# Colle le relevé au clavier (termine par Ctrl-D), ou passe-le par un pipe :
+pbpaste | uv run genecrew import releve
+uv run genecrew import releve --file docs/exemples/releve-rose-jacquet.txt
+```
+
+Prérequis : la stack Gramps Web doit tourner (voir Phase 0), car la commande lit tout l'arbre pour
+apparier. Un `.env` avec les `GRAMPS_*` renseignés est nécessaire — la commande ne fonctionne pas
+hors ligne.
+
+### Pourquoi coller, et pas une source automatique
+
+Geneanet n'expose aucune API de lecture publique, et ses CGU interdisent nommément l'extraction
+automatisée (« robots »), sous peine de résiliation du compte ; l'accès partenaire est réservé aux
+associations contributrices, pas aux adhérents individuels. Le collage manuel n'est donc pas un
+pis-aller : c'est la seule entrée légitime. Si un cercle te fournit un jour un export (CSV, GEDCOM),
+ce sera une autre porte, à traiter séparément.
+
+### Le LLM lit, il ne décide pas
+
+Un seul appel LLM sert à transformer ton texte libre en champs structurés (sujet, événement, date,
+lieu, parents, référence). C'est la **seule** étape non déterministe, et la seule payante — un appel
+par collage. Tout ce qui décide d'une écriture dans l'arbre — l'appariement, la pondération, le
+verdict — est du code déterministe et testé. Le texte que tu as collé est recopié **intégralement**
+dans la note posée, pour que la source reste vérifiable quoi qu'il advienne de l'interprétation.
+
+### Simulation par défaut — lis les verdicts avant d'écrire
+
+Comme le reste du projet, l'import **simule** tant que `GENECREW_DRY_RUN=false` n'est pas posé dans
+`.env`. Le premier lot ne peut donc rien casser. Le rapport affiche le mode **effectif** — il
+n'annonce jamais une écriture qui n'a pas eu lieu.
+
+### Lire le verdict
+
+Chaque import rend un verdict motivé :
+
+- **`net`** — une seule personne correspond, avec assez de facteurs concordants (date complète, lieu,
+  patronyme rare, les deux parents nommés…) et aucune contradiction. La note, le tag `ia-releve` et,
+  si l'événement existe déjà, une citation de confiance *Normal* sont posés. La citation dit que le
+  relevé est un **dépouillement**, pas l'acte original — jamais *High*.
+- **`gris`** — plusieurs personnes plausibles. Rien n'est écrit ; le rapport les liste. Relance en
+  désignant la bonne :
+
+  ```bash
+  uv run genecrew import releve --file <fichier> --person I0421
+  ```
+
+  `--person` force **quelle** personne, jamais **le droit** d'écrire : il saute l'appariement mais
+  garde toutes les vérifications (la personne doit exister, le type d'événement doit être géré,
+  l'idempotence et la simulation s'appliquent). La note d'un rattachement forcé l'**affirme**
+  explicitement, pour qu'on la distingue plus tard d'un appariement mesuré.
+- **`aucun`** — personne ne correspond : le sujet est **créé**, avec son décès et sa citation (voir
+  « Ce qui se crée » ci-dessous). La recherche préalable est large (variantes de graphie, fenêtre de
+  dates) et sa requête figure au rapport, pour qu'« absent » ne veuille jamais dire « mal cherché » —
+  sinon on fabrique des doublons.
+
+Recoller le même relevé n'écrit rien : un marqueur porté par la référence du relevé rend l'opération
+idempotente. Un sujet créé au premier passage est retrouvé par l'appariement au suivant (son décès
+posé le rend reconnaissable), et le marqueur de sa note coupe la réécriture.
+
+### Ce qui se crée
+
+- **Le sujet absent** (`aucun`) : la personne est créée — nom en casse canonique, **genre inféré** du
+  prénom (table INSEE+OFS, Inconnu si douteux) — puis son décès et sa citation. **Jamais un parent** :
+  une fiche orpheline se supprime, une filiation fausse contamine tout ce qui pend dessous. Les parents
+  nommés restent dans le texte relevé recopié, à créer à la main.
+- **Le décès absent d'un `net`** : quand la personne existe mais que son décès n'est pas dans l'arbre,
+  il est créé (date du relevé + lieu + citation) au lieu d'être rapporté. Si un décès existe déjà, seule
+  la citation vient, en confirmation (l'existence se juge sur le **type** d'événement, pas sur la date —
+  un relevé qui contredirait une date connue ne l'écrase jamais).
+- **La naissance estimée** (« âge 73 » → *about 1821*) : posée **seulement si l'arbre n'a aucune
+  naissance** — jamais un écrasement d'une date connue.
+- **Le lieu de l'événement** : résolu et **créé en cascade** (hiérarchie + géocodage, mêmes résolveurs
+  que `propose places`) s'il manque. Une résolution ambiguë ou sous le seuil ne crée aucun lieu :
+  l'événement est posé sans lieu et le rapport le dit — jamais un lieu faux.
+
+### Limites connues (assumées)
+
+- **Jamais un parent, jamais une filiation.** Les parents nommés au relevé ne sont ni créés ni
+  rattachés, même s'ils existent — c'est l'asymétrie ci-dessus. Le rattachement d'un sujet créé à ses
+  parents reste un geste manuel, relu.
+- **Le veto sur les lieux dépend du géocodage.** Deux communes distinctes sont départagées par leurs
+  codes résolus (INSEE, AGS…) : quand le relevé et le candidat portent des codes commune divergents,
+  le candidat est **vetoé** — écarté du lot, pas seulement privé de ses points. C'est ce qui empêche
+  un homonyme d'une autre commune de passer pour un `net`. Contrepartie à connaître : si le géocodage
+  attribue un mauvais code au **bon** candidat (résolution partielle, homonyme mal résolu), ce candidat
+  est vetoé et **disparaît** — il ne retombe pas dans une liste `gris` à relire. Le mode de défaillance
+  n'est donc pas « plus de gris », c'est un faux négatif silencieux. En pratique la résolution est
+  fiable sur les communes vivantes ; surveille les `aucun` inattendus sur un lieu que tu sais présent.
+- **Lieux suisses : pas de code, repli sur la graphie.** Le résolveur suisse ne rend pas de code
+  commune ; les lieux suisses retombent donc sur la comparaison de graphies (aucun code des deux côtés
+  ⇒ pas de veto possible). Direction sûre, mais moins discriminante qu'en France ou en Allemagne.
+- **Les poids sont un point de départ.** Si le premier lot réel produit des `net` douteux ou des
+  `gris` évidents, ce sont les poids du moteur qu'on ajuste — c'est précisément à ça que sert la
+  simulation par défaut.
+
+---
+
 ## Phases suivantes
 
 Les sections Phase 1b (interprétation LLM, tags, PDF) à Phase 6 (Archiviste Numérique) seront

@@ -11,6 +11,48 @@ Non publié / non versionné (`0.1.0`) : entrées **datées par livraison**. La 
 
 ### Added
 
+- **`import releve` — import d'un relevé collé, avec smart match.** On colle un relevé de
+  dépouillement (un acte indexé par un cercle généalogique, trouvé en ligne) ; la commande
+  l'interprète, l'apparie à une personne de l'arbre, et écrit ce qui est certain. `stdin` par
+  défaut, ou `--file`. Feuille sous le verbe `import` existant — pas de nouveau verbe (ADR 0012).
+  Pourquoi coller et pas une source automatique : Geneanet n'expose aucune API de lecture et ses
+  CGU interdisent l'extraction (« robots »), l'accès partenaire étant réservé aux associations ;
+  le collage est la seule entrée légitime.
+  - **Le LLM lit, il ne décide pas.** Un seul appel interprète le texte libre en champs
+    structurés — seule étape non déterministe, seule étape payante. L'appariement, la
+    pondération et le verdict sont du code pur, testé hors ligne. Le texte collé est recopié
+    **intégralement** dans la note, pour que la source reste vérifiable quoi qu'il advienne de
+    l'interprétation.
+  - **Verdict motivé `net` / `gris` / `aucun`.** Règle pondérée : deux parents nommés (distinct
+    d'un seul), date complète, lieu, patronyme rare *mesuré sur l'arbre*, prénom, année
+    approximative. La divergence est un **veto**, pas un malus ; un facteur faible ne fait jamais
+    un `net` ; `gris` (plusieurs candidats) est un verdict explicite, pas un effet de seuil.
+    Les dates *approximatives ou calculées* (âge au décès) ne comptent pas comme dates exactes.
+  - **Écriture sûre.** Simulation par défaut (`GENECREW_DRY_RUN`) ; note + tag `ia-releve`
+    append-only ; citation de confiance **Normal**, jamais High — un relevé est un dépouillement,
+    pas l'acte ; idempotence par marqueur porté par la référence du relevé. Le rapport affiche le
+    mode **effectif**, jamais le mode demandé.
+  - **`--person <ID>`** tranche un `gris` en forçant la personne visée, sans contourner les
+    gardes (existence, type d'événement géré, idempotence, simulation) : il force *qui*, jamais
+    *le droit d'écrire*. La note d'un rattachement forcé l'affirme, pour la distinguer plus tard
+    d'un appariement mesuré.
+  - **Veto sur les lieux** par comparaison de codes commune **préfixés par pays** (`FR:`, `DE:`,
+    `US:`…), résolus via les résolveurs géographiques du projet : deux communes de codes
+    différents se contredisent ; une graphie divergente non résolue ne bloque pas (asymétrie
+    assumée — une absence de mesure ne vaut jamais contradiction). Les lieux suisses, sans code
+    commune, retombent sur la comparaison de graphies. La logique d'appariement vit dans genecrew
+    (`releves.py` moteur pur, `releves_import.py` orchestration).
+  - **L'import CRÉE ce qui manque, il ne se contente plus de rapporter.** Un sujet absent
+    (`aucun`) est **créé** — nom en casse canonique, genre inféré du prénom (table INSEE+OFS,
+    Inconnu si douteux) — avec son décès et sa citation ; **jamais un parent** (fiche orpheline
+    supprimable vs filiation contaminante — les parents restent dans le texte recopié). Un décès
+    absent d'un `net` est créé (date + lieu + citation) au lieu d'être rapporté. La naissance
+    estimée (« âge 73 » → *about 1821*) est posée **seulement si l'arbre n'a aucune naissance**.
+    Le lieu de l'événement est résolu et **créé en cascade** (hiérarchie + géocodage) s'il manque ;
+    une résolution ambiguë pose l'événement sans lieu (jamais un lieu faux). La simulation par
+    défaut annonce ces créations sans les écrire. **Requiert `crewai_custom_tools` ≥ 0.23.0**
+    (`GrampsCreatePersonTool`, `GrampsCreateEventTool`).
+
 - **Fusion des doublons de personnes en API** — nouvelle feuille CLI `merge people` (pas de verbe
   neuf : la grammaire de l'ADR 0012 tient). Objectif : quand un doublon est prouvé, la fusion se
   fait par l'API Gramps, plus à la main dans l'interface.
@@ -32,6 +74,12 @@ Non publié / non versionné (`0.1.0`) : entrées **datées par livraison**. La 
   désormais dans la bibliothèque mais **n'est câblé à aucun agent** — il n'est appelé que par
   l'orchestration déterministe.
 
+### Limites connues
+
+- **Jamais un parent, jamais une filiation** : les parents nommés ne sont ni créés ni rattachés,
+  même existants — le rattachement d'un sujet créé à ses parents reste un geste manuel, relu.
+- Les **poids** de l'appariement sont un point de départ, à calibrer sur le premier lot réel.
+
 ### Notes
 
 - Une fusion est **irréversible** (le titanic est supprimé). Filet : le patch de genre précède la
@@ -39,7 +87,8 @@ Non publié / non versionné (`0.1.0`) : entrées **datées par livraison**. La 
   le chemin YAML relu préserve le genre au même titre que l'auto ; le dry-run **effectif**
   (`GENECREW_DRY_RUN` inclus) gouverne boucle, exécution et rapport ; le rapport liste chaque
   fusion « Gardé | Supprimé » nominativement.
-- Consomme `crewai_custom_tools` **0.22.0** (voir son `CHANGELOG.md`).
+- Consomme `crewai_custom_tools` **0.23.0** (voir son `CHANGELOG.md`) — cette version inclut les
+  outils de création de l'import de relevés **et** l'outil de fusion des doublons.
 
 ## 2026-07-20
 
