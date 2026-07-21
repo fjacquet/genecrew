@@ -1,14 +1,19 @@
 """Tests offline de `apply deaths` — création d'événements décès sourcés."""
 
+import json
+
 import httpx
 import pytest
+import yaml
 from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient, GrampsConfig
 
+from genecrew import deces_event
 from genecrew.deces_event import (
     index_lieux,
     normaliser_lieu,
     render_deaths_report,
     resoudre_lieu,
+    run_deces_event,
     trier_propositions,
 )
 
@@ -208,3 +213,132 @@ def test_rapport_porte_le_handle_de_l_orphelin():
         [("I0174", "Death créé mais NON rattaché (orphelin EV_ORPH) : timeout")],
         dry_run=False)
     assert "EV_ORPH" in md
+
+
+def _yaml_lot(tmp_path, props):
+    p = tmp_path / "props.yaml"
+    p.write_text(yaml.safe_dump({"propositions": props}, allow_unicode=True),
+                 encoding="utf-8")
+    return p
+
+
+PROP_DATE = {
+    "type": "date", "gramps_id": "I0174", "handle": "H174",
+    "personne": "Alain Rolland", "cible": "décès de I0174 (absent de l'arbre)",
+    "action": "Renseigner le décès : 2021-12-23 à Saint-Palais.",
+    "preuve_url": "https://deces.matchid.io/id/X",
+    "preuve_detail": "Fichier des décès INSEE : 2021-12-23 à Saint-Palais "
+                     "(score 1.000).",
+    "priorite": "moyenne", "confiance": 2,
+    "date_iso": "2021-12-23", "lieu_nom": "Saint-Palais",
+}
+
+SANS_DECES = {"handle": "H174", "gramps_id": "I0174", "death_ref_index": -1,
+              "event_ref_list": [{"ref": "EV_B"}]}
+AVEC_DECES = {"handle": "H174", "gramps_id": "I0174", "death_ref_index": 1,
+              "event_ref_list": [{"ref": "EV_B"}, {"ref": "EV_D"}]}
+PLACES = [{"handle": "P1", "name": {"value": "Saint-Palais"}}]
+
+
+def _arbre(person, places=PLACES):
+    def _h(request):
+        path = request.url.path
+        if path == "/api/places/":
+            page = int(request.url.params.get("page", 1))
+            return httpx.Response(200, json=places if page == 1 else [])
+        if path == "/api/sources/":
+            page = int(request.url.params.get("page", 1))
+            return httpx.Response(200, json=[] if page > 1 else [])
+        if path == "/api/tags/":
+            return httpx.Response(200, json=[])
+        if path.startswith("/api/people/"):
+            return httpx.Response(200, json=person)
+        return httpx.Response(200, json={})
+    return _client(_h)
+
+
+def _stub_ecritures(monkeypatch, *, evenement=None):
+    """Neutralise les outils d'écriture : on teste l'orchestration, pas l'API."""
+    vus = {"evenement": None, "attach": None}
+
+    def _fake_creer(person_handle, **kw):
+        vus["evenement"] = {"person_handle": person_handle, **kw}
+        return evenement or {"posee": True, "event_handle": "EV_NEW",
+                             "attache": True, "raison": "Death créé"}
+
+    class _Ok:
+        def __init__(self, key):
+            self.key = key
+
+        def _run(self, **kw):
+            if self.key == "attach":
+                vus["attach"] = kw
+            return json.dumps({"success": True, "data": {"handle": f"{self.key}1"}})
+
+    monkeypatch.setattr(deces_event, "creer_evenement_source", _fake_creer)
+    monkeypatch.setattr(deces_event, "GrampsEnsureSourceTool", lambda: _Ok("src"))
+    monkeypatch.setattr(deces_event, "GrampsCreateCitationTool", lambda: _Ok("cit"))
+    monkeypatch.setattr(deces_event, "GrampsCreateNoteTool", lambda: _Ok("note"))
+    monkeypatch.setattr(deces_event, "GrampsEnsureTagTool", lambda: _Ok("tag"))
+    monkeypatch.setattr(deces_event, "GrampsAttachTool", lambda: _Ok("attach"))
+    return vus
+
+
+def test_cree_le_deces_absent(tmp_path, monkeypatch):
+    vus = _stub_ecritures(monkeypatch)
+    chemin = run_deces_event(_arbre(SANS_DECES), _yaml_lot(tmp_path, [PROP_DATE]),
+                             tmp_path, date="2026-07-21")
+    md = chemin.read_text(encoding="utf-8")
+    assert "Décès créés : 1" in md
+    assert vus["evenement"]["event_type"] == "Death"
+    assert vus["evenement"]["dateval"] == [23, 12, 2021]
+    assert vus["evenement"]["place_handle"] == "P1"
+
+
+def test_refuse_une_personne_deja_decedee(tmp_path, monkeypatch):
+    """L'outil protège le pointeur death_ref_index, pas la liste : sans cette garde
+    on créerait un SECOND événement décès, invisible mais bien présent."""
+    vus = _stub_ecritures(monkeypatch)
+    chemin = run_deces_event(_arbre(AVEC_DECES), _yaml_lot(tmp_path, [PROP_DATE]),
+                             tmp_path, date="2026-07-21")
+    md = chemin.read_text(encoding="utf-8")
+    assert "Décès créés : 0" in md
+    assert "Refusés (décès déjà présent dans l'arbre) : 1" in md
+    assert vus["evenement"] is None
+
+
+def test_lieu_inconnu_donne_un_evenement_sans_lieu(tmp_path, monkeypatch):
+    vus = _stub_ecritures(monkeypatch)
+    chemin = run_deces_event(_arbre(SANS_DECES, places=[]),
+                             _yaml_lot(tmp_path, [PROP_DATE]), tmp_path,
+                             date="2026-07-21")
+    md = chemin.read_text(encoding="utf-8")
+    assert "Décès créés : 1" in md
+    assert vus["evenement"]["place_handle"] is None
+    assert "Lieux non résolus" in md
+    assert "Saint-Palais" in md
+
+
+def test_orphelin_rapporte_avec_son_handle(tmp_path, monkeypatch):
+    _stub_ecritures(monkeypatch, evenement={
+        "posee": True, "event_handle": "EV_ORPH", "attache": False,
+        "raison": "Death créé mais NON rattaché (orphelin EV_ORPH) : timeout"})
+    chemin = run_deces_event(_arbre(SANS_DECES), _yaml_lot(tmp_path, [PROP_DATE]),
+                             tmp_path, date="2026-07-21")
+    assert "EV_ORPH" in chemin.read_text(encoding="utf-8")
+
+
+def test_note_et_tag_poses_sur_la_personne(tmp_path, monkeypatch):
+    vus = _stub_ecritures(monkeypatch)
+    run_deces_event(_arbre(SANS_DECES), _yaml_lot(tmp_path, [PROP_DATE]), tmp_path,
+                    date="2026-07-21")
+    assert vus["attach"]["handle"] == "H174"
+    assert vus["attach"]["note_handle"] == "note1"
+    assert vus["attach"]["tag_handle"] == "tag1"
+
+
+def test_dry_run_effectif_annonce_la_simulation(tmp_path, monkeypatch):
+    _stub_ecritures(monkeypatch)
+    chemin = run_deces_event(_arbre(SANS_DECES), _yaml_lot(tmp_path, [PROP_DATE]),
+                             tmp_path, date="2026-07-21", dry_run=True)
+    assert "simulation" in chemin.read_text(encoding="utf-8")

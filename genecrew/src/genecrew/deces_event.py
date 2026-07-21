@@ -11,12 +11,25 @@ tient le filtre, la résolution de lieu, l'orchestration et le rapport.
 
 from __future__ import annotations
 
+import json
 import re
 import unicodedata
+from pathlib import Path
 
+import yaml
 from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient
+from crewai_custom_tools.tools.genealogy.gramps.write_tools import (
+    GrampsAttachTool,
+    GrampsCreateCitationTool,
+    GrampsCreateNoteTool,
+    GrampsEnsureSourceTool,
+    GrampsEnsureTagTool,
+    effective_dry_run,
+)
 
-from genecrew.evenements import dateval_iso
+from genecrew.deces_apply import citation_page, source_title_for
+from genecrew.evenements import creer_evenement_source, dateval_iso
+from genecrew.propositions import PropositionsLot
 
 TAG_DECES = "genecrew:deces"
 
@@ -136,3 +149,105 @@ def render_deaths_report(date: str, crees: list, refuses: list, lieux_non_resolu
         lines += [f"- {gid} : {msg}" for gid, msg in errors]
         lines.append("")
     return "\n".join(lines)
+
+
+def _a_un_deces(person: dict) -> bool:
+    """La personne porte-t-elle déjà un décès ? (garde d'invariant d'`apply deaths`)
+
+    `GrampsCreateEventTool` refuse d'ÉCRASER un `death_ref_index` existant, mais il
+    créerait quand même un second événement Death et l'ajouterait à la liste —
+    invisible dans les vues qui suivent l'index, bien présent dans la base. La garde
+    doit donc être ici, en plus.
+    """
+    return person.get("death_ref_index", -1) >= 0
+
+
+def run_deces_event(client: GrampsClient, propositions_yaml, output_dir, *,
+                    date: str, dry_run: bool = False) -> Path:
+    """Applique les propositions `type: date` d'un YAML relu : crée les décès absents."""
+    dry_run = effective_dry_run(dry_run)
+    data = yaml.safe_load(Path(propositions_yaml).read_text(encoding="utf-8")) or {}
+    lot = PropositionsLot(**data)                   # validation stricte du YAML relu
+    retenues, motifs = trier_propositions(lot.propositions)
+
+    index = index_lieux(client) if retenues else {}
+    source_handles: dict[str, str] = {}             # titre -> handle (une source/registre)
+
+    def _ensure_source(title: str, author: str) -> str:
+        if title not in source_handles:
+            payload = json.loads(GrampsEnsureSourceTool()._run(
+                title=title, author=author, dry_run=dry_run))
+            if not payload["success"]:
+                raise RuntimeError(f"source '{title}' : {payload['error']}")
+            source_handles[title] = payload["data"]["handle"]
+        return source_handles[title]
+
+    crees, refuses, lieux_non_resolus, errors = [], [], [], []
+    for prop in retenues:
+        try:
+            person = client.get_object("people", prop.handle)
+        except Exception:
+            errors.append((prop.gramps_id, "personne introuvable"))
+            continue
+        if _a_un_deces(person):
+            refuses.append((prop.gramps_id,
+                            "un décès existe déjà dans l'arbre (lot périmé ?)"))
+            continue
+
+        title, author = source_title_for(prop.preuve_detail)
+        source_handle = _ensure_source(title, author)
+        citation = json.loads(GrampsCreateCitationTool()._run(
+            source_handle=source_handle,
+            page=citation_page(prop.preuve_detail, prop.preuve_url),
+            dry_run=dry_run))
+        if not citation["success"]:
+            errors.append((prop.gramps_id, f"citation : {citation['error']}"))
+            continue
+
+        lieu_handle = resoudre_lieu(index, prop.lieu_nom) if prop.lieu_nom else None
+        if prop.lieu_nom and lieu_handle is None:
+            lieux_non_resolus.append((prop.gramps_id, prop.lieu_nom))
+
+        evt = creer_evenement_source(
+            prop.handle, event_type="Death", dateval=dateval_iso(prop.date_iso),
+            place_handle=lieu_handle, citation_handle=citation["data"]["handle"],
+            dry_run=dry_run)
+        if not evt["posee"]:
+            errors.append((prop.gramps_id, evt["raison"]))
+            continue
+        if not evt["attache"]:
+            # L'événement EXISTE : on le dit en erreur (avec le handle de l'orphelin)
+            # et NON en créé, pour ne pas annoncer un décès que l'arbre ne montre pas.
+            errors.append((prop.gramps_id, evt["raison"]))
+            continue
+
+        # L'écriture irréversible est faite. Note et tag sont des annotations : leur
+        # échec ne remet pas l'événement en cause, il se rapporte.
+        note = json.loads(GrampsCreateNoteTool()._run(
+            text=f"[genecrew:deces:{date}] {prop.action} — {prop.preuve_url}",
+            note_type="Research", dry_run=dry_run))
+        tag = json.loads(GrampsEnsureTagTool()._run(name=TAG_DECES, dry_run=dry_run))
+        if note["success"] and tag["success"]:
+            attache = json.loads(GrampsAttachTool()._run(
+                handle=prop.handle, note_handle=note["data"]["handle"],
+                tag_handle=tag["data"]["handle"], dry_run=dry_run))
+            if not attache["success"]:
+                errors.append((prop.gramps_id,
+                               f"décès {evt['event_handle']} créé, "
+                               f"annotation refusée : {attache['error']}"))
+        else:
+            refus = note.get("error") or tag.get("error")
+            errors.append((prop.gramps_id,
+                           f"décès {evt['event_handle']} créé, "
+                           f"note/tag refusé : {refus}"))
+
+        crees.append((prop.gramps_id, prop.personne, evt["event_handle"],
+                      prop.lieu_nom if lieu_handle else ""))
+
+    report = render_deaths_report(date, crees, refuses, lieux_non_resolus, motifs,
+                                  errors, dry_run)
+    out = Path(output_dir) / "deces"
+    out.mkdir(parents=True, exist_ok=True)
+    report_path = out / f"{date}_apply_deaths_{Path(propositions_yaml).stem}.md"
+    report_path.write_text(report, encoding="utf-8")
+    return report_path
