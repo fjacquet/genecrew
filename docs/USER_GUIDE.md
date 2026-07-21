@@ -317,7 +317,7 @@ uv run genecrew apply all --scope all             # écrire (si GENECREW_DRY_RUN
 Affiche les six chemins de rapport produits (casse, noms à vérifier, genres, lieux, décès,
 propositions décès) dans `output/`.
 
-### Créer les décès absents de l'arbre
+## Créer les décès absents de l'arbre
 
 `propose deaths` produit deux familles de propositions : `source` (le décès est dans
 l'arbre, il lui manque une source) et `date` (le décès est absent). Après relecture du

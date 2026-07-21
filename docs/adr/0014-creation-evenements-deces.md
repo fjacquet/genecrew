@@ -26,7 +26,15 @@ C'est le troisième assouplissement de l'ADR 0008 (après 0009 genre, 0010 lieux
 premier qui **crée** une donnée cœur au lieu d'en corriger une. Garanti dans le code :
 
 - **jamais auto** : la commande consomme un YAML explicitement passé, relu ;
-- **dry-run par défaut** (`effective_dry_run`) ;
+- **dry-run par défaut** (`effective_dry_run`). L'aperçu produit en simulation est le seul
+  garde-fou avant l'écriture irréversible : il doit donc rester complet et exploitable.
+  `GrampsCreateEventTool` rend `attached: False` aussi bien pour un événement réellement
+  orphelin que pour un passage simulé (rien n'est écrit, donc rien n'est rattaché) ;
+  `creer_evenement_source` (`genecrew/src/genecrew/evenements.py`) distingue les deux et
+  force `attache=True` en simulation. Sans cette distinction, un aperçu lirait chaque
+  simulation comme un rattachement échoué, et l'appelant s'arrêterait là : la note, le tag
+  et le reste de la chaîne ne seraient jamais simulés, et l'humain ne verrait pas dans son
+  aperçu ce qui sera réellement écrit ;
 - **confiance 2 seulement** : date de naissance concordante au jour près, le seul
   discriminateur d'homonymie accepté par le projet ;
 - **garde décès-absent**, vérifiée au moment de l'écriture — l'outil protège le
