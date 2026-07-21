@@ -19,16 +19,27 @@ from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient
 TAG_DECES = "genecrew:deces"
 
 
+_LIGATURES = str.maketrans({
+    "œ": "oe", "Œ": "OE",
+    "æ": "ae", "Æ": "AE",
+})
+
+
 def normaliser_lieu(nom: str) -> str:
     """Nom de commune → clé de comparaison : sans accents, minuscule, séparateurs unifiés.
 
     « Nohant-en-Goût », « nohant en gout » et « NOHANT-EN-GOUT » désignent la même
-    commune ; l'INSEE et l'arbre ne les écrivent pas pareil.
+    commune ; l'INSEE et l'arbre ne les écrivent pas pareil. Les ligatures (« Vœuil » /
+    « Voeuil ») et l'apostrophe typographique « ’ » (U+2019, courante en copier-coller,
+    contre l'apostrophe ASCII « ' ») sont deux autres variantes de la même commune :
+    NFD décompose les accents mais ne déplie pas les ligatures, d'où le passage explicite
+    avant décomposition ; l'apostrophe courbe entre dans la classe des séparateurs.
     """
+    depliee = (nom or "").translate(_LIGATURES)
     sans_accents = "".join(
-        c for c in unicodedata.normalize("NFD", nom or "")
+        c for c in unicodedata.normalize("NFD", depliee)
         if unicodedata.category(c) != "Mn")
-    return re.sub(r"[\s\-']+", " ", sans_accents).strip().lower()
+    return re.sub(r"[\s\-'’]+", " ", sans_accents).strip().lower()
 
 
 def index_lieux(client: GrampsClient) -> dict[str, str | None]:

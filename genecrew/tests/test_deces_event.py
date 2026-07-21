@@ -70,3 +70,34 @@ def test_lieu_sans_nom_est_ignore():
     ])
     index = index_lieux(client)
     assert resoudre_lieu(index, "Bourges") == "P2"
+
+
+def test_normalisation_ignore_apostrophe_typographique():
+    """« L'Isle-Adam » (apostrophe ASCII) et « L’Isle-Adam » (apostrophe
+    typographique U+2019, usage courant en copier-coller) doivent produire la
+    même clé — sinon la commune n'est jamais reconnue, sans que rien ne le
+    signale."""
+    assert normaliser_lieu("L'Isle-Adam") == normaliser_lieu("L’Isle-Adam")
+
+
+def test_normalisation_deplie_la_ligature_oe():
+    """« Vœuil-et-Giget » (commune de Charente) et « Voeuil-et-Giget »
+    désignent la même commune ; NFD décompose les accents mais pas les
+    ligatures, donc sans dépliage explicite les deux clés diffèrent."""
+    assert normaliser_lieu("Vœuil-et-Giget") == normaliser_lieu("Voeuil-et-Giget")
+
+
+def test_trois_homonymes_rendent_toujours_none():
+    """Verrou de non-régression : au-delà de deux occurrences du même nom, la
+    résolution doit rester None. Le code actuel teste la présence de la clé
+    (pas sa valeur), donc il est déjà correct à trois — mais rien ne l'exerçait
+    avant ce test ; une réécriture par compteur pourrait « ressusciter » un
+    handle à la troisième occurrence sans que la CI ne le voie."""
+    client = _places_client([
+        {"handle": "P1", "name": {"value": "Saint-Palais"}},
+        {"handle": "P2", "name": {"value": "Saint-Palais"}},
+        {"handle": "P3", "name": {"value": "Saint-Palais"}},
+    ])
+    index = index_lieux(client)
+    assert "saint palais" in index
+    assert resoudre_lieu(index, "Saint-Palais") is None
