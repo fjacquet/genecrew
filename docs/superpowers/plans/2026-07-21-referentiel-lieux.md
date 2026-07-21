@@ -135,7 +135,7 @@ class Subdivision(BaseModel):
     iso: str                            # "CH-VD"
     code: str                           # "VD" — l'ISO amputé du préfixe pays
     libelle_fr: str
-    noms: list[str] = []                # noms d'appariement : français, puis vernaculaire
+    noms: list[str] = Field(default_factory=list)   # appariement : français, puis vernaculaire
     place_type: str                     # type Gramps NATIF ("State", "Department"…)
     niveau: int                         # 1 = sous le pays, 2 = sous une subdivision de niveau 1
     parent_qid: str                     # QID du pays ou de la subdivision de niveau 1
@@ -163,9 +163,9 @@ Créer `src/crewai_custom_tools/tools/genealogy/referentiel/__init__.py` vide, p
 Ajouter un pays = ajouter une ligne. Les QID ont été vérifiés en ligne le 2026-07-21 ;
 ne pas les modifier sans revérifier contre les libellés Wikidata.
 
-Les types sont exclusivement des types Gramps NATIFS : ni `Canton` ni `Wilaya` n'en sont,
-et chaque type personnalisé est une ligne de plus à ne pas oublier dans les filtres par
-type (cf. la mise en garde TYPES_LIEU_DECES du CLAUDE.md).
+Les types sont exclusivement des types Gramps NATIFS : ni `Canton` ni `Wilaya` n'en sont.
+Un type personnalisé est une ligne de plus à ne pas oublier dans chaque filtre par type,
+et un contenant oublié dans une liste d'inclusion se traduit par un rattachement muet.
 """
 
 from __future__ import annotations
