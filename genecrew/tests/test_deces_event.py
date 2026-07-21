@@ -178,10 +178,20 @@ def test_rapport_liste_les_evenements_crees():
 
 
 def test_rapport_distingue_les_deux_motifs_de_rejet():
+    """Chaque libellé doit porter SON compte, pas celui de l'autre motif.
+
+    Une simple présence indépendante des deux libellés et des deux nombres ne
+    verrouille rien : intervertir les compteurs dans `render_deaths_report`
+    laisserait ce test passer. On exige donc que le nombre attendu soit sur la
+    MÊME ligne que son libellé.
+    """
     md = render_deaths_report("2026-07-21", [], [], [],
                               {"hors_perimetre": 8, "sans_donnee": 3}, [], dry_run=False)
-    assert "Hors périmètre" in md and "8" in md
-    assert "sans donnée machine" in md.lower() and "3" in md
+    lignes = md.splitlines()
+    ligne_hors_perimetre = next(ligne for ligne in lignes if "Hors périmètre" in ligne)
+    ligne_sans_donnee = next(ligne for ligne in lignes if "sans donnée machine" in ligne.lower())
+    assert "8" in ligne_hors_perimetre
+    assert "3" in ligne_sans_donnee
 
 
 def test_rapport_signale_les_lieux_non_resolus():

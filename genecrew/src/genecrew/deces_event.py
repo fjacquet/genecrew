@@ -104,8 +104,9 @@ def render_deaths_report(date: str, crees: list, refuses: list, lieux_non_resolu
                          motifs: dict, errors: list, dry_run: bool) -> str:
     """Rapport Markdown d'un passage de `apply deaths`. Pur.
 
-    `Mode:` reflète le dry-run EFFECTIF (variable d'environnement comprise) : le
-    rapport ne doit jamais annoncer une écriture qui n'a pas eu lieu.
+    `Mode:` reflète tel quel le booléen `dry_run` reçu ; c'est à l'appelant de lui
+    passer le dry-run déjà résolu (variable d'environnement comprise) — cette
+    fonction ne lit aucune variable d'environnement elle-même.
     """
     mode = "simulation (dry-run, aucune écriture)" if dry_run else "écritures appliquées"
     lines = [f"# Création d'événements décès sourcés — {date}", "",
