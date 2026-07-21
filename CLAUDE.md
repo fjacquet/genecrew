@@ -19,7 +19,7 @@ When making changes, work inside `genecrew/src/genecrew/` for crew logic.
 - `crew.py` — the real audit crew (`@CrewBase Genecrew`, `Process.sequential`, 4 agents): `detective` (judges) → `historien` (external proof: MatchID/Gallica/Wikidata) → `standardisateur` (precise propositions, strict JSON validated by `PropositionsLot`, confidence ≤ 2) → `chroniqueur` (the **only** writer, append-only note/tag tools). Write isolation is structural. LLM per role via `build_llm(role)` (`MODEL_<ROLE>` env, fallback `MODEL`), **always `is_litellm=True`** — CrewAI's native provider hardcodes `"strict": true` on tool schemas, which Mistral rejects.
 - `config/agents.yaml` — `detective`/`chroniqueur` personas (French, static).
 - `config/tasks/audit.yaml` — `interpreter_anomalies` (Détective) → `rediger_annotations` (Chroniqueur), templated with `{anomalies_block}` and `{date}`. (`crew.py` sets `tasks_config` to this path; the stock `config/tasks.yaml` was deleted.)
-- `cli.py` — `build_parser()`, the CLI's verb grammar: `stats`, `propose {audit|places|deaths|military|gender|wikidata|dhs}`, `apply {case|gender|places|citations|all}`, `merge {places|people}`, `enrich wiki`, `import {place|releve}`, `crew audit`. Pure — reads the environment only for flag defaults. See `docs/adr/0012-cli-grammaire-verbes.md`.
+- `cli.py` — `build_parser()`, the CLI's verb grammar: `stats`, `propose {audit|places|deaths|military|gender|wikidata|dhs}`, `apply {case|gender|places|citations|deaths|all}`, `merge {places|people}`, `enrich wiki`, `import {place|releve}`, `crew audit`. Pure — reads the environment only for flag defaults. See `docs/adr/0012-cli-grammaire-verbes.md`.
 - `main.py` — the CLI dispatcher (`main()` calls `cli.build_parser()`, then routes on the `(command, target)` pair) **and** the CrewAI console entry points (`run`/`train`/`test`/`replay`). `run` delegates to a bounded dry-run `crew audit`. Sets up durable logging around every command.
 - `tools/custom_tool.py` — placeholder `BaseTool` subclass template for adding custom CrewAI tools.
 - `knowledge/user_preference.txt` — static knowledge file (currently placeholder content) available to the crew via CrewAI's knowledge sources.
@@ -40,7 +40,9 @@ friction). When that second source lands, `releves.py` moves to the library and 
 goes away. genecrew otherwise holds only orchestration/CLI, plus that one engine: `cli.py` (the
 verb grammar — `build_parser()`, the dispatch table's target
 names), `audit.py`, `names.py`, `gender.py`, `gender_apply.py`, `apply_all.py`, `places.py`,
-`places_apply.py`, `places_merge.py`, `deces.py`, `deces_apply.py`, `militaires.py`,
+`places_apply.py`, `places_merge.py`, `deces.py`, `deces_apply.py`, `evenements.py`
+(shared event-creation building block behind both `import releve` and `apply deaths`),
+`deces_event.py` (`apply deaths` orchestration, ADR 0014), `militaires.py`,
 `lieux_wiki.py`, `lieu_import.py`, `archives.py` (`propose wikidata`/`propose dhs` orchestration —
 network + batching; the pure Piste translation lives in the library, `genealogy/pistes/`),
 `releves.py` (`import releve` smart-match engine — **pure**: models + weighted matching, blocking,
@@ -108,6 +110,7 @@ uv run genecrew apply all --dry-run               # casse, genre, lieux : écrit
 uv run genecrew propose places --scope all        # propositions de lieux (lecture seule)
 uv run genecrew apply places --dry-run            # écrit hiérarchie + GPS au-dessus du score
 uv run genecrew apply places --scope place:P0080 --dry-run  # cibler UN lieu avant d'élargir
+uv run genecrew apply deaths --yaml <relu.yaml> --dry-run  # crée les décès absents (ADR 0014)
 uv run genecrew merge places --yaml <fusions.yaml>  # exécute les fusions relues (jamais auto)
 pbpaste | uv run genecrew import releve            # relevé collé → smart match (stdin ; simule par défaut)
 uv run genecrew import releve --file acte.txt --person I0421  # trancher un gris : forcer la personne
@@ -151,6 +154,11 @@ gotchas — c'est elle qui impose l'ordre de livraison entre les deux dépôts.
 - **Dates**: compare via the integer `sortval` (Julian day; `0` = unknown/unsortable). Undated events come back as `dateval=[0,0,0,False]`, `year=0`, `sortval=0` (not empty). Text-only dates have `modifier==6`.
 - **Gender int**: `0=F, 1=M, 2=U`.
 - **Form vs fact**: casing = *form* → direct write allowed, guarded by a case-only invariant that refuses any non-casing change. A *fact* stays a proposal for human review — **except gender**, now written at high confidence by `apply gender` (ratio ≥ 0.98 on the INSEE+OFS table, reversible; ADR 0009 relaxes ADR 0008). Other facts (dates, relationships, name spelling) still need a source → proposal.
+- **Créer un décès** : `apply deaths` (ADR 0014) écrit une donnée cœur, contrairement à
+  `apply citations` qui reste append-only. La garde « la personne n'a pas de décès » est
+  vérifiée **au moment de l'écriture** : `GrampsCreateEventTool` refuse d'écraser un
+  `death_ref_index` existant, mais créerait quand même un second événement `Death` dans
+  la liste — invisible dans les vues qui suivent l'index, bien présent en base.
 - **Write safety switch**: writes are gated by the per-command `--dry-run` flag OR the global `GENECREW_DRY_RUN` env var. The env can only *force* simulation; the **default when the var is absent is to simulate** (safe — via `effective_dry_run`, dans `crewai_custom_tools` depuis 0.12.0). Set `GENECREW_DRY_RUN=false` in `.env` to write for real. The report's `Mode:` line reflects the **effective** dry-run (env included), so it never claims writes that didn't happen.
 - Full-tree `propose audit`/`apply case` runs are slow (minutes: per-family N+1 fetch + O(n²) duplicate check); iterate with `--limit`.
 - **Crew write isolation & cost**: only the `chroniqueur` agent has write tools (append-only note/tag); the `detective` cannot write. A `crew audit` run costs ~23k LLM tokens/person (heavy read correlation) — always bound full-tree runs with `--limit`.
