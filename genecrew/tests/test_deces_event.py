@@ -573,6 +573,34 @@ def test_rattachement_d_annotation_refuse_nomme_la_note_restee_orpheline(
     assert "orpheline" in erreurs.lower()
 
 
+def test_simulation_ne_rapporte_pas_de_note_orpheline_sur_handle_factice(
+        tmp_path, monkeypatch):
+    """Défaut reproduit : `GrampsEnsureTagTool` fait un vrai `GET /tags/` même en
+    simulation (`write_tools.py`), donc un 503 passager dessus peut faire échouer
+    le tag PENDANT une simulation où la note a « réussi » avec son handle
+    factice `DRYRUN:note` — rien n'a en réalité été écrit. Annoncer cette note
+    comme orpheline enverrait le relecteur supprimer un objet qui n'existe pas.
+    Le message d'erreur doit aussi se conjuguer comme le reste du rapport en
+    simulation : « à créer », pas « créé ».
+    """
+    _stub_ecritures(monkeypatch, echecs={"tag": "503 Service Unavailable"})
+
+    class _NoteFactice:
+        def _run(self, **kw):
+            return json.dumps({"success": True, "data": {"handle": "DRYRUN:note"}})
+
+    monkeypatch.setattr(deces_event, "GrampsCreateNoteTool", lambda: _NoteFactice())
+    chemin = run_deces_event(_arbre(SANS_DECES), _yaml_lot(tmp_path, [PROP_DATE]),
+                             tmp_path, date="2026-07-21", dry_run=True)
+    md = chemin.read_text(encoding="utf-8")
+    assert "Décès à créer : 1" in md
+    erreurs = _section(md, "Erreurs")
+    assert "orpheline" not in erreurs.lower()
+    assert "DRYRUN:note" not in erreurs
+    assert "à créer" in erreurs
+    assert "503 Service Unavailable" in erreurs
+
+
 def test_rapport_en_simulation_parle_au_conditionnel():
     """Un rapport n'annonce jamais une écriture qui n'a pas eu lieu.
 

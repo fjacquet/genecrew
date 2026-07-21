@@ -113,7 +113,7 @@ def trier_propositions(propositions: list) -> tuple[list, dict[str, int]]:
     return retenues, motifs
 
 
-def aplatir_message(msg: str) -> str:
+def _aplatir_message(msg: str) -> str:
     """Réduit toute suite d'espaces et de sauts de ligne à une espace simple. Pur.
 
     Les erreurs sont rendues en item de liste Markdown (`- {gid} : {msg}`) et
@@ -166,7 +166,7 @@ def render_deaths_report(date: str, crees: list, refuses: list, lieux_non_resolu
         lines.append("")
     if errors:
         lines += ["## Erreurs", ""]
-        lines += [f"- {gid} : {aplatir_message(msg)}" for gid, msg in errors]
+        lines += [f"- {gid} : {_aplatir_message(msg)}" for gid, msg in errors]
         lines.append("")
     return "\n".join(lines)
 
@@ -199,6 +199,20 @@ def _orpheline(raison: str, note_handle: str) -> str:
     """
     return (f"{raison} — note orpheline laissée dans l'arbre "
             f"(handle {note_handle}), à supprimer à la main")
+
+
+def _est_factice(handle: str) -> bool:
+    """Le handle désigne-t-il un placeholder de simulation plutôt qu'un objet réel ?
+
+    `GrampsCreateNoteTool` rend `DRYRUN:note` sans rien écrire quand la simulation
+    est active — même idiome que `GrampsAttachTool` et `GrampsCreateEventTool`
+    (voir `evenements.creer_evenement_source`). `GrampsEnsureTagTool`, lui, fait un
+    vrai `GET /tags/` même en simulation (`write_tools.py`) : un 503 passager sur
+    ce GET peut donc faire échouer le tag PENDANT une simulation où la note a
+    « réussi » avec ce handle factice. Annoncer cette note comme orpheline
+    enverrait alors le relecteur supprimer un objet qui n'a jamais existé.
+    """
+    return str(handle).startswith("DRYRUN:")
 
 
 def run_deces_event(client: GrampsClient, propositions_yaml, output_dir, *,
@@ -286,24 +300,33 @@ def run_deces_event(client: GrampsClient, propositions_yaml, output_dir, *,
             text=f"[genecrew:deces:{date}] {prop.action} — {prop.preuve_url}",
             note_type="Research", dry_run=dry_run))
         tag = json.loads(GrampsEnsureTagTool()._run(name=TAG_DECES, dry_run=dry_run))
+        # « créé » ne se dit qu'à l'écriture réelle : en simulation, rien n'a été
+        # posé et l'événement lui-même porte encore son handle « à créer ».
+        verbe_deces = "à créer" if dry_run else "créé"
         if note["success"] and tag["success"]:
             attache = json.loads(GrampsAttachTool()._run(
                 handle=prop.handle, note_handle=note["data"]["handle"],
                 tag_handle=tag["data"]["handle"], dry_run=dry_run))
             if not attache["success"]:
-                errors.append((prop.gramps_id, _orpheline(
-                    f"décès {evt['event_handle']} créé, "
-                    f"annotation refusée : {attache['error']}",
-                    note["data"]["handle"])))
+                raison = (f"décès {evt['event_handle']} {verbe_deces}, "
+                          f"annotation refusée : {attache['error']}")
+                note_handle = note["data"]["handle"]
+                # Un handle factice (« DRYRUN:note ») n'a jamais été écrit : rien
+                # n'est orphelin, quel que soit le sort du rattachement.
+                if not _est_factice(note_handle):
+                    raison = _orpheline(raison, note_handle)
+                errors.append((prop.gramps_id, raison))
         else:
             refus = note.get("error") or tag.get("error")
-            raison = (f"décès {evt['event_handle']} créé, "
+            raison = (f"décès {evt['event_handle']} {verbe_deces}, "
                       f"note/tag refusé : {refus}")
             # Note créée puis tag refusé : la note EXISTE et plus rien ne la
             # rattachera. Ne nommer que le handle de l'événement la rendrait
-            # introuvable. Si c'est la note elle-même qui a été refusée, rien
-            # n'est orphelin — annoncer une note à supprimer serait un faux.
-            if note["success"]:
+            # introuvable. Si c'est la note elle-même qui a été refusée, ou que
+            # son handle est factice (rien écrit, malgré un `success` en
+            # simulation), rien n'est orphelin — annoncer une note à supprimer
+            # serait un faux.
+            if note["success"] and not _est_factice(note["data"]["handle"]):
                 raison = _orpheline(raison, note["data"]["handle"])
             errors.append((prop.gramps_id, raison))
 
