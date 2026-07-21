@@ -57,8 +57,35 @@ def normaliser_lieu(nom: str) -> str:
     return re.sub(r"[\s\-'’]+", " ", sans_accents).strip().lower()
 
 
+# Types de lieu qu'un décès peut désigner. Les résolveurs `geo/` de
+# `crewai_custom_tools` nomment la FEUILLE — la localité habitée — `Municipality`
+# (`france.py`, `france_ex_communes.py`, `suisse.py`, `allemagne.py`, `nominatim.py`)
+# ou `City` (`usa.py`) ; tout le reste de leur vocabulaire (`Country`, `Region`,
+# `Department`, `State`, `County`, `Canton`) est un CONTENANT. `Unknown` est le type
+# d'un lieu que `apply places` n'a pas encore standardisé — c'est même son propre
+# test d'idempotence (`places_apply.py:129`) — donc un lieu dont on ne sait pas s'il
+# est une commune, un département ou une adresse.
+#
+# Liste d'INCLUSION, et non d'exclusion, parce que les deux ensembles ne vieillissent
+# pas pareil. Celui des contenants s'allonge à chaque pays ajouté (`Canton` est arrivé
+# avec la Suisse, `State` avec l'Allemagne puis les États-Unis) : un contenant oublié
+# dans une liste d'exclusion rattacherait un décès à un département EN SILENCE, la
+# faute même que ce filtre existe pour empêcher. L'ensemble des feuilles, lui, est
+# fermé par le contrat des résolveurs. Un type imprévu tombe donc du côté sûr : non
+# indexé, donc listé en « Lieux non résolus » — une lacune visible, que `apply places`
+# corrige, plutôt qu'un rattachement hasardeux et définitif.
+#
+# L'élargir est un geste délibéré : n'ajouter un type ici que le jour où un résolveur
+# le pose sur une feuille.
+TYPES_LIEU_DECES = frozenset({"Municipality", "City"})
+
+
 def index_lieux(client: GrampsClient) -> dict[str, str | None]:
     """Index `{nom normalisé -> handle}` des lieux de l'arbre ; `None` si homonymes.
+
+    Seuls les lieux dont le `place_type` est dans `TYPES_LIEU_DECES` entrent dans
+    l'index : un département, une région ou un pays homonyme d'une commune ne doit
+    jamais pouvoir devenir un lieu de décès.
 
     Le `None` est porteur d'information : il distingue l'AMBIGU (clé présente, valeur
     None) de l'INCONNU (clé absente). Les deux mènent au même geste — un événement sans
@@ -72,6 +99,11 @@ def index_lieux(client: GrampsClient) -> dict[str, str | None]:
             break
         for place in batch:
             if not isinstance(place, dict):
+                continue
+            # Filtrer AVANT l'index, pas après : un département écarté ici laisse la
+            # commune homonyme résoluble. L'écarter après en aurait fait un homonyme,
+            # donc un lieu perdu — le filtre désambiguïse autant qu'il refuse.
+            if (place.get("place_type") or "Unknown") not in TYPES_LIEU_DECES:
                 continue
             cle = normaliser_lieu((place.get("name") or {}).get("value", ""))
             if not cle:
@@ -156,8 +188,10 @@ def render_deaths_report(date: str, crees: list, refuses: list, lieux_non_resolu
         lines.append("")
     if lieux_non_resolus:
         lines += ["## Lieux non résolus", "",
-                  f"{libelle_sans_lieu} : la commune est inconnue de l'arbre, ou "
-                  "plusieurs lieux portent ce nom. À traiter avec `apply places`.", ""]
+                  f"{libelle_sans_lieu} : la commune est inconnue de l'arbre, "
+                  "plusieurs lieux portent ce nom, ou le seul qui le porte n'est pas "
+                  "une commune (contenant administratif, ou lieu que `apply places` "
+                  "n'a pas encore standardisé). À traiter avec `apply places`.", ""]
         lines += [f"- {gid} : {nom}" for gid, nom in lieux_non_resolus]
         lines.append("")
     if refuses:

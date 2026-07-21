@@ -33,6 +33,16 @@ def _client(handler):
     return GrampsClient(CONFIG, transport=httpx.MockTransport(_h))
 
 
+def _commune(handle, nom):
+    """Un lieu de l'arbre du type qu'`apply places` pose sur une feuille française.
+
+    Les fixtures portent le `place_type` explicitement : un décès ne se rattache
+    qu'à une commune, donc un lieu sans type n'est plus résoluble et une fixture
+    muette n'exercerait plus rien.
+    """
+    return {"handle": handle, "name": {"value": nom}, "place_type": "Municipality"}
+
+
 def _places_client(places):
     def _h(request):
         if request.url.path == "/api/places/":
@@ -48,16 +58,13 @@ def test_normalisation_ignore_casse_accents_et_separateurs():
 
 
 def test_index_rend_le_handle_d_un_lieu_unique():
-    client = _places_client([
-        {"handle": "P1", "name": {"value": "Bourges"}},
-        {"handle": "P2", "name": {"value": "Vierzon"}},
-    ])
+    client = _places_client([_commune("P1", "Bourges"), _commune("P2", "Vierzon")])
     index = index_lieux(client)
     assert resoudre_lieu(index, "bourges") == "P1"
 
 
 def test_lieu_absent_rend_none():
-    client = _places_client([{"handle": "P1", "name": {"value": "Bourges"}}])
+    client = _places_client([_commune("P1", "Bourges")])
     index = index_lieux(client)
     assert resoudre_lieu(index, "Saint-Palais") is None
 
@@ -65,10 +72,8 @@ def test_lieu_absent_rend_none():
 def test_homonymes_rendent_none_plutot_qu_un_choix():
     """Deux lieux du même nom : rattacher au hasard poserait un décès dans la
     mauvaise commune sans que rien ne le signale."""
-    client = _places_client([
-        {"handle": "P1", "name": {"value": "Saint-Palais"}},
-        {"handle": "P2", "name": {"value": "Saint-Palais"}},
-    ])
+    client = _places_client([_commune("P1", "Saint-Palais"),
+                             _commune("P2", "Saint-Palais")])
     index = index_lieux(client)
     assert "saint palais" in index          # connu…
     assert resoudre_lieu(index, "Saint-Palais") is None   # …mais pas résolu
@@ -76,11 +81,93 @@ def test_homonymes_rendent_none_plutot_qu_un_choix():
 
 def test_lieu_sans_nom_est_ignore():
     client = _places_client([
-        {"handle": "P1", "name": {}},
-        {"handle": "P2", "name": {"value": "Bourges"}},
+        {"handle": "P1", "name": {}, "place_type": "Municipality"},
+        _commune("P2", "Bourges"),
     ])
     index = index_lieux(client)
     assert resoudre_lieu(index, "Bourges") == "P2"
+
+
+def test_un_departement_n_est_jamais_un_lieu_de_deces():
+    """Défaut reproduit : l'index se construisait sur le NOM NU, sans regarder le type.
+
+    `apply places` peuple justement l'arbre en `France > Cher > Bourges` : les objets
+    de type `Department` y SONT. Une source qui donne « Cher » comme commune de décès
+    (il existe de vraies communes homonymes de leur département) rattachait donc le
+    décès au DÉPARTEMENT, en silence — la seule faute de la commande capable d'écrire
+    une donnée cœur fausse sans que rien ne le signale.
+    """
+    client = _places_client([
+        {"handle": "DEP1", "name": {"value": "Cher"}, "place_type": "Department"},
+    ])
+    index = index_lieux(client)
+    assert index == {}
+    assert resoudre_lieu(index, "Cher") is None
+
+
+def test_la_commune_l_emporte_sur_le_departement_homonyme():
+    """Le filtre par type n'est pas qu'un refus : il DÉSAMBIGUÏSE.
+
+    Une commune et un département du même nom ne sont pas deux homonymes — un seul
+    des deux peut être un lieu de décès. Écarter le département AVANT l'index rend
+    la commune résoluble ; le faire après la rendrait ambiguë, donc perdue.
+    """
+    client = _places_client([
+        {"handle": "DEP1", "name": {"value": "Cher"}, "place_type": "Department"},
+        {"handle": "P1", "name": {"value": "Cher"}, "place_type": "Municipality"},
+    ])
+    assert resoudre_lieu(index_lieux(client), "Cher") == "P1"
+
+
+@pytest.mark.parametrize("type_contenant",
+                         ["Country", "Region", "Department", "State", "County", "Canton"])
+def test_aucun_contenant_administratif_n_est_indexe(type_contenant):
+    """Tout le vocabulaire de contenants produit par les résolveurs `geo/`.
+
+    Vérifier le seul `Department` laisserait passer `State` (Allemagne, États-Unis)
+    et `Canton` (Suisse), arrivés avec leurs résolveurs — exactement la façon dont
+    une liste d'exclusion vieillit mal.
+    """
+    client = _places_client([
+        {"handle": "X1", "name": {"value": "Ailleurs"}, "place_type": type_contenant},
+    ])
+    assert resoudre_lieu(index_lieux(client), "Ailleurs") is None
+
+
+@pytest.mark.parametrize("type_feuille", ["Municipality", "City"])
+def test_les_feuilles_des_resolveurs_restent_resolubles(type_feuille):
+    """Le pendant : `Municipality` (France, Suisse, Allemagne, Nominatim) et `City`
+    (États-Unis) sont les seuls types de feuille que les résolveurs posent, et ils
+    doivent continuer de résoudre — sinon le filtre ne refuse pas l'ambiguïté, il
+    supprime la fonctionnalité."""
+    client = _places_client([
+        {"handle": "P1", "name": {"value": "Bourges"}, "place_type": type_feuille},
+    ])
+    assert resoudre_lieu(index_lieux(client), "Bourges") == "P1"
+
+
+def test_un_lieu_non_standardise_n_est_pas_resolu():
+    """`Unknown` est le type d'un lieu que `apply places` n'a pas encore traité
+    (c'est son propre test d'idempotence). On ne sait donc pas si c'est une commune,
+    un département ou une adresse : refuser est une lacune visible, que `apply places`
+    corrige ; deviner serait une faute silencieuse et définitive."""
+    client = _places_client([
+        {"handle": "P1", "name": {"value": "Bourges"}, "place_type": "Unknown"},
+        {"handle": "P2", "name": {"value": "Vierzon"}},          # champ absent
+    ])
+    index = index_lieux(client)
+    assert resoudre_lieu(index, "Bourges") is None
+    assert resoudre_lieu(index, "Vierzon") is None
+
+
+def test_un_type_hors_vocabulaire_est_refuse_pas_devine():
+    """Verrou du choix « liste d'inclusion » : un type que le dépôt ne produit pas
+    (ici `Parish`, plausible sous une saisie manuelle) doit tomber du côté SÛR. Une
+    liste d'exclusion l'indexerait, et un jour ce serait un contenant."""
+    client = _places_client([
+        {"handle": "P1", "name": {"value": "Bourges"}, "place_type": "Parish"},
+    ])
+    assert resoudre_lieu(index_lieux(client), "Bourges") is None
 
 
 def test_normalisation_ignore_apostrophe_typographique():
@@ -104,11 +191,9 @@ def test_trois_homonymes_rendent_toujours_none():
     (pas sa valeur), donc il est déjà correct à trois — mais rien ne l'exerçait
     avant ce test ; une réécriture par compteur pourrait « ressusciter » un
     handle à la troisième occurrence sans que la CI ne le voie."""
-    client = _places_client([
-        {"handle": "P1", "name": {"value": "Saint-Palais"}},
-        {"handle": "P2", "name": {"value": "Saint-Palais"}},
-        {"handle": "P3", "name": {"value": "Saint-Palais"}},
-    ])
+    client = _places_client([_commune("P1", "Saint-Palais"),
+                             _commune("P2", "Saint-Palais"),
+                             _commune("P3", "Saint-Palais")])
     index = index_lieux(client)
     assert "saint palais" in index
     assert resoudre_lieu(index, "Saint-Palais") is None
@@ -237,7 +322,7 @@ SANS_DECES = {"handle": "H174", "gramps_id": "I0174", "death_ref_index": -1,
               "event_ref_list": [{"ref": "EV_B"}]}
 AVEC_DECES = {"handle": "H174", "gramps_id": "I0174", "death_ref_index": 1,
               "event_ref_list": [{"ref": "EV_B"}, {"ref": "EV_D"}]}
-PLACES = [{"handle": "P1", "name": {"value": "Saint-Palais"}}]
+PLACES = [_commune("P1", "Saint-Palais")]
 
 
 def _arbre(person, places=PLACES):
@@ -357,6 +442,24 @@ def test_lieu_inconnu_donne_un_evenement_sans_lieu(tmp_path, monkeypatch):
     assert vus["evenement"]["place_handle"] is None
     assert "Lieux non résolus" in md
     assert "Saint-Palais" in md
+
+
+def test_un_departement_homonyme_ne_devient_pas_le_lieu_du_deces(tmp_path, monkeypatch):
+    """Bout en bout du défaut I2 : le seul lieu de l'arbre nommé comme la commune de
+    la source est un DÉPARTEMENT. Le décès doit être créé SANS lieu et la commune
+    listée en « Lieux non résolus » — comme un lieu inconnu — plutôt que rattachée
+    au département en silence.
+    """
+    vus = _stub_ecritures(monkeypatch)
+    departement = {"handle": "DEP1", "name": {"value": "Saint-Palais"},
+                   "place_type": "Department"}
+    chemin = run_deces_event(_arbre(SANS_DECES, places=[departement]),
+                             _yaml_lot(tmp_path, [PROP_DATE]), tmp_path,
+                             date="2026-07-21")
+    md = chemin.read_text(encoding="utf-8")
+    assert vus["evenement"]["place_handle"] is None, "décès rattaché au département"
+    assert "Décès créés : 1" in md
+    assert "Saint-Palais" in _section(md, "Lieux non résolus")
 
 
 def test_orphelin_rapporte_avec_son_handle(tmp_path, monkeypatch):
