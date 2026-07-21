@@ -113,6 +113,18 @@ def trier_propositions(propositions: list) -> tuple[list, dict[str, int]]:
     return retenues, motifs
 
 
+def aplatir_message(msg: str) -> str:
+    """Réduit toute suite d'espaces et de sauts de ligne à une espace simple. Pur.
+
+    Les erreurs sont rendues en item de liste Markdown (`- {gid} : {msg}`) et
+    `str()` d'une erreur HTTP contient un saut de ligne (« For more information
+    check: … »). Une continuation paresseuse passe encore, mais une ligne vide,
+    un `#`, un `|` ou un `- ` en tête de ligne casserait la structure du rapport
+    — la seule trace qu'un humain lira après une écriture irréversible.
+    """
+    return re.sub(r"\s+", " ", str(msg)).strip()
+
+
 def render_deaths_report(date: str, crees: list, refuses: list, lieux_non_resolus: list,
                          motifs: dict, errors: list, dry_run: bool) -> str:
     """Rapport Markdown d'un passage de `apply deaths`. Pur.
@@ -120,11 +132,19 @@ def render_deaths_report(date: str, crees: list, refuses: list, lieux_non_resolu
     `Mode:` reflète tel quel le booléen `dry_run` reçu ; c'est à l'appelant de lui
     passer le dry-run déjà résolu (variable d'environnement comprise) — cette
     fonction ne lit aucune variable d'environnement elle-même.
+
+    Ce même booléen conjugue les libellés : en simulation, rien n'a été écrit, donc
+    rien ne s'annonce au présent. « Décès créés : 1 » quatre lignes sous une
+    bannière « aucune écriture » est une contradiction que le prochain lecteur
+    tranchera au hasard.
     """
     mode = "simulation (dry-run, aucune écriture)" if dry_run else "écritures appliquées"
+    libelle_crees = "Décès à créer" if dry_run else "Décès créés"
+    libelle_sans_lieu = ("Événement à créer sans lieu" if dry_run
+                         else "Événement créé sans lieu")
     lines = [f"# Création d'événements décès sourcés — {date}", "",
              f"Mode : {mode}.", "",
-             f"- Décès créés : {len(crees)}",
+             f"- {libelle_crees} : {len(crees)}",
              f"- Refusés (décès déjà présent dans l'arbre) : {len(refuses)}",
              f"- Sans donnée machine exploitable (YAML antérieur) : {motifs['sans_donnee']}",
              f"- Hors périmètre (type ≠ date ou confiance < 2) : {motifs['hors_perimetre']}",
@@ -136,7 +156,7 @@ def render_deaths_report(date: str, crees: list, refuses: list, lieux_non_resolu
         lines.append("")
     if lieux_non_resolus:
         lines += ["## Lieux non résolus", "",
-                  "Événement créé sans lieu : la commune est inconnue de l'arbre, ou "
+                  f"{libelle_sans_lieu} : la commune est inconnue de l'arbre, ou "
                   "plusieurs lieux portent ce nom. À traiter avec `apply places`.", ""]
         lines += [f"- {gid} : {nom}" for gid, nom in lieux_non_resolus]
         lines.append("")
@@ -146,7 +166,7 @@ def render_deaths_report(date: str, crees: list, refuses: list, lieux_non_resolu
         lines.append("")
     if errors:
         lines += ["## Erreurs", ""]
-        lines += [f"- {gid} : {msg}" for gid, msg in errors]
+        lines += [f"- {gid} : {aplatir_message(msg)}" for gid, msg in errors]
         lines.append("")
     return "\n".join(lines)
 
@@ -166,6 +186,19 @@ def _a_un_deces(person: dict) -> bool:
     """
     idx = person.get("death_ref_index", -1)
     return idx is not None and idx >= 0
+
+
+def _orpheline(raison: str, note_handle: str) -> str:
+    """Complète une raison d'échec par le handle de la note restée orpheline. Pur.
+
+    Une note créée que rien ne rattache ensuite est bel et bien dans la base, et
+    invisible : aucune personne, aucun événement n'y mène. Le handle est la seule
+    prise qu'un humain aura pour la retrouver et la supprimer — nommer le seul
+    handle de l'événement laisserait la note introuvable. Même registre, pour la
+    même raison, que `releves_import._orpheline`.
+    """
+    return (f"{raison} — note orpheline laissée dans l'arbre "
+            f"(handle {note_handle}), à supprimer à la main")
 
 
 def run_deces_event(client: GrampsClient, propositions_yaml, output_dir, *,
@@ -258,14 +291,21 @@ def run_deces_event(client: GrampsClient, propositions_yaml, output_dir, *,
                 handle=prop.handle, note_handle=note["data"]["handle"],
                 tag_handle=tag["data"]["handle"], dry_run=dry_run))
             if not attache["success"]:
-                errors.append((prop.gramps_id,
-                               f"décès {evt['event_handle']} créé, "
-                               f"annotation refusée : {attache['error']}"))
+                errors.append((prop.gramps_id, _orpheline(
+                    f"décès {evt['event_handle']} créé, "
+                    f"annotation refusée : {attache['error']}",
+                    note["data"]["handle"])))
         else:
             refus = note.get("error") or tag.get("error")
-            errors.append((prop.gramps_id,
-                           f"décès {evt['event_handle']} créé, "
-                           f"note/tag refusé : {refus}"))
+            raison = (f"décès {evt['event_handle']} créé, "
+                      f"note/tag refusé : {refus}")
+            # Note créée puis tag refusé : la note EXISTE et plus rien ne la
+            # rattachera. Ne nommer que le handle de l'événement la rendrait
+            # introuvable. Si c'est la note elle-même qui a été refusée, rien
+            # n'est orphelin — annoncer une note à supprimer serait un faux.
+            if note["success"]:
+                raison = _orpheline(raison, note["data"]["handle"])
+            errors.append((prop.gramps_id, raison))
 
         crees.append((prop.gramps_id, prop.personne, evt["event_handle"],
                       prop.lieu_nom if lieu_handle else ""))

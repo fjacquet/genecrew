@@ -428,7 +428,7 @@ def test_simulation_ne_rapporte_pas_un_orphelin(tmp_path, monkeypatch):
     chemin = run_deces_event(_arbre(SANS_DECES), _yaml_lot(tmp_path, [PROP_DATE]),
                              tmp_path, date="2026-07-21", dry_run=True)
     md = chemin.read_text(encoding="utf-8")
-    assert "Décès créés : 1" in md
+    assert "Décès à créer : 1" in md        # libellé conditionnel : rien n'est écrit
     assert "Erreurs : 0" in md
     assert "orphelin" not in md
     assert vus["attach"] is not None, "le chemin note/tag n'a pas été simulé"
@@ -520,7 +520,11 @@ def test_lieu_non_resolu_taise_si_l_evenement_echoue(tmp_path, monkeypatch):
 def test_note_refusee_compte_le_deces_cree_et_l_erreur(tmp_path, monkeypatch):
     """Contrairement à l'orphelin, le décès EST créé et rattaché : il compte comme
     créé. L'annotation manquante se rapporte à part, en nommant le handle de
-    l'événement — la seule prise pour l'annoter à la main ensuite."""
+    l'événement — la seule prise pour l'annoter à la main ensuite.
+
+    Ici la note a été REFUSÉE : rien n'a été laissé dans l'arbre. Annoncer une
+    note orpheline enverrait le relecteur chercher un objet qui n'existe pas.
+    """
     _stub_ecritures(monkeypatch, echecs={"note": "note refusée : 500"})
     chemin = run_deces_event(_arbre(SANS_DECES), _yaml_lot(tmp_path, [PROP_DATE]),
                              tmp_path, date="2026-07-21")
@@ -529,10 +533,17 @@ def test_note_refusee_compte_le_deces_cree_et_l_erreur(tmp_path, monkeypatch):
     erreurs = _section(md, "Erreurs")
     assert "EV_NEW" in erreurs
     assert "note refusée : 500" in erreurs
+    assert "orphelin" not in erreurs.lower()
 
 
-def test_tag_refuse_compte_le_deces_cree_et_l_erreur(tmp_path, monkeypatch):
-    """Même verrou que la note : le tag échoue seul, le décès reste acquis."""
+def test_tag_refuse_nomme_la_note_restee_orpheline(tmp_path, monkeypatch):
+    """Même verrou que la note : le tag échoue seul, le décès reste acquis.
+
+    Mais la note, elle, a bel et bien été CRÉÉE avant le refus du tag, et plus
+    rien ne la rattachera jamais. Ne nommer que le handle de l'événement la
+    rendrait introuvable : elle n'apparaît sous aucune personne, sous aucun
+    événement. Son handle est la seule prise pour aller la supprimer.
+    """
     _stub_ecritures(monkeypatch, echecs={"tag": "tag refusé : 500"})
     chemin = run_deces_event(_arbre(SANS_DECES), _yaml_lot(tmp_path, [PROP_DATE]),
                              tmp_path, date="2026-07-21")
@@ -541,12 +552,15 @@ def test_tag_refuse_compte_le_deces_cree_et_l_erreur(tmp_path, monkeypatch):
     erreurs = _section(md, "Erreurs")
     assert "EV_NEW" in erreurs
     assert "tag refusé : 500" in erreurs
+    assert "note1" in erreurs, "le handle de la note orpheline manque au rapport"
+    assert "orpheline" in erreurs.lower()
 
 
-def test_rattachement_d_annotation_refuse_compte_le_deces_cree_et_l_erreur(
+def test_rattachement_d_annotation_refuse_nomme_la_note_restee_orpheline(
         tmp_path, monkeypatch):
     """Note et tag créés, mais leur pose sur la personne échoue : troisième chemin,
-    même règle — décès créé, annotation rapportée avec le handle."""
+    même règle — décès créé, annotation rapportée avec le handle de l'événement
+    ET celui de la note, qui vient d'être créée et que plus rien ne rattache."""
     _stub_ecritures(monkeypatch, echecs={"attach": "409 conflit"})
     chemin = run_deces_event(_arbre(SANS_DECES), _yaml_lot(tmp_path, [PROP_DATE]),
                              tmp_path, date="2026-07-21")
@@ -555,3 +569,52 @@ def test_rattachement_d_annotation_refuse_compte_le_deces_cree_et_l_erreur(
     erreurs = _section(md, "Erreurs")
     assert "EV_NEW" in erreurs
     assert "409 conflit" in erreurs
+    assert "note1" in erreurs, "le handle de la note orpheline manque au rapport"
+    assert "orpheline" in erreurs.lower()
+
+
+def test_rapport_en_simulation_parle_au_conditionnel():
+    """Un rapport n'annonce jamais une écriture qui n'a pas eu lieu.
+
+    « Décès créés : 1 » et « Événement créé sans lieu » quatre lignes sous une
+    bannière « aucune écriture » se contredisent ; le prochain lecteur trancherait
+    au hasard. Les deux libellés doivent être ABSENTS, pas seulement doublés.
+    """
+    md = render_deaths_report(
+        "2026-07-21",
+        [("I0174", "Alain Rolland", "DRYRUN:event", "Saint-Palais")],
+        [], [("I0186", "Nohant-en-Goût")],
+        {"hors_perimetre": 0, "sans_donnee": 0}, [], dry_run=True)
+    assert "Décès à créer : 1" in md
+    assert "Décès créés" not in md
+    assert "Événement à créer sans lieu" in md
+    assert "Événement créé sans lieu" not in md
+
+
+def test_rapport_en_ecriture_reelle_reste_au_present():
+    """Le pendant du test précédent : hors simulation, les libellés ne bougent pas."""
+    md = render_deaths_report(
+        "2026-07-21",
+        [("I0174", "Alain Rolland", "EV_NEW", "Saint-Palais")],
+        [], [("I0186", "Nohant-en-Goût")],
+        {"hors_perimetre": 0, "sans_donnee": 0}, [], dry_run=False)
+    assert "Décès créés : 1" in md
+    assert "Décès à créer" not in md
+    assert "Événement créé sans lieu" in md
+    assert "Événement à créer sans lieu" not in md
+
+
+def test_message_d_erreur_multiligne_n_eclate_pas_la_liste():
+    """`str()` d'une erreur HTTP porte un saut de ligne (« For more information
+    check: … »). Une ligne vide, un `#`, un `|` ou un `- ` en tête de ligne
+    sortiraient du item de liste et casseraient la structure du rapport — la
+    seule trace qu'un humain lira après une écriture irréversible."""
+    brutal = ("503 Service Unavailable\n\n# Faux titre\n- faux item\n"
+              "| a | b |\nFor more information check: https://exemple.test")
+    md = render_deaths_report("2026-07-21", [], [], [],
+                              {"hors_perimetre": 0, "sans_donnee": 0},
+                              [("I0174", brutal)], dry_run=False)
+    erreurs = [ligne for ligne in _section(md, "Erreurs").splitlines() if ligne]
+    assert len(erreurs) == 1, f"l'erreur s'est étalée sur {len(erreurs)} lignes"
+    assert erreurs[0].startswith("- I0174 : ")
+    assert "503 Service Unavailable # Faux titre - faux item | a | b |" in erreurs[0]
