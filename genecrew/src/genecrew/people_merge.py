@@ -67,8 +67,13 @@ def executer_grappes(
                     )
                 )
                 continue
+        # `titanic_handles` et `titanic_gramps_ids` sont construits ensemble, dans le
+        # même ordre, à partir de la même liste `titanics` (plan_fusions) : la même
+        # longueur est un invariant, pas une supposition. `strict=True` le fait
+        # respecter — une désynchronisation lèverait plutôt que de tronquer en
+        # silence une fusion irréversible (revue B905).
         for titanic_handle, titanic_id in zip(
-            grappe.titanic_handles, grappe.titanic_gramps_ids
+            grappe.titanic_handles, grappe.titanic_gramps_ids, strict=True
         ):
             payload = json.loads(
                 fusion._run(
