@@ -48,6 +48,11 @@ verdict net/gris/aucun, country-prefixed place-code comparison; no network, offl
 `releves_import.py` (`import releve` orchestration — LLM interprets the pasted text, then
 deterministic collect/apparier/write of note+tag+citation on a `net`; `--person` forces the target
 without bypassing the safety guards),
+`referentiel.py` (`propose referentiel` — queries the 9-country Wikidata table, read-only
+report + YAML, including the tree-duplicates section; ADR 0016), `referentiel_apply.py`
+(`apply referentiel` — consumes the reviewed YAML, matches by QID first then name+type,
+creates/completes countries and subdivisions, retypes the 5 `Wilaya` places to `Province`;
+never re-queries Wikidata; ADR 0016),
 `propositions.py`, `stats.py`, `checkpoint.py`,
 `crew_audit.py` (crew orchestration), `crew.py` (the crew), `logging_setup.py`,
 `scope.py`, `batching.py`, `report.py`.
@@ -118,6 +123,9 @@ uv run genecrew merge people --scope all --limit 200 --dry-run  # fusionne les d
 uv run genecrew merge people --yaml <arbitrage.yaml>            # exécute les paires relues
 uv run genecrew propose wikidata --scope person:I0042  # pistes Wikidata ; scan complet = exception, borner avec --limit
 uv run genecrew propose dhs --scope person:I0042       # pistes DHS (projection de Wikidata via P902) ; aucune citation créée
+uv run genecrew propose referentiel --country FR,CH   # subdivisions Wikidata par pays, lecture seule (ADR 0016)
+uv run genecrew apply referentiel --yaml <relu.yaml> --dry-run   # écrit pays + subdivisions du YAML relu (ADR 0016)
+# `referentiel` : décision posée (ADR 0016), câblage CLI (cli.py/main.py) pas encore livré (tâche 10 du plan)
 
 # Train / replay / test the crew
 uv run train <n_iterations> <filename>

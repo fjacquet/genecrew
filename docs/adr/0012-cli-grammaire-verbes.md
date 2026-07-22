@@ -40,8 +40,8 @@ prolifération de mots de tête :
 
 ```
 genecrew stats
-genecrew propose  {audit | places | deaths | military | gender | wikidata | dhs}  # lecture seule → rapport (+ YAML pour audit|places|deaths|military)
-genecrew apply    {case | gender | places | citations | all}      # écrit
+genecrew propose  {audit | places | deaths | military | gender | wikidata | dhs | referentiel}  # lecture seule → rapport (+ YAML pour audit|places|deaths|military|referentiel)
+genecrew apply    {case | gender | places | citations | all | referentiel}      # écrit
 genecrew merge    places --yaml <fusions relues>                  # jamais auto
 genecrew enrich   wiki                                            # append-only
 genecrew import   place "<adresse>"                               # one-shot
@@ -68,6 +68,16 @@ Ajouter une base de données devient `propose <base>` — une feuille de plus so
 existant, jamais un nouveau mot de tête. Le YAML relu qui sort d'un `propose` passe par
 `apply citations`, qui existe déjà : une nouvelle source de registre n'ouvre pas de
 nouvelle porte d'écriture.
+
+`propose referentiel`/`apply referentiel` (chantier référentiel des subdivisions
+administratives, ADR 0016) ajoutent une feuille sous chacun des deux verbes, dans le même
+esprit que `propose wikidata`/`propose dhs` ci-dessus : `referentiel` n'est pas un domaine
+d'écriture supplémentaire, c'est le cycle proposer → relire → appliquer déjà en place,
+appliqué à une source de plus. `apply referentiel` consomme le YAML relu et ne réinterroge
+jamais Wikidata — même discipline que `apply citations` et `merge places` — ce qui distingue
+cette feuille des trois autres feuilles d'`apply` qui recalculent en direct (voir plus bas).
+Détail des décisions et de leur mesure dans l'ADR 0016 ; le câblage de ces deux feuilles dans
+`cli.py`/`main.py` n'est pas encore livré à la date de cet amendement.
 
 Le cycle « proposer → relire → appliquer » ci-dessus décrit la doctrine, mais seules 2
 des 5 feuilles d'`apply` la suivent à la lettre en consommant le YAML qu'un humain a
