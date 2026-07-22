@@ -46,23 +46,23 @@ RHONE = Subdivision(qid="Q46130", iso="FR-69", code="69", libelle_fr="Rhône",
 def test_le_qid_prime_sur_les_noms():
     par_qid = {"Q12771": "h_qid"}
     par_nom_type = {("canton de Vaud", "State"): "h_nom"}
-    assert apparier(VAUD, par_qid, par_nom_type, {}) == "h_qid"
+    assert apparier(VAUD, par_qid, par_nom_type, {}) == ("apparier", "h_qid")
 
 
 def test_appariement_par_nom_vernaculaire_quand_aucun_qid_nest_pose():
     """Premier run : `Bayern` est en base en allemand, la subdivision arrive en français."""
     par_nom_type = {("Bayern", "State"): "h_bayern"}
-    assert apparier(BAYERN, {}, par_nom_type, {}) == "h_bayern"
+    assert apparier(BAYERN, {}, par_nom_type, {}) == ("apparier", "h_bayern")
 
 
 def test_appariement_par_nom_seul_pour_retyper_une_wilaya():
     """Souk Ahras est typée `Wilaya` : aucune clé (nom, type) ne peut la retrouver."""
-    assert apparier(SOUK, {}, {}, {"Souk Ahras": "h_wilaya"}) == "h_wilaya"
+    assert apparier(SOUK, {}, {}, {"Souk Ahras": "h_wilaya"}) == ("apparier", "h_wilaya")
 
 
 def test_la_deuxieme_prise_exige_le_type_et_pas_seulement_le_nom():
     """Souk Ahras est à la fois une wilaya et une commune : c'est le type qui les sépare."""
-    assert apparier(SOUK, {}, {("Souk Ahras", "Municipality"): "h_commune"}, {}) is None
+    assert apparier(SOUK, {}, {("Souk Ahras", "Municipality"): "h_commune"}, {}) == ("creer", None)
 
 
 def test_un_pays_homonyme_nest_jamais_pris_pour_une_subdivision():
@@ -70,7 +70,8 @@ def test_un_pays_homonyme_nest_jamais_pris_pour_une_subdivision():
     GPS d'Atlanta, le code `GA` et un rattachement sous les États-Unis."""
     par_handle = {"h_pays": {"handle": "h_pays", "name": {"value": "Géorgie"},
                              "place_type": "Country", "placeref_list": []}}
-    assert apparier(GEORGIE, {}, {}, {"Géorgie": "h_pays"}, par_handle=par_handle) is None
+    assert apparier(GEORGIE, {}, {}, {"Géorgie": "h_pays"},
+                    par_handle=par_handle) == ("creer", None)
 
 
 def test_un_candidat_rattache_ailleurs_est_refuse():
@@ -79,22 +80,22 @@ def test_un_candidat_rattache_ailleurs_est_refuse():
                           "place_type": "Department",
                           "placeref_list": [{"ref": "h_un_autre_parent"}]}}
     assert apparier(RHONE, {}, {("Rhône", "Department"): "h_r"}, {},
-                    par_handle=par_handle, parents={"h_ara"}) is None
+                    par_handle=par_handle, parents={"h_ara"}) == ("creer", None)
     assert apparier(RHONE, {}, {("Rhône", "Department"): "h_r"}, {},
-                    par_handle=par_handle, parents={"h_un_autre_parent"}) == "h_r"
+                    par_handle=par_handle,
+                    parents={"h_un_autre_parent"}) == ("apparier", "h_r")
 
 
-def test_un_candidat_non_rattache_est_refuse_quand_le_parent_est_connu():
-    """Un contenant SANS rattachement est l'état normal de l'arbre au premier run — poser
-    les parents manquants est l'objet même de la commande. Le laisser passer rendrait la
-    clause de parent inerte sur toute la population qu'elle doit protéger."""
+def test_un_candidat_non_rattache_est_renvoye_a_confirmation():
+    """Un contenant SANS rattachement n'apporte AUCUNE preuve, ni pour ni contre : ni
+    l'écrire (risque du mauvais objet) ni le doubler (nettoyage imposé). On le signale."""
     par_handle = {"h_r": {"handle": "h_r", "name": {"value": "Rhône"},
                           "place_type": "Department", "placeref_list": []}}
     assert apparier(RHONE, {}, {("Rhône", "Department"): "h_r"}, {},
-                    par_handle=par_handle, parents={"h_ara"}) is None
+                    par_handle=par_handle, parents={"h_ara"}) == ("confirmer", "h_r")
     # Parent inconnu : on ne peut rien exiger, donc aucune contrainte de lieu.
     assert apparier(RHONE, {}, {("Rhône", "Department"): "h_r"}, {},
-                    par_handle=par_handle) == "h_r"
+                    par_handle=par_handle) == ("apparier", "h_r")
 
 
 def test_un_enfant_sous_lun_des_homonymes_du_parent_est_reconnu():
@@ -106,7 +107,8 @@ def test_un_enfant_sous_lun_des_homonymes_du_parent_est_reconnu():
     par_handle = {"h_ara": {"handle": "h_ara", "name": {"value": "Auvergne-Rhône-Alpes"},
                             "place_type": "Region", "placeref_list": [{"ref": "h_f1"}]}}
     assert apparier(ara, {}, {("Auvergne-Rhône-Alpes", "Region"): "h_ara"}, {},
-                    par_handle=par_handle, parents={"h_f1", "h_f2"}) == "h_ara"
+                    par_handle=par_handle,
+                    parents={"h_f1", "h_f2"}) == ("apparier", "h_ara")
 
 
 def test_handles_designant_ramasse_les_homonymes_et_les_porteurs_du_qid():
@@ -505,23 +507,50 @@ def test_deux_entrees_sur_le_meme_lieu_nen_ecrivent_quune(mocker, tmp_path):
         texte, "Conflits d'appariement")
 
 
-def test_un_homonyme_non_rattache_nest_pas_pris_pour_la_cible(mocker, tmp_path):
+def test_un_homonyme_non_rattache_ne_recoit_rien(mocker, tmp_path):
     """Cas reproduit : un `Province` « Limbourg » néerlandais, non rattaché, recevait le GPS
-    et le code du Limbourg belge. Un contenant sans rattachement est l'état normal de
-    l'arbre au premier run, donc c'est là que la clause de parent doit mordre.
-
-    Écrire sur le mauvais lieu est irréversible ; le doublon créé ici est réversible et
-    outillé (`merge places`).
-    """
+    et le code du Limbourg belge. C'est le lieu de l'arbre, pas la subdivision, qui décide :
+    rien n'est écrit dessus."""
     limbourg = Subdivision(qid="Q1095", iso="BE-VLI", code="VLI", libelle_fr="Limbourg",
                            noms=["Limbourg"], place_type="Province", niveau=1,
                            parent_qid="Q31", lat="51.0", long="5.4")
     belgique = EntitePays(qid="Q31", libelle_fr="Belgique", lat="50.6", long="4.6")
     places = [_lieu("h_nl", "P1000", "Limbourg", "Province")]   # le Limbourg néerlandais
-    journal, texte, _ = _lancer(mocker, tmp_path, places, pays=(belgique,),
-                                subdivisions=(limbourg,))
+    journal, _, _ = _lancer(mocker, tmp_path, places, pays=(belgique,),
+                            subdivisions=(limbourg,))
     assert [p for p in journal["puts"] if p["handle"] == "h_nl"] == []
-    assert [p["name"]["value"] for p in journal["posts"]] == ["Belgique", "Limbourg"]
+    assert [p["name"]["value"] for p in journal["posts"]] == ["Belgique"]
+
+
+def test_un_homonyme_non_rattache_est_signale_au_lieu_detre_double(mocker, tmp_path):
+    """Les 4 `State` allemands sont en base en allemand, non rattachés — ils sont la raison
+    d'être du nom vernaculaire. Créer `Bavière` à côté de `Bayern` serait le pire des trois
+    résultats ; l'écrire prendrait le risque du mauvais objet. On rend la décision."""
+    allemagne = EntitePays(qid="Q183", libelle_fr="Allemagne", lat="51.0", long="9.0")
+    places = [_lieu("h_by", "P0600", "Bayern", "State")]
+    journal, texte, _ = _lancer(mocker, tmp_path, places, pays=(allemagne,),
+                                subdivisions=(BAYERN,))
+    assert [p for p in journal["puts"] if p["handle"] == "h_by"] == []   # rien n'est écrit
+    assert [p["name"]["value"] for p in journal["posts"]] == ["Allemagne"]   # rien créé
+    ligne = _section_du_rapport(texte, "Homonymes non rattachés — à confirmer")
+    assert "| P0600 | Bayern | DE-BY | Bavière |" in ligne
+    # La colonne « ce qui aurait été posé » : une décision, pas une enquête.
+    assert "code BY" in ligne and "alt_name Bavière" in ligne
+    assert "https://www.wikidata.org/wiki/Q980" in ligne
+
+
+def test_la_descendance_dun_homonyme_a_confirmer_nest_pas_creee(mocker, tmp_path):
+    """Même règle que pour un doublon : sans son parent, l'enfant naîtrait à la racine."""
+    ara = Subdivision(qid="Q18338206", iso="FR-ARA", code="ARA",
+                      libelle_fr="Auvergne-Rhône-Alpes", noms=["Auvergne-Rhône-Alpes"],
+                      place_type="Region", niveau=1, parent_qid="Q142")
+    france = EntitePays(qid="Q142", libelle_fr="France", lat="46.2", long="2.2")
+    places = [_lieu("h_ara", "P0400", "Auvergne-Rhône-Alpes", "Region")]
+    journal, texte, _ = _lancer(mocker, tmp_path, places, pays=(france,),
+                                subdivisions=(ara, RHONE.model_copy(update={"niveau": 2})))
+    assert [p["name"]["value"] for p in journal["posts"]] == ["France"]
+    assert "| FR-69 | Rhône | FR-ARA | homonyme non rattaché à confirmer |" in (
+        _section_du_rapport(texte, "Descendance bloquée"))
 
 
 def test_les_deux_france_ne_font_pas_naitre_une_seconde_region(mocker, tmp_path):

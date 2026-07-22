@@ -208,57 +208,76 @@ def identifiant(sub: Subdivision) -> str:
 
 # --- appariement ------------------------------------------------------------------------
 
-def _candidat_recevable(sub: Subdivision, place: dict | None, parents: set[str]) -> bool:
-    """Un candidat trouvé par son NOM est-il bien la cible visée ? (spec §5.3)
+def verdict_candidat(sub: Subdivision, place: dict | None, parents: set[str]) -> str:
+    """Que faire d'un candidat trouvé par son NOM ? (spec §5.3) Trois issues, jamais deux.
 
-    Deux refus, tirés de cas reproduits :
+    Le rattachement du candidat est traité comme une **preuve**, et le verdict suit ce que
+    cette preuve établit :
 
-    - un lieu typé `Country` n'est jamais la cible d'une subdivision. Sans cette règle,
-      l'État américain `Géorgie` s'apparie au **pays** Géorgie, qui reçoit alors le GPS
-      d'Atlanta, le code `GA` et un rattachement sous les États-Unis. Même mécanique pour
-      la province belge `Luxembourg` contre le pays `Luxembourg`.
-    - quand le parent est connu, le candidat doit être **sous ce parent** — c'est la clause
-      « sous le même parent » du §5.3, que l'index (nom, type) ignore. Un candidat NON
-      RATTACHÉ ne passe pas non plus : c'est l'état normal de l'arbre au premier run, donc
-      la clause serait inerte sur toute la population qu'elle doit protéger. Un `Province`
-      « Limbourg » néerlandais non rattaché recevrait les données du Limbourg belge.
-
-    `parents` vide = parent inconnu : aucune contrainte de lieu, on ne peut rien exiger.
+    - `"creer"` — le candidat est prouvé étranger à la cible. Deux cas : un lieu typé
+      `Country` n'est jamais une subdivision (sans quoi l'État américain `Géorgie` s'apparie
+      au **pays** Géorgie et reçoit le GPS d'Atlanta) ; ou il est rattaché AILLEURS que sous
+      le parent attendu, ce qui le range dans une autre branche de l'arbre — c'est ce qui
+      protège le `Province` « Limbourg » néerlandais des données du Limbourg belge.
+    - `"apparier"` — le candidat est sous le parent attendu, ou aucun parent n'est connu et
+      il n'y a alors rien à exiger.
+    - `"confirmer"` — le candidat n'a AUCUN rattachement. Il n'apporte aucune preuve, ni
+      pour ni contre. Écrire prendrait le risque du mauvais objet ; créer imposerait à
+      l'humain un nettoyage qu'il n'a pas demandé. On ne fait rien et on le dit : c'est
+      exactement la population pour laquelle le nom vernaculaire existe — les quatre `State`
+      allemands sont en base sous `Bayern`, `Hessen`… et créer `Bavière` à côté de `Bayern`
+      serait le pire des trois résultats.
     """
     if place is None:
-        return True
+        return "apparier"
     if sub.niveau > 0 and type_lisible(place) == "Country":
-        return False
+        return "creer"
     if not parents:
-        return True
+        return "apparier"
     refs = {ref.get("ref") for ref in place.get("placeref_list") or []
             if isinstance(ref, dict)}
-    return bool(refs & parents)
+    if not refs:
+        return "confirmer"
+    return "apparier" if refs & parents else "creer"
 
 
 def apparier(sub: Subdivision, par_qid: dict[str, str],
              par_nom_type: dict[tuple[str, str], str],
              par_nom: dict[str, str], *,
              par_handle: dict[str, dict] | None = None,
-             parents: set[str] | frozenset[str] = frozenset()) -> str | None:
+             parents: set[str] | frozenset[str] = frozenset()) -> tuple[str, str | None]:
     """Trois prises, dans l'ordre : QID, puis (nom, type), puis nom seul chez les contenants.
+
+    Rend `(verdict, handle)` — voir `verdict_candidat` pour les trois verdicts. `"creer"`
+    vient toujours avec un handle `None` : il n'y a rien à écrire.
 
     Les noms essayés sont ceux de `sub.noms` — français d'abord, vernaculaire ensuite —
     parce que l'arbre porte `Bayern` là où Wikidata rend `Bavière`.
 
-    Le QID est une identité : il s'impose seul, sans passer par `_candidat_recevable`. Les
-    deux prises par le nom ne sont que des présomptions ; `par_handle` leur donne les lieux
-    dont elles ont besoin pour se juger, `parents` les handles du parent attendu.
+    Le QID est une identité : il s'impose seul, sans passer par `verdict_candidat`. Les deux
+    prises par le nom ne sont que des présomptions ; `par_handle` leur donne les lieux dont
+    elles ont besoin pour se juger, `parents` les handles du parent attendu.
+
+    Un candidat à confirmer ne coupe pas la recherche : si une prise suivante trouve un
+    candidat franchement au bon endroit, c'est lui qui l'emporte.
     """
     if sub.qid and sub.qid in par_qid:
-        return par_qid[sub.qid]
+        return "apparier", par_qid[sub.qid]
     index = par_handle or {}
+    a_confirmer: str | None = None
     for prise in ([par_nom_type.get((nom, sub.place_type)) for nom in sub.noms],
                   [par_nom.get(nom) for nom in sub.noms]):
         for handle in prise:
-            if handle and _candidat_recevable(sub, index.get(handle), set(parents)):
-                return handle
-    return None
+            if not handle:
+                continue
+            verdict = verdict_candidat(sub, index.get(handle), set(parents))
+            if verdict == "apparier":
+                return "apparier", handle
+            if verdict == "confirmer" and a_confirmer is None:
+                a_confirmer = handle
+    if a_confirmer is not None:
+        return "confirmer", a_confirmer
+    return "creer", None
 
 
 def _urls_de(sub: Subdivision) -> list[dict]:
@@ -308,6 +327,25 @@ def decider(sub: Subdivision, place: dict | None) -> dict:
     return plan
 
 
+def resume_du_plan(plan: dict) -> str:
+    """Ce qu'une écriture aurait posé, en une ligne.
+
+    Sert la section « Homonymes non rattachés » : sans cette colonne, la relecture est une
+    enquête (ouvrir le lieu, ouvrir Wikidata, comparer) au lieu d'être une décision.
+    """
+    morceaux = []
+    if plan.get("place_type"):
+        morceaux.append(f"type {plan['place_type']}")
+    if plan.get("lat") or plan.get("long"):
+        morceaux.append(f"GPS {plan.get('lat') or '?'}/{plan.get('long') or '?'}")
+    if plan.get("code"):
+        morceaux.append(f"code {plan['code']}")
+    morceaux += [f"alt_name {alt['value']}" for alt in plan.get("alt_names") or []]
+    if plan.get("urls"):
+        morceaux.append(", ".join(url["path"] for url in plan["urls"]))
+    return " ; ".join(morceaux) or "rien à poser"
+
+
 def _cibles_du_yaml(doc: dict) -> list[Subdivision]:
     """Pays puis subdivisions, triés par niveau : un parent est toujours écrit avant l'enfant."""
     pays = [subdivision_de_pays(EntitePays(**entite)) for entite in doc.get("pays") or []]
@@ -343,6 +381,7 @@ def render_apply_report(date: str, bilan: dict, dry_run: bool) -> str:
               f"- Lieux complétés : {len(bilan['completes'])}",
               f"- Retypages : {len(bilan['retypages'])}",
               f"- URLs à poser : {bilan['urls_ajoutees']}",
+              f"- Homonymes non rattachés à confirmer (non écrits) : {len(bilan['a_confirmer'])}",
               f"- Appariés sur un doublon connu (non écrits) : {len(bilan['doublons_touches'])}",
               f"- Conflits d'appariement (non écrits) : {len(bilan['conflits'])}",
               f"- Descendance bloquée (non écrite) : {len(bilan['bloques'])}",
@@ -356,6 +395,17 @@ def render_apply_report(date: str, bilan: dict, dry_run: bool) -> str:
         chapeau="Seule écriture destructive du lot (spec §4) : un type PERSONNALISÉ devient "
                 "natif. Chaque ligne figure ici pour qu'un retypage de masse — signe que la "
                 "table des types natifs ne correspond plus au serveur — saute aux yeux.")
+    lignes += _section(
+        "Homonymes non rattachés — à confirmer",
+        ["Lieu", "Nom en base", "ISO", "Subdivision", "Ce qui aurait été posé"],
+        bilan["a_confirmer"],
+        chapeau="Un lieu de l'arbre porte ce nom mais n'a **aucun** rattachement : rien ne "
+                "prouve qu'il est la cible visée, rien ne prouve le contraire. Écrire "
+                "prendrait le risque du mauvais objet ; créer imposerait un nettoyage que "
+                "personne n'a demandé. Donc rien n'a été fait, et la décision revient ici. "
+                "Pour débloquer : poser le QID Wikidata sur le lieu (le prochain run "
+                "l'appariera sans ambiguïté) ou le rattacher à son parent — sinon créer le "
+                "lieu à la main.")
     lignes += _section(
         "Appariés sur un doublon de l'arbre — rien n'a été écrit",
         ["ISO", "Nom", "Lieux en doublon"], bilan["doublons_touches"],
@@ -412,7 +462,8 @@ def run_referentiel_apply(client, yaml_path, output_dir, *, date: str,
     consommes: dict[str, str] = {}                  # handle -> ISO qui l'a déjà pris
     ecartes: dict[str, tuple[str, str]] = {}        # QID non écrit -> (bloquant, motif)
     bilan: dict = {"crees": [], "completes": [], "retypages": [], "doublons_touches": [],
-                   "conflits": [], "bloques": [], "orphelins": [], "erreurs": [],
+                   "a_confirmer": [], "conflits": [], "bloques": [], "orphelins": [],
+                   "erreurs": [],
                    "exclus": [(p.get("gramps_id", p["handle"]), motif)
                               for p in places if (motif := motif_dexclusion(p))],
                    "urls_ajoutees": 0}
@@ -432,8 +483,8 @@ def run_referentiel_apply(client, yaml_path, output_dir, *, date: str,
                 continue
 
             parents = handles_designants.get(sub.parent_qid, set()) if sub.parent_qid else set()
-            handle = apparier(sub, par_qid, par_nom_type, par_nom,
-                              par_handle=par_handle, parents=parents)
+            verdict, handle = apparier(sub, par_qid, par_nom_type, par_nom,
+                                       par_handle=par_handle, parents=parents)
             place = par_handle.get(handle) if handle else None
             gid = (place or {}).get("gramps_id", "")
 
@@ -442,6 +493,14 @@ def run_referentiel_apply(client, yaml_path, output_dir, *, date: str,
                     (ident, sub.libelle_fr,
                      ", ".join(handles_doublons[handle].get("gramps_ids") or [])))
                 ecartes[sub.qid] = (ident, "doublon de l'arbre")
+                continue
+            if verdict == "confirmer":
+                # Un homonyme sans rattachement ne prouve rien. On rend la décision, avec
+                # de quoi la prendre — le lieu visé et ce que l'écriture aurait posé.
+                bilan["a_confirmer"].append(
+                    (gid, (place or {}).get("name", {}).get("value", ""), ident,
+                     sub.libelle_fr, resume_du_plan(decider(sub, place))))
+                ecartes[sub.qid] = (ident, "homonyme non rattaché à confirmer")
                 continue
             if handle and handle in consommes:
                 # `par_handle` est un cache lu une fois : une seconde écriture sur le même
