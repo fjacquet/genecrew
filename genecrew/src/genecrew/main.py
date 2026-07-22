@@ -264,17 +264,31 @@ def lieux_apply_cmd(args) -> None:
 
 
 def lieux_merge_cmd(args) -> None:
-    """Execute human-reviewed place merges from a fusions YAML; print the report path."""
+    """Détecte et fusionne les doublons de lieux prouvés, ou exécute un YAML relu."""
     from pathlib import Path
 
     from crewai_custom_tools.tools.genealogy.gramps.client import get_client
 
-    from genecrew.places_merge import run_places_merge
+    from genecrew.places_merge import run_places_detect, run_places_merge
 
     client = get_client()
     output_dir = Path(os.environ.get("GENECREW_OUTPUT_DIR", "output"))
     date = args.date or __import__("datetime").date.today().isoformat()
-    report = run_places_merge(client, args.yaml, output_dir, date=date, dry_run=args.dry_run)
+    if args.yaml:
+        report = run_places_merge(client, args.yaml, output_dir, date=date,
+                                  dry_run=args.dry_run)
+    else:
+        if args.limit is not None:
+            # La garde vit dans run_places_detect (un lot borné ne fusionne jamais :
+            # `--limit` tronque les groupes d'homonymes sur lesquels elle raisonne) et
+            # son explication n'est sinon disponible que dans le rapport Markdown. Sans
+            # ce mot ici, quelqu'un qui lance la commande avec --limit et voit « zéro
+            # fusion » irait chercher une panne au lieu de relancer sans --limit.
+            print("Lot borné (--limit) : simulation forcée, aucune fusion. Un groupe "
+                  "d'homonymes tronqué ne permet pas de décider d'une fusion "
+                  "irréversible — relancez sans --limit pour appliquer les fusions.")
+        report = run_places_detect(client, output_dir, scope=args.scope, date=date,
+                                   limit=args.limit, dry_run=args.dry_run)
     print(f"Rapport : {report}")
 
 

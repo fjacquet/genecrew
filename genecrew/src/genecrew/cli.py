@@ -145,8 +145,12 @@ def build_parser() -> argparse.ArgumentParser:
     merge_p = sub.add_parser("merge", help="Fusions : lieux relus, personnes sur preuve")
     merge_sub = merge_p.add_subparsers(dest="target", required=True)
 
-    p = merge_sub.add_parser("places", help="Fusionne les lieux listés dans un YAML relu")
-    _add_yaml(p)
+    p = merge_sub.add_parser(
+        "places", help="Détecte les doublons de lieux et fusionne les prouvés ; "
+             "ou exécute un YAML relu (ADR 0015)")
+    _add_scope(p, "all | place:ID")
+    p.add_argument("--yaml", default=None,
+                   help="exécuter les fusions d'un YAML relu, au lieu de détecter")
     _add_dry_run(p)
     _add_date(p)
 

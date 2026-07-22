@@ -48,6 +48,62 @@ def test_lieux_merge_cmd_passes_yaml_flag_to_engine(monkeypatch, tmp_path):
     assert captured["merges_yaml"] == "fusions_relues.yaml"
 
 
+def test_lieux_merge_cmd_sans_yaml_detecte(monkeypatch, tmp_path):
+    """Sans --yaml, la commande bascule sur le mode détection (run_places_detect)."""
+    captured = {}
+    monkeypatch.setattr(gramps_client_mod, "get_client", lambda: FAKE_CLIENT)
+    monkeypatch.setenv("GENECREW_OUTPUT_DIR", str(tmp_path))
+
+    def _spy(client, output_dir, *, scope, date, limit=None, dry_run=False):
+        captured["scope"] = scope
+        return tmp_path / "rapport.md"
+
+    monkeypatch.setattr(places_merge_mod, "run_places_detect", _spy)
+
+    main_mod.lieux_merge_cmd(_args(["merge", "places", "--scope", "all"]))
+
+    assert captured["scope"] == "all"
+
+
+def test_lieux_merge_cmd_avertit_sur_la_console_quand_le_lot_est_borne(
+        monkeypatch, tmp_path, capsys):
+    """La garde « un lot borné ne fusionne jamais » vit dans run_places_detect, et son
+    explication n'existe sinon que dans le rapport Markdown. Quelqu'un qui lance la
+    commande avec --limit et voit « zéro fusion » doit comprendre pourquoi sans aller
+    ouvrir le rapport — le message doit donc apparaître sur la console."""
+    monkeypatch.setattr(gramps_client_mod, "get_client", lambda: FAKE_CLIENT)
+    monkeypatch.setenv("GENECREW_OUTPUT_DIR", str(tmp_path))
+
+    def _spy(client, output_dir, *, scope, date, limit=None, dry_run=False):
+        return tmp_path / "rapport.md"
+
+    monkeypatch.setattr(places_merge_mod, "run_places_detect", _spy)
+
+    main_mod.lieux_merge_cmd(
+        _args(["merge", "places", "--scope", "all", "--limit", "5"]))
+
+    out = capsys.readouterr().out
+    assert "--limit" in out
+    assert "lot borné" in out.lower()
+
+
+def test_lieux_merge_cmd_sans_limit_ne_dit_rien_sur_le_lot_borne(
+        monkeypatch, tmp_path, capsys):
+    """Sans --limit, aucune garde ne s'applique : pas d'avertissement à afficher."""
+    monkeypatch.setattr(gramps_client_mod, "get_client", lambda: FAKE_CLIENT)
+    monkeypatch.setenv("GENECREW_OUTPUT_DIR", str(tmp_path))
+
+    def _spy(client, output_dir, *, scope, date, limit=None, dry_run=False):
+        return tmp_path / "rapport.md"
+
+    monkeypatch.setattr(places_merge_mod, "run_places_detect", _spy)
+
+    main_mod.lieux_merge_cmd(_args(["merge", "places", "--scope", "all"]))
+
+    out = capsys.readouterr().out
+    assert "lot borné" not in out.lower()
+
+
 def test_deces_apply_cmd_passes_yaml_flag_to_engine(monkeypatch, tmp_path):
     captured = {}
     monkeypatch.setattr(gramps_client_mod, "get_client", lambda: FAKE_CLIENT)

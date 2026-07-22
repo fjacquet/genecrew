@@ -2,7 +2,7 @@ import pytest
 
 from genecrew.cli import build_parser
 
-# (argv, command, target) — les 15 feuilles de la nouvelle grammaire
+# (argv, command, target) — les 16 feuilles de la nouvelle grammaire
 LEAVES = [
     (["stats"], "stats", None),
     (["propose", "audit"], "propose", "audit"),
@@ -16,6 +16,7 @@ LEAVES = [
     (["apply", "citations", "--yaml", "relu.yaml"], "apply", "citations"),
     (["apply", "all"], "apply", "all"),
     (["merge", "places", "--yaml", "fusions.yaml"], "merge", "places"),
+    (["merge", "places", "--scope", "all"], "merge", "places"),
     (["enrich", "wiki"], "enrich", "wiki"),
     (["import", "place", "Bourges, Cher, France"], "import", "place"),
     (["crew", "audit"], "crew", "audit"),
@@ -51,11 +52,6 @@ def test_a_verb_without_target_is_rejected():
 def test_yaml_is_required_for_apply_citations():
     with pytest.raises(SystemExit):
         build_parser().parse_args(["apply", "citations"])
-
-
-def test_yaml_is_required_for_merge_places():
-    with pytest.raises(SystemExit):
-        build_parser().parse_args(["merge", "places"])
 
 
 def test_defaults_are_preserved():
@@ -132,3 +128,11 @@ def test_merge_people_accepte_le_mode_detection():
 def test_merge_people_accepte_un_yaml_relu():
     args = build_parser().parse_args(["merge", "people", "--yaml", "arbitrage.yaml"])
     assert args.yaml == "arbitrage.yaml"
+
+
+def test_merge_places_accepte_le_mode_detection_sans_yaml():
+    """`--yaml` devient optionnel : sans lui, la commande détecte."""
+    args = build_parser().parse_args(["merge", "places", "--scope", "all"])
+    assert args.yaml is None
+    assert args.scope == "all"
+    assert args.limit is None
