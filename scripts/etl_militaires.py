@@ -157,7 +157,13 @@ def classify_and_rows(path: Path):
                 }
             else:
 
-                def _bdate(prefix):
+                # `row=row` fige la valeur de la ligne courante dans la signature :
+                # `_bdate` est redéfinie à chaque itération et appelée aussitôt (deux
+                # fois, plus bas, dans la même itération), donc le comportement était
+                # déjà correct — mais capturer `row` par fermeture plutôt que par
+                # argument par défaut est fragile si un futur appel différé était
+                # ajouté (revue B023).
+                def _bdate(prefix, row=row):
                     y = pick(row, f"{prefix}:anneeDebut")
                     mo = pick(row, f"{prefix}:moisDebut")
                     d = pick(row, f"{prefix}:jourDebut")
