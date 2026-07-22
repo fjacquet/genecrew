@@ -4,16 +4,15 @@ import json
 
 import httpx
 import pytest
-
 from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient, GrampsConfig
 from crewai_custom_tools.tools.genealogy.models.domain import (
     PlaceProposition,
     ResolvedPlace,
 )
-
-from genecrew import places_apply
-from genecrew import deces as deces_mod
 from genecrew.apply_all import run_apply_all
+
+from genecrew import deces as deces_mod
+from genecrew import places_apply
 
 CONFIG = GrampsConfig(api_url="http://g.test/api", username="u", password="p")
 

@@ -18,12 +18,12 @@ engine call.
 from pathlib import Path
 
 from crewai_custom_tools.tools.genealogy.gramps import client as gramps_client_mod
+from genecrew.cli import build_parser
 
 from genecrew import deces_apply as deces_apply_mod
 from genecrew import lieux_wiki as lieux_wiki_mod
 from genecrew import main as main_mod
 from genecrew import places_merge as places_merge_mod
-from genecrew.cli import build_parser
 
 FAKE_CLIENT = object()
 

@@ -4,9 +4,8 @@ import httpx
 import pytest
 from crewai_custom_tools.tools.genealogy.gramps import write_tools
 from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient, GrampsConfig
-from pydantic import ValidationError
-
 from genecrew.pistes import Piste, cle_derivee, consigner, marqueur, marqueurs_existants
+from pydantic import ValidationError
 
 CONFIG = GrampsConfig(api_url="http://g.test/api", username="u", password="p")
 
@@ -135,16 +134,16 @@ def _client(records, notes=()):
 
 
 def _base_piste(**kw):
-    base = dict(
-        gramps_id="I1123",
-        handle="h1",
-        source="matchid",
-        identite="a1b2c3d4",
-        requete="nom=SOULAT&prenom=Kleber",
-        url="https://deces.matchid.io/id/a1b2c3d4",
-        concordances=["nom", "date complète"],
-        divergences=[],
-    )
+    base = {
+        "gramps_id": "I1123",
+        "handle": "h1",
+        "source": "matchid",
+        "identite": "a1b2c3d4",
+        "requete": "nom=SOULAT&prenom=Kleber",
+        "url": "https://deces.matchid.io/id/a1b2c3d4",
+        "concordances": ["nom", "date complète"],
+        "divergences": [],
+    }
     base.update(kw)
     return base
 

@@ -4,9 +4,7 @@ import json
 
 import httpx
 import pytest
-
 from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient, GrampsConfig
-
 from genecrew.gender_apply import render_apply_report, run_gender_apply
 
 CONFIG = GrampsConfig(api_url="http://g.test/api", username="u", password="p")

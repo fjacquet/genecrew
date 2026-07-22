@@ -10,7 +10,6 @@ import json
 from pathlib import Path
 
 import yaml
-
 from crewai_custom_tools.tools.genealogy.analysis.duplicates import etager
 from crewai_custom_tools.tools.genealogy.analysis.merge_plan import plan_fusions
 from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient
@@ -25,6 +24,7 @@ from crewai_custom_tools.tools.genealogy.models.domain import (
     MergePair,
     PersonFacts,
 )
+
 from genecrew.batching import iter_people_batches
 
 _TAILLE_LOT = 200
@@ -67,8 +67,13 @@ def executer_grappes(
                     )
                 )
                 continue
+        # `titanic_handles` et `titanic_gramps_ids` sont construits ensemble, dans le
+        # même ordre, à partir de la même liste `titanics` (plan_fusions) : la même
+        # longueur est un invariant, pas une supposition. `strict=True` le fait
+        # respecter — une désynchronisation lèverait plutôt que de tronquer en
+        # silence une fusion irréversible (revue B905).
         for titanic_handle, titanic_id in zip(
-            grappe.titanic_handles, grappe.titanic_gramps_ids
+            grappe.titanic_handles, grappe.titanic_gramps_ids, strict=True
         ):
             payload = json.loads(
                 fusion._run(

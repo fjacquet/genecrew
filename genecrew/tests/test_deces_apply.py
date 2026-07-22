@@ -7,7 +7,6 @@ import pytest
 import yaml
 from crewai_custom_tools.tools.genealogy.gramps import write_tools
 from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient, GrampsConfig
-
 from genecrew.deces_apply import (
     SOURCE_TITLE,
     citation_page,
@@ -111,8 +110,13 @@ def _full_handler(state):
     def h(request):
         p, m = request.url.path, request.method
         if m == "GET" and p == "/api/sources/":
-            page = int(request.url.params.get("page"))
-            return httpx.Response(200, json=[] if page > 1 else [])
+            # Scénario « aucune source existante » : vide sur toute page, à
+            # l'image du même idiome de pagination utilisé ailleurs dans la
+            # suite (`X if page == 1 else []`) — ici X est vide aussi, d'où
+            # une seule branche. `page` reste lu pour exiger le paramètre,
+            # comme partout ailleurs.
+            int(request.url.params.get("page"))
+            return httpx.Response(200, json=[])
         if m == "POST" and p == "/api/sources/":
             state["source_posts"].append(json.loads(request.content))
             return httpx.Response(201, json=[{"handle": "SRC1"}])

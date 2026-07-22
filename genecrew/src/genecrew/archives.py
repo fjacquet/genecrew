@@ -81,7 +81,7 @@ def run_archives(
                 if THROTTLE_S:
                     time.sleep(THROTTLE_S)
                 pistes = collecter_pistes(source, person)
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 echecs += 1
                 logger.warning("%s : %s a échoué (%s)", person.gramps_id, source, exc)
                 continue

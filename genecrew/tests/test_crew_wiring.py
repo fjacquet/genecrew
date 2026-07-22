@@ -5,7 +5,6 @@ called at kickoff, which this test never does.
 """
 
 from crewai import Process
-
 from genecrew.crew import DEFAULT_MODEL, Genecrew, build_llm
 
 WRITE_TOOL_NAMES = {"gramps_create_note", "gramps_ensure_tag", "gramps_attach"}

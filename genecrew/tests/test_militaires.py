@@ -2,9 +2,9 @@
 
 import yaml
 from crewai_custom_tools.tools.genealogy.models.domain import EventFact, PersonFacts
+from genecrew.militaires import run_militaires
 
 from genecrew import militaires
-from genecrew.militaires import run_militaires
 
 SYLVAIN_ROW = {
     "base": "Guerre 1914-1918",
@@ -49,7 +49,6 @@ def _event(kind, year, day=0, month=0, cited=False):
 def test_proposition_date_militaire_porte_la_donnee_machine():
     """Mémoire des hommes hérite du même contrat que l'INSEE : date et commune typées."""
     from crewai_custom_tools.tools.genealogy.models.domain import PersonFacts
-
     from genecrew.militaires import build_militaire_proposition
 
     person = PersonFacts(

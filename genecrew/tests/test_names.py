@@ -2,7 +2,6 @@ import json
 
 import httpx
 import pytest
-
 from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient, GrampsConfig
 from crewai_custom_tools.tools.genealogy.models.domain import PersonFacts
 from genecrew.names import render_names_report, run_names

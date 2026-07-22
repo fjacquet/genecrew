@@ -3,8 +3,8 @@
 import json
 
 import pytest
-
 from crewai_custom_tools.tools.genealogy.models.domain import MergeCluster, PersonFacts
+
 from genecrew import people_merge
 
 

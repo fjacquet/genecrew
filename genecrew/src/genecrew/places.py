@@ -6,7 +6,6 @@ from pathlib import Path
 
 import httpx
 import yaml
-
 from crewai_custom_tools.tools.genealogy.geo.registry import (
     confiance_of,
     decide_action,

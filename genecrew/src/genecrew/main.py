@@ -2,7 +2,6 @@
 import os
 import sys
 import warnings
-
 from datetime import datetime
 from pathlib import Path
 
@@ -54,7 +53,7 @@ def run():
         )
         print(f"Rapport : {report}")
     except Exception as e:
-        raise Exception(f"An error occurred while running the crew: {e}")
+        raise Exception(f"An error occurred while running the crew: {e}") from e
 
 
 def train():
@@ -71,7 +70,7 @@ def train():
         )
 
     except Exception as e:
-        raise Exception(f"An error occurred while training the crew: {e}")
+        raise Exception(f"An error occurred while training the crew: {e}") from e
 
 
 def replay():
@@ -84,7 +83,7 @@ def replay():
         Genecrew().crew().replay(task_id=sys.argv[1])
 
     except Exception as e:
-        raise Exception(f"An error occurred while replaying the crew: {e}")
+        raise Exception(f"An error occurred while replaying the crew: {e}") from e
 
 
 def test():
@@ -101,7 +100,7 @@ def test():
         )
 
     except Exception as e:
-        raise Exception(f"An error occurred while testing the crew: {e}")
+        raise Exception(f"An error occurred while testing the crew: {e}") from e
 
 
 def stats() -> None:
@@ -238,6 +237,45 @@ def archives_cmd(args, source: str) -> None:
         limit=args.limit,
     )
     print(f"Rapport : {chemin}")
+
+
+def referentiel_cmd(args) -> None:
+    """Interroge Wikidata pour le référentiel des subdivisions (lecture seule).
+
+    `--country` absent (`None`) se traduit ici en « tous les pays de la table » : c'est
+    `run_referentiel` qui porte cette règle par défaut (`codes_pays=None`), la CLI se
+    contente de ne pas inventer de valeur quand l'utilisateur n'en a donné aucune.
+    """
+    from pathlib import Path
+
+    from crewai_custom_tools.tools.genealogy.gramps.client import get_client
+
+    from genecrew.referentiel import run_referentiel
+
+    client = get_client()
+    output_dir = Path(os.environ.get("GENECREW_OUTPUT_DIR", "output"))
+    date = args.date or __import__("datetime").date.today().isoformat()
+    codes_pays = ([code.strip() for code in args.country.split(",") if code.strip()]
+                  if args.country else None)
+    report, proposals = run_referentiel(client, output_dir, date=date, codes_pays=codes_pays)
+    print(f"Rapport : {report}")
+    print(f"Propositions : {proposals}")
+
+
+def referentiel_apply_cmd(args) -> None:
+    """Écrit le référentiel des subdivisions depuis un YAML relu ; imprime le rapport."""
+    from pathlib import Path
+
+    from crewai_custom_tools.tools.genealogy.gramps.client import get_client
+
+    from genecrew.referentiel_apply import run_referentiel_apply
+
+    client = get_client()
+    output_dir = Path(os.environ.get("GENECREW_OUTPUT_DIR", "output"))
+    date = args.date or __import__("datetime").date.today().isoformat()
+    report = run_referentiel_apply(client, Path(args.yaml), output_dir,
+                                   date=date, dry_run=args.dry_run)
+    print(f"Rapport : {report}")
 
 
 def apply_all_cmd(args) -> None:
@@ -586,6 +624,7 @@ def main() -> None:
         ("propose", "gender"): lambda: gender_cmd(args),
         ("propose", "wikidata"): lambda: archives_cmd(args, "wikidata"),
         ("propose", "dhs"): lambda: archives_cmd(args, "dhs"),
+        ("propose", "referentiel"): lambda: referentiel_cmd(args),
         ("apply", "case"): lambda: names_cmd(args),
         ("apply", "gender"): lambda: gender_apply_cmd(args),
         ("apply", "places"): lambda: lieux_apply_cmd(args),
@@ -598,6 +637,7 @@ def main() -> None:
         # disjointes (`type: source` / `type: date`) — ADR 0014.
         ("apply", "deaths"): lambda: deces_event_cmd(args),
         ("apply", "all"): lambda: apply_all_cmd(args),
+        ("apply", "referentiel"): lambda: referentiel_apply_cmd(args),
         ("merge", "places"): lambda: lieux_merge_cmd(args),
         ("merge", "people"): lambda: people_merge_cmd(args),
         ("enrich", "wiki"): lambda: lieux_wiki_cmd(args),

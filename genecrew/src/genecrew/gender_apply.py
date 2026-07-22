@@ -17,13 +17,13 @@ from crewai_custom_tools.tools.genealogy.analysis.gender import (
     load_prenoms_table,
 )
 from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient
+from crewai_custom_tools.tools.genealogy.gramps.facts import FactsFetcher
 from crewai_custom_tools.tools.genealogy.gramps.write_tools import (
     GrampsUpdateGenderTool,
     effective_dry_run,
 )
 
 from genecrew.batching import iter_people_batches
-from crewai_custom_tools.tools.genealogy.gramps.facts import FactsFetcher
 
 _SEX_TO_INT = {"F": 0, "M": 1}
 _INT_TO_SEX = {0: "F", 1: "M", 2: "U"}

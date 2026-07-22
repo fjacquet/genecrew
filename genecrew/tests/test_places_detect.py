@@ -8,14 +8,14 @@ import pytest
 import yaml
 from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient, GrampsConfig
 from crewai_custom_tools.tools.genealogy.models.domain import PlaceMergeProposition
-
-from genecrew import places_merge
 from genecrew.places_merge import (
     collecter_lieux,
     render_detect_report,
     run_places_detect,
     run_places_merge,
 )
+
+from genecrew import places_merge
 
 CONFIG = GrampsConfig(api_url="http://g.test/api", username="u", password="p")
 

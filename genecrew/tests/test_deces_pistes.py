@@ -5,16 +5,16 @@ from crewai_custom_tools.tools.genealogy.pistes import pistes_matchid
 def _personne(**kw):
     # PersonFacts exige name et sex ; EventFact exige type et n'a PAS de champ `iso` —
     # la date ISO se dérive de `dateval` via event_iso() (deces.py). dateval = [jour, mois, année, ...]
-    base = dict(
-        gramps_id="I1123",
-        handle="h1",
-        name="Kléber SOULAT",
-        sex="M",
-        given="Kléber",
-        surname="SOULAT",
-        birth=EventFact(type="Birth", year=1888, dateval=[5, 7, 1888, False]),
-        death=None,
-    )
+    base = {
+        "gramps_id": "I1123",
+        "handle": "h1",
+        "name": "Kléber SOULAT",
+        "sex": "M",
+        "given": "Kléber",
+        "surname": "SOULAT",
+        "birth": EventFact(type="Birth", year=1888, dateval=[5, 7, 1888, False]),
+        "death": None,
+    }
     base.update(kw)
     return PersonFacts(**base)
 

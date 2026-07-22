@@ -10,9 +10,9 @@ from crewai_custom_tools.tools.genealogy.models.domain import (
     PlaceLevel,
     ResolvedPlace,
 )
+from genecrew.lieu_import import format_lieu_import, run_lieu_import
 
 from genecrew import lieu_import
-from genecrew.lieu_import import format_lieu_import, run_lieu_import
 
 CONFIG = GrampsConfig(api_url="http://g.test/api", username="u", password="p")
 

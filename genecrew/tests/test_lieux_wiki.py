@@ -5,14 +5,14 @@ import json
 import httpx
 from crewai_custom_tools.tools.genealogy.gramps import write_tools
 from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient, GrampsConfig
-
-from genecrew import lieux_wiki
 from genecrew.lieux_wiki import (
     has_wikipedia_url,
     pick_article,
     run_lieux_wiki,
     title_core,
 )
+
+from genecrew import lieux_wiki
 
 CONFIG = GrampsConfig(api_url="http://g.test/api", username="u", password="p")
 

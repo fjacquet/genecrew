@@ -2,10 +2,8 @@
 
 import httpx
 import yaml
-
 from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient, GrampsConfig
 from crewai_custom_tools.tools.genealogy.models.domain import Proposition
-
 from genecrew.gender import render_gender_report, render_propositions_yaml, run_gender
 
 _P_CONTRA = Proposition(

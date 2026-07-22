@@ -1,11 +1,8 @@
 """Offline tests for the deterministic MatchID death enrichment (zero LLM, no network)."""
 
+import pytest
 import yaml
 from crewai_custom_tools.tools.genealogy.models.domain import EventFact, PersonFacts
-
-import pytest
-
-from genecrew import deces
 from genecrew.deces import (
     build_deces_proposition,
     event_iso,
@@ -13,6 +10,8 @@ from genecrew.deces import (
     is_candidate,
     run_deces,
 )
+
+from genecrew import deces
 
 TODAY = 2026
 
@@ -102,7 +101,6 @@ def test_candidate_selection():
 def test_proposition_date_porte_la_donnee_machine():
     """La date et la commune sortent en champs typés, pas seulement dans la phrase."""
     from crewai_custom_tools.tools.genealogy.models.domain import PersonFacts
-
     from genecrew.deces import build_deces_proposition
 
     person = PersonFacts(

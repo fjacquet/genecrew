@@ -1,8 +1,7 @@
 import httpx
 import yaml
-
-from genecrew.audit import run_audit
 from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient, GrampsConfig
+from genecrew.audit import run_audit
 
 CONFIG = GrampsConfig(api_url="http://g.test/api", username="u", password="p")
 

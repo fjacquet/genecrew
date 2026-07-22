@@ -4,8 +4,6 @@ from typing import get_args
 
 import pytest
 from crewai_custom_tools.tools.genealogy.models.domain import EventFact, PersonFacts
-from pydantic import ValidationError
-
 from genecrew.releves import (
     FACTEURS_FORTS,
     POIDS,
@@ -18,6 +16,7 @@ from genecrew.releves import (
     est_rare,
     rarete_patronymes,
 )
+from pydantic import ValidationError
 
 
 def _p(gramps_id, surname, given, **kw):
@@ -68,7 +67,7 @@ def test_vocabulaire_des_facteurs_reste_synchronise():
     calculer des poids faux sans qu'aucune erreur ne se déclenche ailleurs."""
     vocabulaire = set(get_args(FacteurReleve))
     assert set(POIDS.keys()) == vocabulaire
-    assert FACTEURS_FORTS <= vocabulaire
+    assert vocabulaire >= FACTEURS_FORTS
 
 
 def test_rarete_est_une_fraction_de_l_arbre():
@@ -101,14 +100,14 @@ def test_patronyme_absent_de_l_arbre_n_est_pas_rare():
 
 
 def _releve(**kw):
-    base = dict(
-        fonds="CGHB",
-        reference="106710046161418286",
-        sujet_nom="JACQUET",
-        sujet_prenom="Rose",
-        evenement_type="Death",
-        texte_brut="…",
-    )
+    base = {
+        "fonds": "CGHB",
+        "reference": "106710046161418286",
+        "sujet_nom": "JACQUET",
+        "sujet_prenom": "Rose",
+        "evenement_type": "Death",
+        "texte_brut": "…",
+    }
     base.update(kw)
     return ReleveIndexe(**base)
 

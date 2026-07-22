@@ -16,7 +16,6 @@ import re
 from pathlib import Path
 
 import yaml
-
 from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient
 from crewai_custom_tools.tools.genealogy.gramps.write_tools import (
     GrampsAttachCitationTool,

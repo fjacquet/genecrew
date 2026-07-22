@@ -17,7 +17,6 @@ import os
 from crewai import LLM, Agent, Crew, Process, Task
 from crewai.agents.agent_builder.base_agent import BaseAgent
 from crewai.project import CrewBase, agent, crew, task
-
 from crewai_custom_tools.tools.genealogy.analysis.tools import (
     GenealogyCheckPersonTool,
     GenealogyFindDuplicatesTool,
@@ -41,7 +40,7 @@ from crewai_custom_tools.tools.web.wikipedia import (
     WikipediaSearchTool,
 )
 
-from genecrew.propositions import PropositionAudit, PropositionsLot  # noqa: F401 — re-export
+from genecrew.propositions import PropositionAudit, PropositionsLot
 
 DEFAULT_MODEL = "openrouter/z-ai/glm-5.2"
 

@@ -1,15 +1,14 @@
 import httpx
 import pytest
-
 from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient, GrampsConfig
 from crewai_custom_tools.tools.genealogy.models.domain import (
     EventFact,
     PersonFacts,
     Piste,
 )
+from genecrew.archives import collecter_pistes, run_archives
 
 from genecrew import archives
-from genecrew.archives import collecter_pistes, run_archives
 
 CONFIG = GrampsConfig(api_url="http://g.test/api", username="u", password="p")
 
