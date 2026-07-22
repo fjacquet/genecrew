@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Read|Edit|Write|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "statusMessage": "Vérification .env",
+            "command": "jq -r '.tool_input.file_path // .tool_input.notebook_path // empty' | { read -r f; [ -n \"$f\" ] || exit 0; base=${f##*/}; case \"$base\" in .env|.env.*) ;; *) exit 0;; esac; [ \"$base\" = \".env.example\" ] && exit 0; printf '%s\\n' '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"Le CLAUDE.md du projet interdit de lire, afficher ou modifier .env — il porte la cle OpenRouter et les identifiants Gramps. Utiliser .env.example comme reference.\"}}'; }"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "statusMessage": "Accord des versions",
+            "command": "jq -r '.tool_input.file_path // .tool_response.filePath // empty' | { read -r f; case \"$f\" in */pyproject.toml|pyproject.toml) ;; *) exit 0;; esac; [ -f \"$f\" ] || exit 0; d=$(dirname \"$f\"); a=$(grep -m1 '^version *= *\"' \"$f\" | cut -d'\"' -f2); b=$(grep -hm1 '^__version__ *= *\"' \"$d\"/src/*/__init__.py \"$d\"/*/src/*/__init__.py 2>/dev/null | cut -d'\"' -f2); if [ -n \"$a\" ] && [ -n \"$b\" ] && [ \"$a\" != \"$b\" ]; then echo \"Versions desaccordees : pyproject.toml=$a mais __version__=$b. La CI echouera sur test_version_matches_pyproject.\" >&2; exit 2; fi; }"
+          }
+        ]
+      }
+    ]
+  }
+}
