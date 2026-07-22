@@ -9,6 +9,7 @@ from pathlib import Path
 import httpx
 import yaml
 
+from crewai_custom_tools.tools.genealogy.analysis.place_duplicates import etager_lieux
 from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient
 from crewai_custom_tools.tools.genealogy.gramps.write_tools import (
     GrampsMergePlacesTool, effective_dry_run,
@@ -182,4 +183,44 @@ def run_places_merge(client: GrampsClient, merges_yaml, output_dir, *, date: str
     path = out / f"{date}_fusions_appliquees_{slug}.md"
     path.write_text(render_merge_report(date, done, errors, effective_dry_run(dry_run)),
                     encoding="utf-8")
+    return path
+
+
+def run_places_detect(client: GrampsClient, output_dir, *, scope: str, date: str,
+                      limit: int | None = None, dry_run: bool = False) -> Path:
+    """Détecte les doublons de lieux, fusionne les prouvés, dépose le reste en YAML.
+
+    Une seule passe : les candidats sont groupés par égalité de nom normalisé, une
+    relation d'équivalence — les groupes sont complets dès la lecture, et fusionner
+    deux lieux n'en renomme aucun autre.
+    """
+    eff = effective_dry_run(dry_run)
+    output_dir = Path(output_dir)
+    lieux = collecter_lieux(client, scope, limit=limit)
+    propositions = etager_lieux(lieux)
+    arbitrage = [p for p in propositions if p.verdict != "auto"]
+
+    tool = GrampsMergePlacesTool()
+    fusions: list = []
+    errors: list = []
+    for prop in (p for p in propositions if p.verdict == "auto"):
+        if eff:
+            fusions.append(prop)                 # simulation : rapporté, jamais exécuté
+            continue
+        payload = json.loads(tool._run(keep_handle=prop.handle_keep,
+                                       merge_handle=prop.handle_merge, dry_run=eff))
+        if payload["success"]:
+            fusions.append(prop)
+        else:
+            errors.append((prop.gramps_id_merge, payload["error"]))
+
+    out = output_dir / "lieux"
+    out.mkdir(parents=True, exist_ok=True)
+    scope_slug = scope.replace(":", "_")
+    (out / f"{date}_arbitrage_lieux_{scope_slug}.yaml").write_text(
+        yaml.safe_dump([p.model_dump() for p in arbitrage], allow_unicode=True,
+                       sort_keys=False), encoding="utf-8")
+    path = out / f"{date}_doublons_lieux_{scope_slug}.md"
+    path.write_text(render_detect_report(date, fusions, arbitrage, errors,
+                                         len(lieux), eff), encoding="utf-8")
     return path

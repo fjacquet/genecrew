@@ -1,11 +1,15 @@
 """Tests offline du mode détection de `merge places`."""
 
+import json
+
 import httpx
 import pytest
+import yaml
 from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient, GrampsConfig
 from crewai_custom_tools.tools.genealogy.models.domain import PlaceMergeProposition
 
-from genecrew.places_merge import collecter_lieux, render_detect_report
+from genecrew import places_merge
+from genecrew.places_merge import collecter_lieux, render_detect_report, run_places_detect
 
 CONFIG = GrampsConfig(api_url="http://g.test/api", username="u", password="p")
 
@@ -233,3 +237,98 @@ def test_message_d_erreur_multiligne_ne_brise_pas_la_liste():
     assert len(puces) == 2
     assert "P0070" in puces[0] and "échec réseau" in puces[0] and "deuxième ligne" in puces[0]
     assert "P0080" in puces[1]
+
+
+DOUBLONS = [
+    {"handle": "HA", "gramps_id": "P0064", "name": {"value": "Cerbois"},
+     "place_type": "Municipality", "code": "18044", "lat": "47.1", "long": "2.3"},
+    {"handle": "HB", "gramps_id": "P0070", "name": {"value": "Cerbois"},
+     "place_type": "Municipality", "code": "18044", "lat": "47.1", "long": "2.3"},
+]
+PARIS = [
+    {"handle": "HC", "gramps_id": "P0301", "name": {"value": "Paris"},
+     "place_type": "Department", "code": "75"},
+    {"handle": "HD", "gramps_id": "P0008", "name": {"value": "Paris"},
+     "place_type": "Municipality", "code": "75056"},
+]
+# Homonymes sans code, de types connus mais différents : `evaluer_preuve` ne prouve
+# rien (ni code commun, ni types égaux), et rien n'oppose de veto (aucun code
+# renseigné des deux côtés) — la paire N'EST PAS écartée du lot comme Paris, elle
+# atterrit en arbitrage. C'est le cas qui exerce le passage YAML, distinct du veto.
+HOMONYMES_SANS_PREUVE = [
+    {"handle": "HE", "gramps_id": "P0501", "name": {"value": "Fontenay"},
+     "place_type": "Municipality"},
+    {"handle": "HF", "gramps_id": "P0502", "name": {"value": "Fontenay"},
+     "place_type": "Department"},
+]
+
+
+def _stub_fusion(monkeypatch, succes=True):
+    vus = []
+
+    class _Outil:
+        def _run(self, **kw):
+            vus.append(kw)
+            return json.dumps({"success": True, "data": kw} if succes
+                              else {"success": False, "error": "HTTP 500"})
+
+    monkeypatch.setattr(places_merge, "GrampsMergePlacesTool", _Outil)
+    return vus
+
+
+def test_fusionne_les_doublons_prouves(tmp_path, monkeypatch):
+    vus = _stub_fusion(monkeypatch)
+    chemin = run_places_detect(_arbre(DOUBLONS), tmp_path, scope="all",
+                               date="2026-07-21")
+    md = chemin.read_text(encoding="utf-8")
+    assert "Fusions appliquées : 1" in md
+    assert len(vus) == 1
+    assert vus[0]["keep_handle"] == "HA" and vus[0]["merge_handle"] == "HB"
+
+
+def test_paris_n_est_jamais_fusionne(tmp_path, monkeypatch):
+    """Le cas qui doit rester rouge si le veto disparaît.
+
+    Deux codes officiels renseignés et différents (75 / 75056) prouvent deux
+    entités distinctes : `etager_lieux` ne se contente pas de refuser la fusion
+    automatique, elle retire la paire du lot — proposer un couple qu'on sait
+    faux à un relecteur reviendrait à lui tendre un bouton pour le casser.
+    Zéro fusion ET zéro arbitrage, donc — pas seulement zéro fusion.
+    """
+    vus = _stub_fusion(monkeypatch)
+    chemin = run_places_detect(_arbre(PARIS), tmp_path, scope="all", date="2026-07-21")
+    md = chemin.read_text(encoding="utf-8")
+    assert vus == []
+    assert "Fusions appliquées : 0" in md
+    assert "À relire : 0" in md
+
+
+def test_l_arbitrage_est_ecrit_en_yaml_consommable(tmp_path, monkeypatch):
+    """Le YAML doit être relisible par `merge places --yaml` sans transformation."""
+    _stub_fusion(monkeypatch)
+    run_places_detect(_arbre(HOMONYMES_SANS_PREUVE), tmp_path, scope="all",
+                      date="2026-07-21")
+    p = tmp_path / "lieux" / "2026-07-21_arbitrage_lieux_all.yaml"
+    lignes = yaml.safe_load(p.read_text(encoding="utf-8"))
+    assert len(lignes) == 1
+    assert set(lignes[0]) >= {"handle_keep", "handle_merge",
+                              "gramps_id_keep", "gramps_id_merge", "canonical"}
+
+
+def test_la_simulation_n_execute_aucune_fusion(tmp_path, monkeypatch):
+    vus = _stub_fusion(monkeypatch)
+    chemin = run_places_detect(_arbre(DOUBLONS), tmp_path, scope="all",
+                               date="2026-07-21", dry_run=True)
+    assert vus == []
+    md = chemin.read_text(encoding="utf-8")
+    assert "simulation" in md
+    assert "Fusions à appliquer : 1" in md
+
+
+def test_un_echec_de_fusion_est_rapporte(tmp_path, monkeypatch):
+    _stub_fusion(monkeypatch, succes=False)
+    chemin = run_places_detect(_arbre(DOUBLONS), tmp_path, scope="all",
+                               date="2026-07-21")
+    md = chemin.read_text(encoding="utf-8")
+    assert "Fusions appliquées : 0" in md
+    assert "P0070" in md and "HTTP 500" in md
