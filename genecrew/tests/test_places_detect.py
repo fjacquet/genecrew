@@ -1,6 +1,7 @@
 """Tests offline du mode détection de `merge places`."""
 
 import json
+import logging
 
 import httpx
 import pytest
@@ -263,6 +264,41 @@ HOMONYMES_SANS_PREUVE = [
 ]
 
 
+# Quatre « Saint-Palais » : deux sans code officiel mais géocodés au même point, et
+# deux portant des codes officiels DIFFÉRENTS. Ce sont ces deux derniers qui portent
+# la preuve que la grappe mélange deux entités réelles ; le veto de grappe est une
+# propriété du GROUPE ENTIER, pas de la paire courante. Tronquer le lot fait donc
+# tomber la garde — d'où la simulation forcée dès que `--limit` est posé.
+SAINT_PALAIS = [
+    {"handle": "HA", "gramps_id": "P0201", "name": {"value": "Saint-Palais"},
+     "place_type": "Municipality", "lat": "47.0", "long": "2.0"},
+    {"handle": "HB", "gramps_id": "P0202", "name": {"value": "Saint-Palais"},
+     "place_type": "Municipality", "lat": "47.0", "long": "2.0"},
+    {"handle": "HC", "gramps_id": "P0203", "name": {"value": "Saint-Palais"},
+     "place_type": "Municipality", "code": "18205"},
+    {"handle": "HD", "gramps_id": "P0204", "name": {"value": "Saint-Palais"},
+     "place_type": "Municipality", "code": "17398"},
+]
+# Deux lieux de MÊME code officiel dont seul l'absorbé porte le type. La preuve
+# existe (« code officiel identique ») mais la fusion détruirait le seul type
+# renseigné de la grappe : `etager_lieux` rend donc `verdict='arbitrage'` avec un
+# motif qui contient malgré tout « code officiel identique ». C'est la seule fixture
+# qui DISSOCIE le verdict du texte du motif — celle qui piège un tri sur `reason`.
+CODE_IDENTIQUE_TYPE_PERDU = [
+    {"handle": "HG", "gramps_id": "P0601", "name": {"value": "Vierzon"},
+     "code": "18279"},
+    {"handle": "HH", "gramps_id": "P0602", "name": {"value": "Vierzon"},
+     "place_type": "Municipality", "code": "18279"},
+]
+# Une grappe de quatre clones parfaits : un survivant et TROIS fusions prouvées.
+# Sert à interrompre le lot en cours de route.
+QUADRUPLE = [
+    {"handle": f"HQ{i}", "gramps_id": f"P07{i:02d}", "name": {"value": "Cerbois"},
+     "place_type": "Municipality", "code": "18044", "lat": "47.1", "long": "2.3"}
+    for i in range(4)
+]
+
+
 def _stub_fusion(monkeypatch, succes=True):
     vus = []
 
@@ -271,6 +307,21 @@ def _stub_fusion(monkeypatch, succes=True):
             vus.append(kw)
             return json.dumps({"success": True, "data": kw} if succes
                               else {"success": False, "error": "HTTP 500"})
+
+    monkeypatch.setattr(places_merge, "GrampsMergePlacesTool", _Outil)
+    return vus
+
+
+def _stub_fusion_interrompue(monkeypatch, exc, a_l_appel):
+    """Outil de fusion qui réussit puis lève `exc` au `a_l_appel`-ième appel."""
+    vus = []
+
+    class _Outil:
+        def _run(self, **kw):
+            vus.append(kw)
+            if len(vus) == a_l_appel:
+                raise exc
+            return json.dumps({"success": True, "data": kw})
 
     monkeypatch.setattr(places_merge, "GrampsMergePlacesTool", _Outil)
     return vus
@@ -352,3 +403,179 @@ def test_une_proposition_d_arbitrage_n_est_jamais_executee_comme_fusion(tmp_path
     lignes = yaml.safe_load(p.read_text(encoding="utf-8"))
     assert len(lignes) == 1
     assert lignes[0]["handle_merge"] in {"HE", "HF"}
+
+
+# --- C1 : un lot borné ne peut pas décider d'une fusion -----------------------------
+
+def test_le_scan_complet_de_la_grappe_melangee_ne_fusionne_rien(tmp_path, monkeypatch):
+    """Référence de comparaison : sur les quatre « Saint-Palais », le veto de grappe
+    tient et renvoie les trois couples à la relecture."""
+    vus = _stub_fusion(monkeypatch)
+    chemin = run_places_detect(_arbre(SAINT_PALAIS), tmp_path, scope="all",
+                               date="2026-07-21")
+    md = chemin.read_text(encoding="utf-8")
+    assert vus == []
+    assert "À relire : 3" in md
+
+
+def test_un_lot_borne_n_execute_aucune_fusion(tmp_path, monkeypatch):
+    """Le cœur de C1 : borner le lot tronque les groupes et fait tomber une garde qui
+    est une propriété du GROUPE ENTIER. Sur les mêmes quatre « Saint-Palais » bornés à
+    trois, le membre exclu est justement celui qui portait la preuve du mélange : sans
+    la simulation forcée, la paire HA/HB partirait en fusion IRRÉVERSIBLE."""
+    vus = _stub_fusion(monkeypatch)
+    chemin = run_places_detect(_arbre(SAINT_PALAIS), tmp_path, scope="all",
+                               date="2026-07-21", limit=3)
+    md = chemin.read_text(encoding="utf-8")
+    assert vus == []
+    assert "Fusions à appliquer" in md
+    assert "Fusions appliquées" not in md
+
+
+def test_un_lot_borne_dit_pourquoi_rien_n_a_ete_ecrit(tmp_path, monkeypatch):
+    """Sans explication, l'utilisateur qui suit la consigne de borner croirait à une
+    panne. Le rapport doit nommer `--limit` et dire que le passage complet est requis."""
+    _stub_fusion(monkeypatch)
+    chemin = run_places_detect(_arbre(DOUBLONS), tmp_path, scope="all",
+                               date="2026-07-21", limit=2)
+    md = chemin.read_text(encoding="utf-8")
+    assert "--limit" in md
+    assert "lot borné" in md
+
+
+def test_un_lot_borne_ignore_la_demande_d_ecriture(tmp_path, monkeypatch):
+    """`dry_run=False` explicite ne rachète pas un lot tronqué."""
+    vus = _stub_fusion(monkeypatch)
+    run_places_detect(_arbre(DOUBLONS), tmp_path, scope="all", date="2026-07-21",
+                      limit=2, dry_run=False)
+    assert vus == []
+
+
+def test_un_lot_complet_fusionne_toujours(tmp_path, monkeypatch):
+    """La garde ne doit pas être trop serrée : sans `--limit`, une grappe saine
+    s'exécute comme avant."""
+    vus = _stub_fusion(monkeypatch)
+    chemin = run_places_detect(_arbre(DOUBLONS), tmp_path, scope="all",
+                               date="2026-07-21", limit=None)
+    assert len(vus) == 1
+    assert "Fusions appliquées : 1" in chemin.read_text(encoding="utf-8")
+
+
+# --- C2 : une interruption ne perd pas la trace des fusions déjà faites -------------
+
+def test_chaque_fusion_executee_laisse_une_ligne_de_journal(tmp_path, monkeypatch,
+                                                            caplog):
+    """La trace doit être posée AU MOMENT de la fusion, pas à la fin du lot : c'est la
+    seule chose qui survive à une interruption brutale."""
+    _stub_fusion(monkeypatch)
+    with caplog.at_level(logging.INFO, logger="genecrew"):
+        run_places_detect(_arbre(DOUBLONS), tmp_path, scope="all", date="2026-07-21")
+    trace = "\n".join(r.getMessage() for r in caplog.records)
+    assert "P0070" in trace and "P0064" in trace
+
+
+def test_la_simulation_ne_journalise_aucune_fusion(tmp_path, monkeypatch, caplog):
+    """Une simulation n'écrit rien : le journal ne doit pas laisser croire l'inverse."""
+    _stub_fusion(monkeypatch)
+    with caplog.at_level(logging.INFO, logger="genecrew"):
+        run_places_detect(_arbre(DOUBLONS), tmp_path, scope="all", date="2026-07-21",
+                          dry_run=True)
+    assert "P0070" not in "\n".join(r.getMessage() for r in caplog.records)
+
+
+def test_une_coupure_reseau_laisse_le_rapport_des_fusions_deja_faites(tmp_path,
+                                                                      monkeypatch):
+    """Deux fusions irréversibles ont eu lieu : le rapport doit exister et les nommer,
+    et l'exception doit poursuivre son chemin plutôt que d'être avalée."""
+    vus = _stub_fusion_interrompue(
+        monkeypatch, httpx.ConnectError("coupure"), a_l_appel=3)
+    with pytest.raises(httpx.ConnectError):
+        run_places_detect(_arbre(QUADRUPLE), tmp_path, scope="all", date="2026-07-21")
+    assert len(vus) == 3
+    md = (tmp_path / "lieux" / "2026-07-21_doublons_lieux_all.md").read_text(
+        encoding="utf-8")
+    assert "Fusions appliquées : 2" in md
+    assert "P0701" in md and "P0702" in md
+
+
+def test_une_interruption_clavier_laisse_le_rapport_des_fusions_deja_faites(
+        tmp_path, monkeypatch):
+    """Ctrl-C n'est pas une hypothèse : ces passages durent des minutes. `KeyboardInterrupt`
+    dérive de `BaseException`, donc un `except Exception` ne suffirait pas."""
+    _stub_fusion_interrompue(monkeypatch, KeyboardInterrupt(), a_l_appel=3)
+    with pytest.raises(KeyboardInterrupt):
+        run_places_detect(_arbre(QUADRUPLE), tmp_path, scope="all", date="2026-07-21")
+    md = (tmp_path / "lieux" / "2026-07-21_doublons_lieux_all.md").read_text(
+        encoding="utf-8")
+    assert "Fusions appliquées : 2" in md
+
+
+def test_une_interruption_ecrit_quand_meme_le_yaml_d_arbitrage(tmp_path, monkeypatch):
+    """Le fichier d'arbitrage est la seule liste de ce qui reste à faire ; le perdre
+    obligerait à relancer un scan complet sur un arbre déjà à moitié fusionné."""
+    _stub_fusion_interrompue(monkeypatch, KeyboardInterrupt(), a_l_appel=3)
+    with pytest.raises(KeyboardInterrupt):
+        run_places_detect(_arbre(QUADRUPLE + HOMONYMES_SANS_PREUVE), tmp_path,
+                          scope="all", date="2026-07-21")
+    p = tmp_path / "lieux" / "2026-07-21_arbitrage_lieux_all.yaml"
+    lignes = yaml.safe_load(p.read_text(encoding="utf-8"))
+    assert [ligne["handle_merge"] for ligne in lignes] == ["HF"]
+
+
+# --- I3 : le tri se fait sur le verdict, jamais sur le texte du motif ---------------
+
+def test_un_arbitrage_dont_le_motif_dit_code_officiel_identique_n_est_pas_fusionne(
+        tmp_path, monkeypatch):
+    """La fixture qui dissocie le verdict du motif. Deux « Vierzon » de même code
+    officiel : la preuve existe et le motif la nomme, mais l'absorbé porte seul le
+    type, que la fusion écraserait — verdict « arbitrage ». Trier la boucle sur le
+    texte du motif au lieu du verdict fusionnerait irréversiblement ce couple que la
+    détection a explicitement renvoyé à un humain."""
+    vus = _stub_fusion(monkeypatch)
+    chemin = run_places_detect(_arbre(CODE_IDENTIQUE_TYPE_PERDU), tmp_path,
+                               scope="all", date="2026-07-21")
+    md = chemin.read_text(encoding="utf-8")
+    assert vus == []                                  # tue la mutation « boucle de fusion »
+    assert "Fusions appliquées : 0" in md
+    assert "À relire : 1" in md
+    p = tmp_path / "lieux" / "2026-07-21_arbitrage_lieux_all.yaml"
+    lignes = yaml.safe_load(p.read_text(encoding="utf-8"))
+    assert len(lignes) == 1                           # tue la mutation « liste d'arbitrage »
+    assert lignes[0]["handle_merge"] == "HH"
+    assert lignes[0]["verdict"] == "arbitrage"
+    # Le piège est bien armé : le motif contient la formule qui trompe un tri textuel.
+    assert "code officiel identique" in lignes[0]["reason"]
+
+
+# --- I4 : la valeur réellement transmise à l'outil de fusion ------------------------
+
+def test_l_outil_de_fusion_recoit_une_demande_d_ecriture_reelle(tmp_path, monkeypatch):
+    """L'argument de simulation passé à l'outil n'est observé par aucun test : le
+    forcer à `True` laisserait la suite verte tout en produisant un rapport qui
+    annonce des fusions appliquées sur un arbre resté dédoublé."""
+    vus = _stub_fusion(monkeypatch)
+    run_places_detect(_arbre(DOUBLONS), tmp_path, scope="all", date="2026-07-21")
+    assert len(vus) == 1
+    assert vus[0]["dry_run"] is False
+
+
+# --- I5 : le fichier d'arbitrage porte son exigence de relecture --------------------
+
+def test_le_yaml_d_arbitrage_porte_un_en_tete_de_relecture(tmp_path, monkeypatch):
+    """`merge places --yaml` ne regarde jamais le verdict : il exécutera toutes les
+    lignes restantes. Le fichier doit le dire lui-même, pas seulement le rapport."""
+    _stub_fusion(monkeypatch)
+    run_places_detect(_arbre(HOMONYMES_SANS_PREUVE), tmp_path, scope="all",
+                      date="2026-07-21")
+    p = tmp_path / "lieux" / "2026-07-21_arbitrage_lieux_all.yaml"
+    texte = p.read_text(encoding="utf-8")
+    entete = [ligne for ligne in texte.splitlines() if ligne.startswith("#")]
+    assert entete, "aucun en-tête en commentaire"
+    bloc = "\n".join(entete).lower()
+    assert "relire" in bloc or "relecture" in bloc
+    assert "élaguer" in bloc or "supprim" in bloc
+    assert "irréversible" in bloc
+    # Un commentaire YAML est ignoré à la lecture : le fichier reste consommable tel quel.
+    lignes = yaml.safe_load(texte)
+    assert len(lignes) == 1
+    assert set(lignes[0]) >= {"handle_keep", "handle_merge"}
