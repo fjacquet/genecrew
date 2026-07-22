@@ -134,18 +134,18 @@ uv run train <n_iterations> <filename>
 uv run replay <task_id>
 uv run test <n_iterations> <eval_llm>
 
-# Lint. ATTENTION : les deux dépôts ne sont PAS linterisés au même niveau. La bibliothèque
-# a une configuration complète (select E,W,I,UP,B,C4,SIM,RUF ; line-length 120) ; genecrew
-# n'a AUCUNE config, donc ruff y tourne sur son jeu par défaut (E4, E7, E9, F) : ni tri
+# Lint. Les deux dépôts portent DÉSORMAIS la même configuration (select E,W,I,UP,B,C4,SIM,RUF ;
+# line-length 120 ; RUF001-003 ignorés — projet francophone). Jusqu'au 2026-07-22 genecrew
+# n'en avait aucune et tournait sur le jeu par défaut de ruff (E4, E7, E9, F) : ni tri
 # d'imports, ni longueur de ligne, ni `zip` qui tronque en silence. Un `ruff check` vert
-# ici en dit beaucoup moins que là-bas.
+# des deux côtés dit maintenant la même chose.
 uv run ruff check .
 ```
 
-**Un test est rouge sur `main`**, indépendamment de toute modification en cours :
-`genecrew/tests/test_deces.py::test_proposition_date_porte_la_donnee_machine`. `deces.py` ne
-renseigne pas les champs `date_iso` / `lieu_nom` que le test exige, alors que la bibliothèque les
-expose depuis la 0.26.0. Ne pas chercher ce qu'on a cassé : la suite part de 1 échec.
+La suite doit être **entièrement verte** — plus aucun échec connu. (Elle a longtemps porté un
+rouge permanent sur `test_deces.py::test_proposition_date_porte_la_donnee_machine` ; `deces.py`
+ne renseignait pas les champs `date_iso` / `lieu_nom` exigés par son propre test. Réparé le
+2026-07-22 : un échec est de nouveau un signal, pas du bruit de fond.)
 
 Gramps Web **not** brought up from this repo — see "Genealogy stack (Gramps Web)" above.
 
