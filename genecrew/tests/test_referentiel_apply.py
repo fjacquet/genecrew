@@ -2,8 +2,9 @@
 """Appariement et invariant d'écriture de `apply referentiel`. Hors ligne, sans base réelle.
 
 Les QID écrits ici ont été relus sur Wikidata le 2026-07-22 (spec §9) : Q12771 canton de
-Vaud, Q980 Bavière, Q236772 wilaya de Souk Ahras, Q3113 Allier, Q46130 département du Rhône,
-Q39 Suisse, Q183 Allemagne, Q262 Algérie, Q18338206 Auvergne-Rhône-Alpes.
+Vaud, Q980 Bavière, Q236772 wilaya de Souk Ahras, Q3113 Allier, Q46130 et Q18914778 les deux
+« Rhône » de la collision FR-69, Q1428 l'État américain de Géorgie, Q30 États-Unis, Q39
+Suisse, Q183 Allemagne, Q262 Algérie, Q142 France, Q28 Hongrie, Q1273 Toscane.
 """
 
 import json
@@ -17,8 +18,8 @@ from crewai_custom_tools.tools.genealogy.models.domain import Subdivision
 from crewai_custom_tools.tools.genealogy.referentiel.chargement import EntitePays
 
 from genecrew.referentiel_apply import (
-    apparier, decider, index_par_nom_contenant, index_par_nom_type, index_par_qid,
-    run_referentiel_apply, subdivision_de_pays,
+    apparier, decider, identifiant, index_par_nom_contenant, index_par_nom_type,
+    index_par_qid, run_referentiel_apply, subdivision_de_pays,
 )
 
 VAUD = Subdivision(qid="Q12771", iso="CH-VD", code="VD", libelle_fr="canton de Vaud",
@@ -26,6 +27,17 @@ VAUD = Subdivision(qid="Q12771", iso="CH-VD", code="VD", libelle_fr="canton de V
                    lat="46.6", long="6.6", frwiki="https://fr.wikipedia.org/wiki/Canton_de_Vaud")
 SUISSE = EntitePays(qid="Q39", libelle_fr="Suisse", lat="46.8", long="8.2",
                     frwiki="https://fr.wikipedia.org/wiki/Suisse")
+BAYERN = Subdivision(qid="Q980", iso="DE-BY", code="BY", libelle_fr="Bavière",
+                     noms=["Bavière", "Bayern"], place_type="State", niveau=1,
+                     parent_qid="Q183")
+SOUK = Subdivision(qid="Q236772", iso="DZ-41", code="41", libelle_fr="Souk Ahras",
+                   noms=["Souk Ahras"], place_type="Province", niveau=1, parent_qid="Q262")
+GEORGIE = Subdivision(qid="Q1428", iso="US-GA", code="GA", libelle_fr="Géorgie",
+                      noms=["Géorgie", "Georgia"], place_type="State", niveau=1,
+                      parent_qid="Q30", lat="32.6", long="-83.4")
+RHONE = Subdivision(qid="Q46130", iso="FR-69", code="69", libelle_fr="Rhône",
+                    noms=["Rhône"], place_type="Department", niveau=2,
+                    parent_qid="Q18338206")
 
 
 # --- appariement -----------------------------------------------------------------------
@@ -38,18 +50,37 @@ def test_le_qid_prime_sur_les_noms():
 
 def test_appariement_par_nom_vernaculaire_quand_aucun_qid_nest_pose():
     """Premier run : `Bayern` est en base en allemand, la subdivision arrive en français."""
-    bayern = Subdivision(qid="Q980", iso="DE-BY", code="BY", libelle_fr="Bavière",
-                         noms=["Bavière", "Bayern"], place_type="State", niveau=1,
-                         parent_qid="Q183")
     par_nom_type = {("Bayern", "State"): "h_bayern"}
-    assert apparier(bayern, {}, par_nom_type, {}) == "h_bayern"
+    assert apparier(BAYERN, {}, par_nom_type, {}) == "h_bayern"
 
 
 def test_appariement_par_nom_seul_pour_retyper_une_wilaya():
     """Souk Ahras est typée `Wilaya` : aucune clé (nom, type) ne peut la retrouver."""
-    souk = Subdivision(qid="Q236772", iso="DZ-41", code="41", libelle_fr="Souk Ahras",
-                       noms=["Souk Ahras"], place_type="Province", niveau=1, parent_qid="Q262")
-    assert apparier(souk, {}, {}, {"Souk Ahras": "h_wilaya"}) == "h_wilaya"
+    assert apparier(SOUK, {}, {}, {"Souk Ahras": "h_wilaya"}) == "h_wilaya"
+
+
+def test_la_deuxieme_prise_exige_le_type_et_pas_seulement_le_nom():
+    """Souk Ahras est à la fois une wilaya et une commune : c'est le type qui les sépare."""
+    assert apparier(SOUK, {}, {("Souk Ahras", "Municipality"): "h_commune"}, {}) is None
+
+
+def test_un_pays_homonyme_nest_jamais_pris_pour_une_subdivision():
+    """Cas reproduit : l'État `Géorgie` s'appariait au PAYS Géorgie, qui recevait alors le
+    GPS d'Atlanta, le code `GA` et un rattachement sous les États-Unis."""
+    par_handle = {"h_pays": {"handle": "h_pays", "name": {"value": "Géorgie"},
+                             "place_type": "Country", "placeref_list": []}}
+    assert apparier(GEORGIE, {}, {}, {"Géorgie": "h_pays"}, par_handle=par_handle) is None
+
+
+def test_un_candidat_rattache_ailleurs_est_refuse():
+    """Clause « sous le même parent » du §5.3, que l'index (nom, type) ignore à lui seul."""
+    par_handle = {"h_r": {"handle": "h_r", "name": {"value": "Rhône"},
+                          "place_type": "Department",
+                          "placeref_list": [{"ref": "h_un_autre_parent"}]}}
+    assert apparier(RHONE, {}, {("Rhône", "Department"): "h_r"}, {},
+                    par_handle=par_handle, parent_handle="h_ara") is None
+    assert apparier(RHONE, {}, {("Rhône", "Department"): "h_r"}, {},
+                    par_handle=par_handle, parent_handle="h_un_autre_parent") == "h_r"
 
 
 def test_index_par_nom_contenant_ignore_les_communes():
@@ -91,12 +122,9 @@ def test_creation_quand_le_lieu_est_absent():
 
 def test_un_nom_existant_nest_jamais_reecrit():
     """Bayern reste Bayern ; le libellé français rejoint les alt_names (spec §5.1)."""
-    bayern = Subdivision(qid="Q980", iso="DE-BY", code="BY", libelle_fr="Bavière",
-                         noms=["Bavière", "Bayern"], place_type="State", niveau=1,
-                         parent_qid="Q183")
     place = {"handle": "h", "name": {"value": "Bayern"}, "place_type": "State",
              "lat": "", "long": "", "code": "", "alt_names": []}
-    plan = decider(bayern, place)
+    plan = decider(BAYERN, place)
     assert plan["action"] == "completer"
     assert "name" not in plan                 # aucune réécriture du nom
     assert plan["alt_names"] == [{"value": "Bavière"}]
@@ -122,11 +150,9 @@ def test_un_code_deja_rempli_nest_pas_ecrase():
 def test_le_retypage_dune_wilaya_est_la_seule_reecriture_permise():
     place = {"handle": "h", "name": {"value": "Souk Ahras"}, "place_type": "Wilaya",
              "lat": "", "long": "", "code": "41", "alt_names": []}
-    souk = Subdivision(qid="Q236772", iso="DZ-41", code="41", libelle_fr="Souk Ahras",
-                       noms=["Souk Ahras"], place_type="Province", niveau=1,
-                       parent_qid="Q262")
-    plan = decider(souk, place)
+    plan = decider(SOUK, place)
     assert plan["place_type"] == "Province"
+    assert plan["retypage"] == ("Wilaya", "Province")     # rapporté ligne à ligne
 
 
 def test_un_type_natif_different_nest_jamais_reecrit():
@@ -134,18 +160,28 @@ def test_un_type_natif_different_nest_jamais_reecrit():
     humain : l'appariement par nom seul ne doit pas le convertir en `Department`."""
     place = {"handle": "h", "name": {"value": "Rhône"}, "place_type": "Region",
              "lat": "", "long": "", "code": "84", "alt_names": []}
-    rhone = Subdivision(qid="Q46130", iso="FR-69", code="69", libelle_fr="Rhône",
-                        noms=["Rhône"], place_type="Department", niveau=2,
-                        parent_qid="Q18338206")
-    plan = decider(rhone, place)
+    plan = decider(RHONE, place)
     assert "place_type" not in plan
 
 
 def test_un_type_inconnu_est_rempli_et_non_ecrase():
-    """`Unknown` est le type vide de Gramps : le remplir n'est pas une réécriture."""
+    """`Unknown` est le type vide de Gramps : le remplir n'est pas une réécriture, et ne
+    compte donc pas comme un retypage dans le rapport."""
     place = {"handle": "h", "name": {"value": "canton de Vaud"}, "place_type": "Unknown",
              "lat": "", "long": "", "code": "", "alt_names": []}
-    assert decider(VAUD, place)["place_type"] == "State"
+    plan = decider(VAUD, place)
+    assert plan["place_type"] == "State" and "retypage" not in plan
+
+
+def test_un_type_illisible_ne_decide_aucun_retypage():
+    """`TYPES_NATIFS` est recopié de la spec, jamais relu sur l'API. Si le serveur rendait
+    un objet au lieu d'une chaîne, TOUS les types passeraient pour personnalisés."""
+    place = {"handle": "h", "name": {"value": "canton de Vaud"},
+             "place_type": {"_class": "PlaceType", "string": "State"},
+             "lat": "", "long": "", "code": "", "alt_names": []}
+    plan = decider(VAUD, place)
+    assert plan["type_illisible"] is True
+    assert "place_type" not in plan
 
 
 def test_le_libelle_francais_identique_nentre_pas_en_alt_names():
@@ -158,10 +194,7 @@ def test_le_libelle_francais_identique_nentre_pas_en_alt_names():
 def test_un_alt_name_deja_pose_ny_entre_pas_deux_fois():
     place = {"handle": "h", "name": {"value": "Bayern"}, "place_type": "State",
              "lat": "", "long": "", "code": "", "alt_names": [{"value": "Bavière"}]}
-    bayern = Subdivision(qid="Q980", iso="DE-BY", code="BY", libelle_fr="Bavière",
-                         noms=["Bavière", "Bayern"], place_type="State", niveau=1,
-                         parent_qid="Q183")
-    assert decider(bayern, place)["alt_names"] == []
+    assert decider(BAYERN, place)["alt_names"] == []
 
 
 def test_les_urls_a_poser_sont_le_qid_et_larticle():
@@ -180,26 +213,42 @@ def test_un_pays_devient_une_subdivision_de_niveau_zero():
     assert pays.parent_qid == ""
 
 
+def test_un_pays_hors_table_garde_un_identifiant():
+    """Sans code ISO, une ligne de rapport doit rester rattachable à quelque chose."""
+    hongrie = subdivision_de_pays(EntitePays(qid="Q28", libelle_fr="Hongrie"))
+    assert hongrie.iso == ""
+    assert identifiant(hongrie) == "Q28"
+
+
 # --- exécution complète : client Gramps simulé, aucun accès réseau ----------------------
 
 CONFIG = GrampsConfig(api_url="http://g.test/api", username="u", password="p")
 
 
-def _client(places, journal):
-    """Client Gramps sur transport simulé : sert les lieux, journalise POST et PUT."""
+def _client(places, journal, panne=None):
+    """Client Gramps sur transport simulé : sert les lieux, journalise GET, POST et PUT.
+
+    `panne(request)` peut rendre une réponse d'erreur, pour simuler un serveur qui refuse.
+    """
     journal.setdefault("posts", [])
     journal.setdefault("puts", [])
+    journal.setdefault("gets", [])
     journal["objets"] = {p["handle"]: p for p in places}
 
     def handler(request):
         chemin = request.url.path
         if chemin == "/api/token/":
             return httpx.Response(200, json={"access_token": "t"})
+        avarie = panne(request) if panne else None
+        if avarie is not None:
+            return avarie
         if request.method == "GET" and chemin == "/api/places/":
             page = int(request.url.params.get("page", "1"))
             return httpx.Response(200, json=places if page == 1 else [])
         if request.method == "GET" and chemin.startswith("/api/places/"):
-            return httpx.Response(200, json=journal["objets"][chemin.rsplit("/", 1)[1]])
+            handle = chemin.rsplit("/", 1)[1]
+            journal["gets"].append(handle)
+            return httpx.Response(200, json=journal["objets"][handle])
         if request.method == "POST" and chemin == "/api/places/":
             corps = json.loads(request.content)
             journal["posts"].append(corps)
@@ -216,10 +265,11 @@ def _client(places, journal):
     return GrampsClient(CONFIG, transport=httpx.MockTransport(handler))
 
 
-def _yaml(tmp_path, pays=(), subdivisions=()):
+def _yaml(tmp_path, pays=(), subdivisions=(), doublons=()):
     chemin = tmp_path / "relu.yaml"
     chemin.write_text(yaml.safe_dump({"pays": [p.model_dump() for p in pays],
-                                      "subdivisions": [s.model_dump() for s in subdivisions]},
+                                      "subdivisions": [s.model_dump() for s in subdivisions],
+                                      "doublons_arbre": list(doublons)},
                                      allow_unicode=True, sort_keys=False), encoding="utf-8")
     return chemin
 
@@ -229,18 +279,26 @@ def _ecritures_reelles(monkeypatch):
     monkeypatch.setenv("GENECREW_DRY_RUN", "false")
 
 
-def _lancer(mocker, tmp_path, places, *, pays=(SUISSE,), subdivisions=(VAUD,), dry_run=False):
+def _lancer(mocker, tmp_path, places, *, pays=(SUISSE,), subdivisions=(VAUD,),
+            doublons=(), dry_run=False, panne=None):
     journal = {}
-    client = _client(places, journal)
+    client = _client(places, journal, panne)
     mocker.patch.object(write_tools, "get_client", return_value=client)
-    rapport = run_referentiel_apply(client, _yaml(tmp_path, pays, subdivisions), tmp_path,
-                                    date="2026-07-22", dry_run=dry_run)
-    return journal, rapport
+    rapport = run_referentiel_apply(
+        client, _yaml(tmp_path, pays, subdivisions, doublons), tmp_path,
+        date="2026-07-22", dry_run=dry_run)
+    return journal, rapport.read_text(encoding="utf-8"), rapport
+
+
+def _lieu(handle, gid, nom, type_, **extra):
+    return {"handle": handle, "gramps_id": gid, "name": {"value": nom},
+            "place_type": type_, "lat": "", "long": "", "code": "",
+            "alt_names": [], "placeref_list": [], "urls": [], **extra}
 
 
 def test_le_pays_est_ecrit_avant_ses_subdivisions(mocker, tmp_path):
     """Un enfant ne peut pas se rattacher à un parent qui n'existe pas encore."""
-    journal, _ = _lancer(mocker, tmp_path, [])
+    journal, _, _ = _lancer(mocker, tmp_path, [])
     noms = [p["name"]["value"] for p in journal["posts"]]
     assert noms == ["Suisse", "canton de Vaud"]
     handle_suisse = journal["posts"][0]["handle"]
@@ -248,62 +306,191 @@ def test_le_pays_est_ecrit_avant_ses_subdivisions(mocker, tmp_path):
 
 
 def test_le_parent_est_pose_quand_le_lieu_existant_na_pas_de_placeref(mocker, tmp_path):
-    places = [{"handle": "h_ch", "gramps_id": "P0340", "name": {"value": "Suisse"},
-               "place_type": "Country", "lat": "", "long": "", "code": "",
-               "alt_names": [], "placeref_list": [], "urls": []},
-              {"handle": "h_vd", "gramps_id": "P0500", "name": {"value": "canton de Vaud"},
-               "place_type": "State", "lat": "", "long": "", "code": "",
-               "alt_names": [], "placeref_list": [], "urls": []}]
-    journal, _ = _lancer(mocker, tmp_path, places)
+    places = [_lieu("h_ch", "P0340", "Suisse", "Country"),
+              _lieu("h_vd", "P0500", "canton de Vaud", "State")]
+    journal, _, _ = _lancer(mocker, tmp_path, places)
     vaud = [p for p in journal["puts"] if p["handle"] == "h_vd"][-1]
     assert vaud["placeref_list"] == [{"ref": "h_ch"}]
 
 
 def test_un_placeref_existant_nest_pas_remplace(mocker, tmp_path):
-    """Le rattachement déjà saisi est une valeur : il n'est jamais réécrit."""
-    places = [{"handle": "h_ch", "gramps_id": "P0340", "name": {"value": "Suisse"},
-               "place_type": "Country", "lat": "", "long": "", "code": "",
-               "alt_names": [], "placeref_list": [], "urls": []},
-              {"handle": "h_vd", "gramps_id": "P0500", "name": {"value": "canton de Vaud"},
-               "place_type": "State", "lat": "", "long": "", "code": "",
-               "alt_names": [], "placeref_list": [{"ref": "h_autre"}], "urls": []}]
-    journal, _ = _lancer(mocker, tmp_path, places)
+    """Le rattachement déjà saisi est une valeur : il n'est jamais réécrit.
+
+    Second run, les QID sont posés : l'appariement ne passe plus par les noms, donc pas non
+    plus par la garde « sous le même parent ». Si un humain a depuis rattaché le canton
+    ailleurs, c'est SON rattachement qui reste.
+    """
+    places = [_lieu("h_ch", "P0340", "Suisse", "Country",
+                    urls=[{"path": "https://www.wikidata.org/wiki/Q39", "desc": "Wikidata"}]),
+              _lieu("h_vd", "P0500", "canton de Vaud", "State",
+                    placeref_list=[{"ref": "h_autre"}],
+                    urls=[{"path": "https://www.wikidata.org/wiki/Q12771",
+                           "desc": "Wikidata"}])]
+    journal, _, _ = _lancer(mocker, tmp_path, places)
     vaud = [p for p in journal["puts"] if p["handle"] == "h_vd"][-1]
     assert vaud["placeref_list"] == [{"ref": "h_autre"}]
 
 
 def test_le_nom_en_base_survit_a_lexecution(mocker, tmp_path):
     """L'invariant de bout en bout : aucun PUT ne change `name.value`."""
-    bayern = Subdivision(qid="Q980", iso="DE-BY", code="BY", libelle_fr="Bavière",
-                         noms=["Bavière", "Bayern"], place_type="State", niveau=1,
-                         parent_qid="Q183")
-    places = [{"handle": "h_by", "gramps_id": "P0600", "name": {"value": "Bayern"},
-               "place_type": "State", "lat": "", "long": "", "code": "",
-               "alt_names": [], "placeref_list": [], "urls": []}]
-    journal, _ = _lancer(mocker, tmp_path, places, pays=(), subdivisions=(bayern,))
+    places = [_lieu("h_by", "P0600", "Bayern", "State")]
+    journal, _, _ = _lancer(mocker, tmp_path, places, pays=(), subdivisions=(BAYERN,))
     assert {p["name"]["value"] for p in journal["puts"]} == {"Bayern"}
     assert journal["puts"][-1]["alt_names"] == [{"value": "Bavière"}]
 
 
 def test_les_urls_wikidata_et_wikipedia_sont_ajoutees(mocker, tmp_path):
-    places = [{"handle": "h_vd", "gramps_id": "P0500", "name": {"value": "canton de Vaud"},
-               "place_type": "State", "lat": "", "long": "", "code": "",
-               "alt_names": [], "placeref_list": [], "urls": []}]
-    journal, _ = _lancer(mocker, tmp_path, places, pays=(), subdivisions=(VAUD,))
+    places = [_lieu("h_vd", "P0500", "canton de Vaud", "State")]
+    journal, _, _ = _lancer(mocker, tmp_path, places, pays=(), subdivisions=(VAUD,))
     chemins = {u["path"] for u in journal["objets"]["h_vd"]["urls"]}
     assert chemins == {"https://www.wikidata.org/wiki/Q12771",
                        "https://fr.wikipedia.org/wiki/Canton_de_Vaud"}
 
 
 def test_la_simulation_necrit_rien(mocker, tmp_path):
-    journal, _ = _lancer(mocker, tmp_path, [], dry_run=True)
+    journal, _, _ = _lancer(mocker, tmp_path, [], dry_run=True)
     assert journal["posts"] == [] and journal["puts"] == []
+
+
+def test_la_simulation_ninterroge_aucun_handle_simule(mocker, tmp_path):
+    """Le handle d'un lieu créé en simulation ne désigne rien : le lire ferait un 404."""
+    journal, texte, _ = _lancer(mocker, tmp_path, [], dry_run=True)
+    assert [h for h in journal["gets"] if h.startswith("DRYRUN:")] == []
+    assert "Aucune erreur." in texte
+
+
+def test_la_simulation_compte_les_urls_quelle_poserait(mocker, tmp_path):
+    """L'aperçu qui autorise l'écriture ne doit pas annoncer 0 URL pour un run qui en pose 4."""
+    _, texte, _ = _lancer(mocker, tmp_path, [], dry_run=True)
+    assert "- URLs à poser : 4" in texte
 
 
 def test_le_rapport_porte_le_mode_dans_son_nom(mocker, tmp_path):
     """Une écriture réelle ne doit pas écraser l'aperçu qui l'a autorisée (spec §9)."""
-    _, simule = _lancer(mocker, tmp_path, [], dry_run=True)
-    _, ecrit = _lancer(mocker, tmp_path, [], dry_run=False)
+    *_, simule = _lancer(mocker, tmp_path, [], dry_run=True)
+    *_, ecrit = _lancer(mocker, tmp_path, [], dry_run=False)
     assert simule.name.endswith("_simulation.md")
     assert ecrit.name.endswith("_ecritures.md")
     assert simule != ecrit
+
+
+# --- les deux régressions relevées en revue --------------------------------------------
+
+def test_le_pays_georgie_nest_ni_enrichi_ni_rerattache(mocker, tmp_path):
+    """Cas reproduit : le PAYS Géorgie prenait le GPS d'Atlanta, le code `GA`, et devenait
+    un enfant des États-Unis. L'invariant tenait — rien n'était écrasé — et la donnée était
+    fausse quand même : il protège de la destruction, pas du mauvais objet."""
+    places = [_lieu("h_geo", "P0700", "Géorgie", "Country")]
+    journal, texte, _ = _lancer(mocker, tmp_path, places, pays=(), subdivisions=(GEORGIE,))
+    assert [p for p in journal["puts"] if p["handle"] == "h_geo"] == []
+    assert [p["place_type"] for p in journal["posts"]] == ["State"]
+    assert "US-GA" in texte
+
+
+def test_deux_entrees_sur_le_meme_lieu_nen_ecrivent_quune(mocker, tmp_path):
+    """Cas reproduit avec la collision FR-69 remise dans le YAML par un relecteur : la
+    seconde passe relisait un cache périmé, écrasait le code posé par la première, et
+    rattachait le lieu à lui-même."""
+    second = RHONE.model_copy(update={"qid": "Q18914778", "iso": "FR-69D", "code": "69D"})
+    places = [_lieu("h_r", "P0800", "Rhône", "Department")]
+    journal, texte, _ = _lancer(mocker, tmp_path, places, pays=(),
+                                subdivisions=(RHONE, second))
+    ecrits = [p for p in journal["puts"] if p["handle"] == "h_r"]
+    assert [p["code"] for p in ecrits] == ["69", "69"]      # jamais réécrit en 69D
+    assert all(p["placeref_list"] == [] for p in ecrits)    # jamais son propre parent
+    assert "Conflits d'appariement" in texte
+    assert "| FR-69 | FR-69D |" in texte
+
+
+def test_un_lieu_nest_jamais_son_propre_parent(mocker, tmp_path):
+    """Un YAML où une subdivision se déclare son propre parent ferait un cycle dans la
+    hiérarchie des lieux : invisible en base, fatal à tout parcours de contenants."""
+    boucle = VAUD.model_copy(update={"parent_qid": "Q12771"})
+    places = [_lieu("h_vd", "P0500", "canton de Vaud", "State",
+                    urls=[{"path": "https://www.wikidata.org/wiki/Q12771",
+                           "desc": "Wikidata"}])]
+    journal, texte, _ = _lancer(mocker, tmp_path, places, pays=(), subdivisions=(boucle,))
+    assert [p for p in journal["puts"] if p["placeref_list"]] == []
+    assert "parent identique au lieu lui-même" in texte
+
+
+# --- le rapport est la seule trace d'audit d'une commande qui écrit ~430 lieux ----------
+
+def test_le_rapport_liste_les_lieux_completes(mocker, tmp_path):
+    places = [_lieu("h_vd", "P0500", "canton de Vaud", "State")]
+    _, texte, _ = _lancer(mocker, tmp_path, places, pays=(), subdivisions=(VAUD,))
+    assert "| CH-VD | canton de Vaud | State |" in texte
+
+
+def test_le_rapport_liste_chaque_retypage(mocker, tmp_path):
+    """Un retypage de masse — la table des types natifs ne correspond plus au serveur —
+    doit sauter aux yeux, pas se cacher derrière un compteur."""
+    places = [_lieu("h_sa", "P0900", "Souk Ahras", "Wilaya")]
+    _, texte, _ = _lancer(mocker, tmp_path, places, pays=(), subdivisions=(SOUK,))
+    assert "| DZ-41 | Souk Ahras | Wilaya | Province |" in texte
+
+
+def _panne_en_ecriture(request):
+    return httpx.Response(500, text="boom") if request.method == "PUT" else None
+
+
+def test_le_rapport_porte_les_erreurs_dapi(mocker, tmp_path):
+    places = [_lieu("h_vd", "P0500", "canton de Vaud", "State")]
+    _, texte, _ = _lancer(mocker, tmp_path, places, pays=(), subdivisions=(VAUD,),
+                          panne=_panne_en_ecriture)
+    assert "- Erreurs : 1" in texte
+    assert "CH-VD" in texte and "500" in texte
+
+
+def test_un_message_derreur_multiligne_ne_casse_pas_le_tableau(mocker, tmp_path):
+    """Un 500 rend un message sur plusieurs lignes ; tel quel il coupe le tableau en deux."""
+    places = [_lieu("h_vd", "P0500", "canton de Vaud", "State")]
+    _, texte, _ = _lancer(mocker, tmp_path, places, pays=(), subdivisions=(VAUD,),
+                          panne=_panne_en_ecriture)
+    corps = [ligne for ligne in texte.split("## Erreurs")[1].splitlines()
+             if ligne.strip()]
+    assert len(corps) == 3                       # en-tête, séparateur, UNE ligne d'erreur
+    assert all(ligne.startswith("|") and ligne.endswith("|") for ligne in corps)
+
+
+def test_le_rapport_signale_les_lieux_sans_parent_resolu(mocker, tmp_path):
+    """Un rattachement manquant est une anomalie, pas un silence."""
+    _, texte, _ = _lancer(mocker, tmp_path, [], pays=(), subdivisions=(VAUD,))
+    assert "Sans parent résolu" in texte
+    assert "| CH-VD | Q39 |" in texte
+
+
+def test_un_lieu_en_doublon_nest_pas_ecrit_et_est_signale(mocker, tmp_path):
+    """`propose referentiel` a signalé les deux `France` : rien ne dit laquelle porte la
+    vérité, donc aucune écriture (spec §5.4)."""
+    places = [_lieu("h_f1", "P0295", "France", "Country"),
+              _lieu("h_f2", "P0386", "France", "Country")]
+    doublons = [{"nom": "France", "place_type": "Country", "parent": "",
+                 "gramps_ids": ["P0295", "P0386"], "handles": ["h_f1", "h_f2"]}]
+    france = EntitePays(qid="Q142", libelle_fr="France", lat="46.2", long="2.2")
+    journal, texte, _ = _lancer(mocker, tmp_path, places, pays=(france,), subdivisions=(),
+                                doublons=doublons)
+    assert journal["puts"] == [] and journal["posts"] == []
+    assert "Appariés sur un doublon de l'arbre" in texte
+    assert "P0295, P0386" in texte
+
+
+def test_un_lieu_portant_un_autre_qid_est_refuse(mocker, tmp_path):
+    """Un QID posé est une affirmation d'identité : diverger est une erreur, pas un ajout
+    silencieux — au run suivant, l'ordre de la liste `urls` déciderait."""
+    places = [_lieu("h_vd", "P0500", "canton de Vaud", "State",
+                    urls=[{"path": "https://www.wikidata.org/wiki/Q1273",
+                           "desc": "Wikidata"}])]
+    journal, texte, _ = _lancer(mocker, tmp_path, places, pays=(), subdivisions=(VAUD,))
+    assert journal["puts"] == []
+    assert "Q1273" in texte and "Q12771" in texte
+
+
+def test_une_place_malformee_narrete_pas_la_boucle(mocker, tmp_path):
+    """Sinon les écritures déjà faites restent et aucun rapport n'est écrit."""
+    places = [_lieu("h_vd", "P0500", "canton de Vaud", "State", alt_names="Vaud"),
+              _lieu("h_by", "P0600", "Bayern", "State")]
+    journal, texte, _ = _lancer(mocker, tmp_path, places, pays=(),
+                                subdivisions=(VAUD, BAYERN))
+    assert "- Erreurs : 1" in texte
+    assert {p["handle"] for p in journal["puts"]} == {"h_by"}
