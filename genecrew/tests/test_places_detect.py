@@ -3,8 +3,9 @@
 import httpx
 import pytest
 from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient, GrampsConfig
+from crewai_custom_tools.tools.genealogy.models.domain import PlaceMergeProposition
 
-from genecrew.places_merge import collecter_lieux
+from genecrew.places_merge import collecter_lieux, render_detect_report
 
 CONFIG = GrampsConfig(api_url="http://g.test/api", username="u", password="p")
 
@@ -137,3 +138,57 @@ def test_handle_vide_ne_declenche_aucune_requete_de_retroliens():
     # Deux pages de liste (page 1 avec le lieu, page 2 vide qui arrête la pagination) ;
     # un handle vide ne doit ajouter aucun appel de comptage vers "/api/places/".
     assert calls.count("/api/places/") == 2
+
+
+def _prop(keep="P0064", merge="P0070", verdict="auto", perte="", canonical="Cerbois"):
+    return PlaceMergeProposition(
+        gramps_id_keep=keep, handle_keep="H" + keep,
+        gramps_id_merge=merge, handle_merge="H" + merge,
+        canonical=canonical, reason="homonymes — code officiel identique",
+        verdict=verdict, perte_evitee=perte)
+
+
+def test_mode_simulation_annonce_et_conjugue_au_conditionnel():
+    md = render_detect_report("2026-07-21", [_prop()], [], [], 303, dry_run=True)
+    assert "simulation" in md
+    assert "Fusions à appliquer : 1" in md
+    assert "Fusions appliquées" not in md
+
+
+def test_mode_reel_annonce_les_ecritures():
+    md = render_detect_report("2026-07-21", [_prop()], [], [], 303, dry_run=False)
+    assert "écritures appliquées" in md
+    assert "Fusions appliquées : 1" in md
+
+
+def test_le_tableau_nomme_survivant_et_absorbe():
+    md = render_detect_report("2026-07-21", [_prop()], [], [], 303, dry_run=False)
+    assert "P0064" in md and "P0070" in md and "Cerbois" in md
+
+
+def test_la_perte_evitee_apparait_quand_il_y_en_a_une():
+    md = render_detect_report(
+        "2026-07-21", [_prop(perte="coordonnées, code")], [], [], 303, dry_run=False)
+    assert "coordonnées, code" in md
+
+
+def test_l_arbitrage_est_une_section_distincte():
+    md = render_detect_report("2026-07-21", [], [_prop(verdict="arbitrage",
+                                                       canonical="Paris")], [], 303,
+                              dry_run=False)
+    assert "Arbitrage" in md
+    assert "À relire : 1" in md
+    assert "Paris" in md
+
+
+def test_rien_a_faire_reste_lisible():
+    md = render_detect_report("2026-07-21", [], [], [], 303, dry_run=False)
+    assert "Fusions appliquées : 0" in md
+    assert "À relire : 0" in md
+    assert "Aucun doublon" in md
+
+
+def test_les_erreurs_sont_rapportees():
+    md = render_detect_report("2026-07-21", [], [], [("P0070", "HTTP 500")], 303,
+                              dry_run=False)
+    assert "P0070" in md and "HTTP 500" in md

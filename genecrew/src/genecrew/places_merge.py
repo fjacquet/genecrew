@@ -39,6 +39,48 @@ def render_merge_report(date, done, errors, dry_run, base_url="http://localhost"
     return "\n".join(lines)
 
 
+def render_detect_report(date: str, fusions: list, arbitrage: list, errors: list,
+                         total_lieux: int, dry_run: bool,
+                         base_url: str = "http://localhost") -> str:
+    """Rapport Markdown du mode détection. Pur.
+
+    Les libellés se conjuguent avec le mode : en simulation rien n'est écrit, et un
+    rapport ne doit jamais annoncer au présent une fusion qui n'a pas eu lieu.
+    """
+    mode = "simulation (dry-run, aucune fusion)" if dry_run else "écritures appliquées"
+    titre_fusions = "Fusions à appliquer" if dry_run else "Fusions appliquées"
+    lines = [f"# Doublons de lieux — {date}", "",
+             f"Mode : {mode}.", "",
+             f"- Lieux examinés : {total_lieux}",
+             f"- {titre_fusions} : {len(fusions)}",
+             f"- À relire : {len(arbitrage)}",
+             f"- Erreurs : {len(errors)}", ""]
+    if fusions:
+        lines += [f"## {titre_fusions}", "",
+                  "| Gardé | Absorbé | Nom | Preuve | Perte évitée |",
+                  "|---|---|---|---|---|"]
+        lines += [f"| {_link(p.gramps_id_keep, base_url)} "
+                  f"| {_link(p.gramps_id_merge, base_url)} | {p.canonical} "
+                  f"| {p.reason} | {p.perte_evitee or '—'} |" for p in fusions]
+        lines.append("")
+    if arbitrage:
+        lines += ["## Arbitrage", "",
+                  "Aucune preuve ne les départage : à relire, puis à exécuter avec "
+                  "`merge places --yaml`.", "",
+                  "| Gardé | Absorbé | Nom | Motif |", "|---|---|---|---|"]
+        lines += [f"| {_link(p.gramps_id_keep, base_url)} "
+                  f"| {_link(p.gramps_id_merge, base_url)} | {p.canonical} "
+                  f"| {p.reason} |" for p in arbitrage]
+        lines.append("")
+    if errors:
+        lines += ["## Erreurs", ""]
+        lines += [f"- {gid} : {msg}" for gid, msg in errors]
+        lines.append("")
+    if not fusions and not arbitrage and not errors:
+        lines += ["Aucun doublon détecté.", ""]
+    return "\n".join(lines)
+
+
 def _retroliens(client: GrampsClient, handle: str) -> int:
     """Nombre d'objets qui référencent ce lieu ; 0 si l'API ne répond pas.
 
