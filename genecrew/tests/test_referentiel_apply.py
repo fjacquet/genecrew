@@ -18,8 +18,9 @@ from crewai_custom_tools.tools.genealogy.models.domain import Subdivision
 from crewai_custom_tools.tools.genealogy.referentiel.chargement import EntitePays
 
 from genecrew.referentiel_apply import (
-    apparier, decider, identifiant, index_par_nom_contenant, index_par_nom_type,
-    index_par_qid, run_referentiel_apply, subdivision_de_pays,
+    apparier, decider, handles_designant, identifiant, index_par_nom_contenant,
+    index_par_nom_type, index_par_qid, motif_dexclusion, qid_pose, run_referentiel_apply,
+    subdivision_de_pays,
 )
 
 VAUD = Subdivision(qid="Q12771", iso="CH-VD", code="VD", libelle_fr="canton de Vaud",
@@ -78,9 +79,43 @@ def test_un_candidat_rattache_ailleurs_est_refuse():
                           "place_type": "Department",
                           "placeref_list": [{"ref": "h_un_autre_parent"}]}}
     assert apparier(RHONE, {}, {("Rhône", "Department"): "h_r"}, {},
-                    par_handle=par_handle, parent_handle="h_ara") is None
+                    par_handle=par_handle, parents={"h_ara"}) is None
     assert apparier(RHONE, {}, {("Rhône", "Department"): "h_r"}, {},
-                    par_handle=par_handle, parent_handle="h_un_autre_parent") == "h_r"
+                    par_handle=par_handle, parents={"h_un_autre_parent"}) == "h_r"
+
+
+def test_un_candidat_non_rattache_est_refuse_quand_le_parent_est_connu():
+    """Un contenant SANS rattachement est l'état normal de l'arbre au premier run — poser
+    les parents manquants est l'objet même de la commande. Le laisser passer rendrait la
+    clause de parent inerte sur toute la population qu'elle doit protéger."""
+    par_handle = {"h_r": {"handle": "h_r", "name": {"value": "Rhône"},
+                          "place_type": "Department", "placeref_list": []}}
+    assert apparier(RHONE, {}, {("Rhône", "Department"): "h_r"}, {},
+                    par_handle=par_handle, parents={"h_ara"}) is None
+    # Parent inconnu : on ne peut rien exiger, donc aucune contrainte de lieu.
+    assert apparier(RHONE, {}, {("Rhône", "Department"): "h_r"}, {},
+                    par_handle=par_handle) == "h_r"
+
+
+def test_un_enfant_sous_lun_des_homonymes_du_parent_est_reconnu():
+    """Arbre à deux `France` — QID sur l'une, régions sous l'autre, configuration ordinaire.
+    Comparer au seul handle élu ferait créer un second exemplaire de chaque région."""
+    ara = Subdivision(qid="Q18338206", iso="FR-ARA", code="ARA",
+                      libelle_fr="Auvergne-Rhône-Alpes", noms=["Auvergne-Rhône-Alpes"],
+                      place_type="Region", niveau=1, parent_qid="Q142")
+    par_handle = {"h_ara": {"handle": "h_ara", "name": {"value": "Auvergne-Rhône-Alpes"},
+                            "place_type": "Region", "placeref_list": [{"ref": "h_f1"}]}}
+    assert apparier(ara, {}, {("Auvergne-Rhône-Alpes", "Region"): "h_ara"}, {},
+                    par_handle=par_handle, parents={"h_f1", "h_f2"}) == "h_ara"
+
+
+def test_handles_designant_ramasse_les_homonymes_et_les_porteurs_du_qid():
+    france = subdivision_de_pays(EntitePays(qid="Q142", libelle_fr="France"))
+    places = [{"handle": "h_f1", "name": {"value": "France"}, "place_type": "Country"},
+              {"handle": "h_f2", "name": {"value": "France"}, "place_type": "Country",
+               "urls": [{"path": "https://www.wikidata.org/wiki/Q142", "desc": "Wikidata"}]},
+              {"handle": "h_x", "name": {"value": "Suisse"}, "place_type": "Country"}]
+    assert handles_designant(france, places) == {"h_f1", "h_f2"}
 
 
 def test_index_par_nom_contenant_ignore_les_communes():
@@ -107,6 +142,61 @@ def test_index_par_qid_ignore_les_autres_urls():
 def test_index_par_nom_type():
     places = [{"handle": "h2", "name": {"value": "Bayern"}, "place_type": "State"}]
     assert index_par_nom_type(places) == {("Bayern", "State"): "h2"}
+
+
+# Le « premier gagne » des trois index n'est pas un détail d'implémentation : `iter_places`
+# trie par `gramps_id`, donc c'est lui qui rend deux exécutions comparables — et une
+# simulation représentative de l'écriture qu'elle autorise.
+
+def test_index_par_qid_retient_le_premier_lieu_rencontre():
+    urls = [{"path": "https://www.wikidata.org/wiki/Q142", "desc": "Wikidata"}]
+    assert index_par_qid([{"handle": "h1", "urls": urls},
+                          {"handle": "h2", "urls": urls}]) == {"Q142": "h1"}
+
+
+def test_index_par_nom_type_retient_le_premier_lieu_rencontre():
+    places = [{"handle": "h1", "name": {"value": "France"}, "place_type": "Country"},
+              {"handle": "h2", "name": {"value": "France"}, "place_type": "Country"}]
+    assert index_par_nom_type(places) == {("France", "Country"): "h1"}
+
+
+def test_index_par_nom_contenant_retient_le_premier_lieu_rencontre():
+    places = [{"handle": "h1", "name": {"value": "France"}, "place_type": "Country"},
+              {"handle": "h2", "name": {"value": "France"}, "place_type": "Country"}]
+    assert index_par_nom_contenant(places) == {"France": "h1"}
+
+
+def test_un_type_illisible_ecarte_le_lieu_des_trois_index():
+    """La normalisation se fait à la LECTURE : un `place_type` non hachable faisait sauter
+    la construction des index, hors de toute boucle et de tout `try` — traceback nu, aucun
+    rapport écrit."""
+    place = {"handle": "h", "gramps_id": "P0001", "name": {"value": "Souk Ahras"},
+             "place_type": {"_class": "PlaceType", "string": "Wilaya"},
+             "urls": [{"path": "https://www.wikidata.org/wiki/Q236772", "desc": "Wikidata"}]}
+    assert index_par_qid([place]) == {}
+    assert index_par_nom_type([place]) == {}
+    assert index_par_nom_contenant([place]) == {}
+    assert "illisible" in motif_dexclusion(place)
+
+
+def test_deux_qid_concurrents_rendent_le_lieu_inexploitable():
+    """Rendre le premier laisserait l'ordre de la liste `urls` décider d'une identité, en
+    silence — alors que le module refuse par ailleurs de créer cette situation."""
+    place = {"handle": "h", "gramps_id": "P0002", "name": {"value": "Rhône"},
+             "place_type": "Department",
+             "urls": [{"path": "https://www.wikidata.org/wiki/Q46130", "desc": "Wikidata"},
+                      {"path": "https://www.wikidata.org/wiki/Q18914778", "desc": "Wikidata"}]}
+    assert qid_pose(place) is None
+    assert index_par_nom_type([place]) == {}
+    assert "concurrentes" in motif_dexclusion(place)
+
+
+def test_un_meme_qid_repete_nest_pas_une_ambiguite():
+    url = {"path": "https://www.wikidata.org/wiki/Q46130", "desc": "Wikidata"}
+    place = {"handle": "h", "name": {"value": "Rhône"}, "place_type": "Department",
+             "urls": [url, dict(url, desc="Wikidata (doublon)")]}
+    assert qid_pose(place) == "Q46130"
+    assert motif_dexclusion(place) is None
 
 
 # --- ce qui est décidé, et surtout ce qui ne l'est pas ----------------------------------
@@ -290,6 +380,15 @@ def _lancer(mocker, tmp_path, places, *, pays=(SUISSE,), subdivisions=(VAUD,),
     return journal, rapport.read_text(encoding="utf-8"), rapport
 
 
+def _section_du_rapport(texte, titre):
+    """Le corps d'UNE section, sans les suivantes.
+
+    `_section` rend toujours son titre, même vide : `assert "## Titre" in texte` ne peut donc
+    pas échouer et n'atteste de rien. C'est la ligne DANS sa section qu'il faut vérifier.
+    """
+    return texte.split(f"## {titre}")[1].split("\n## ")[0]
+
+
 def _lieu(handle, gid, nom, type_, **extra):
     return {"handle": handle, "gramps_id": gid, "name": {"value": nom},
             "place_type": type_, "lat": "", "long": "", "code": "",
@@ -306,8 +405,13 @@ def test_le_pays_est_ecrit_avant_ses_subdivisions(mocker, tmp_path):
 
 
 def test_le_parent_est_pose_quand_le_lieu_existant_na_pas_de_placeref(mocker, tmp_path):
-    places = [_lieu("h_ch", "P0340", "Suisse", "Country"),
-              _lieu("h_vd", "P0500", "canton de Vaud", "State")]
+    """Le QID identifie le canton sans ambiguïté — c'est la seule prise qui accepte un lieu
+    non rattaché, et donc la seule qui puisse lui poser son parent (spec §5.1)."""
+    places = [_lieu("h_ch", "P0340", "Suisse", "Country",
+                    urls=[{"path": "https://www.wikidata.org/wiki/Q39", "desc": "Wikidata"}]),
+              _lieu("h_vd", "P0500", "canton de Vaud", "State",
+                    urls=[{"path": "https://www.wikidata.org/wiki/Q12771",
+                           "desc": "Wikidata"}])]
     journal, _, _ = _lancer(mocker, tmp_path, places)
     vaud = [p for p in journal["puts"] if p["handle"] == "h_vd"][-1]
     assert vaud["placeref_list"] == [{"ref": "h_ch"}]
@@ -384,7 +488,7 @@ def test_le_pays_georgie_nest_ni_enrichi_ni_rerattache(mocker, tmp_path):
     journal, texte, _ = _lancer(mocker, tmp_path, places, pays=(), subdivisions=(GEORGIE,))
     assert [p for p in journal["puts"] if p["handle"] == "h_geo"] == []
     assert [p["place_type"] for p in journal["posts"]] == ["State"]
-    assert "US-GA" in texte
+    assert journal["objets"]["h_geo"]["code"] == ""      # le pays n'a rien reçu
 
 
 def test_deux_entrees_sur_le_meme_lieu_nen_ecrivent_quune(mocker, tmp_path):
@@ -397,9 +501,76 @@ def test_deux_entrees_sur_le_meme_lieu_nen_ecrivent_quune(mocker, tmp_path):
                                 subdivisions=(RHONE, second))
     ecrits = [p for p in journal["puts"] if p["handle"] == "h_r"]
     assert [p["code"] for p in ecrits] == ["69", "69"]      # jamais réécrit en 69D
-    assert all(p["placeref_list"] == [] for p in ecrits)    # jamais son propre parent
-    assert "Conflits d'appariement" in texte
-    assert "| FR-69 | FR-69D |" in texte
+    assert "| FR-69 | FR-69D | Rhône |" in _section_du_rapport(
+        texte, "Conflits d'appariement")
+
+
+def test_un_homonyme_non_rattache_nest_pas_pris_pour_la_cible(mocker, tmp_path):
+    """Cas reproduit : un `Province` « Limbourg » néerlandais, non rattaché, recevait le GPS
+    et le code du Limbourg belge. Un contenant sans rattachement est l'état normal de
+    l'arbre au premier run, donc c'est là que la clause de parent doit mordre.
+
+    Écrire sur le mauvais lieu est irréversible ; le doublon créé ici est réversible et
+    outillé (`merge places`).
+    """
+    limbourg = Subdivision(qid="Q1095", iso="BE-VLI", code="VLI", libelle_fr="Limbourg",
+                           noms=["Limbourg"], place_type="Province", niveau=1,
+                           parent_qid="Q31", lat="51.0", long="5.4")
+    belgique = EntitePays(qid="Q31", libelle_fr="Belgique", lat="50.6", long="4.6")
+    places = [_lieu("h_nl", "P1000", "Limbourg", "Province")]   # le Limbourg néerlandais
+    journal, texte, _ = _lancer(mocker, tmp_path, places, pays=(belgique,),
+                                subdivisions=(limbourg,))
+    assert [p for p in journal["puts"] if p["handle"] == "h_nl"] == []
+    assert [p["name"]["value"] for p in journal["posts"]] == ["Belgique", "Limbourg"]
+
+
+def test_les_deux_france_ne_font_pas_naitre_une_seconde_region(mocker, tmp_path):
+    """Cas reproduit : QID sur la seconde `France`, régions sous la première. Comparer au
+    seul handle élu refusait la région existante et en créait un second exemplaire sous
+    l'autre France — la clause de parent produisait le doublon qu'elle voulait éviter."""
+    ara = Subdivision(qid="Q18338206", iso="FR-ARA", code="ARA",
+                      libelle_fr="Auvergne-Rhône-Alpes", noms=["Auvergne-Rhône-Alpes"],
+                      place_type="Region", niveau=1, parent_qid="Q142", lat="45.7", long="4.8")
+    france = EntitePays(qid="Q142", libelle_fr="France", lat="46.2", long="2.2")
+    places = [_lieu("h_f1", "P0295", "France", "Country"),
+              _lieu("h_f2", "P0386", "France", "Country",
+                    urls=[{"path": "https://www.wikidata.org/wiki/Q142", "desc": "Wikidata"}]),
+              _lieu("h_ara", "P0400", "Auvergne-Rhône-Alpes", "Region",
+                    placeref_list=[{"ref": "h_f1"}])]
+    journal, _, _ = _lancer(mocker, tmp_path, places, pays=(france,), subdivisions=(ara,))
+    assert journal["posts"] == []                                  # aucune région créée
+    assert journal["objets"]["h_ara"]["code"] == "ARA"             # l'existante est servie
+
+
+def test_la_descendance_dun_doublon_ecarte_nest_pas_creee(mocker, tmp_path):
+    """Le pays écarté ne résout plus aucun parent : ses régions naîtraient à la RACINE de
+    l'arbre. Sur l'arbre réel, un doublon `France` en ferait ~119."""
+    ara = Subdivision(qid="Q18338206", iso="FR-ARA", code="ARA",
+                      libelle_fr="Auvergne-Rhône-Alpes", noms=["Auvergne-Rhône-Alpes"],
+                      place_type="Region", niveau=1, parent_qid="Q142")
+    rhone = RHONE.model_copy(update={"niveau": 2})
+    france = EntitePays(qid="Q142", libelle_fr="France", lat="46.2", long="2.2")
+    places = [_lieu("h_f1", "P0295", "France", "Country"),
+              _lieu("h_f2", "P0386", "France", "Country")]
+    doublons = [{"nom": "France", "place_type": "Country", "parent": "",
+                 "gramps_ids": ["P0295", "P0386"], "handles": ["h_f1", "h_f2"]}]
+    journal, texte, _ = _lancer(mocker, tmp_path, places, pays=(france,),
+                                subdivisions=(ara, rhone), doublons=doublons)
+    assert journal["posts"] == [] and journal["puts"] == []
+    bloques = _section_du_rapport(texte, "Descendance bloquée")
+    # La cascade nomme le doublon d'origine, pas le maillon intermédiaire.
+    assert "| FR-ARA | Auvergne-Rhône-Alpes | FR | doublon de l'arbre |" in bloques
+    assert "| FR-69 | Rhône | FR | doublon de l'arbre |" in bloques
+
+
+def test_un_lieu_inexploitable_ne_recoit_rien_et_sort_au_rapport(mocker, tmp_path):
+    """Un type illisible ne fait plus sauter le run : le lieu est écarté et nommé."""
+    places = [_lieu("h_sa", "P0900", "Souk Ahras", "Wilaya"),
+              _lieu("h_x", "P0901", "Souk Ahras", {"_class": "PlaceType"})]
+    journal, texte, _ = _lancer(mocker, tmp_path, places, pays=(), subdivisions=(SOUK,))
+    assert {p["handle"] for p in journal["puts"]} == {"h_sa"}      # h_x n'est jamais écrit
+    ecartes = _section_du_rapport(texte, "Lieux écartés de l'appariement")
+    assert "P0901" in ecartes and "illisible" in ecartes
 
 
 def test_un_lieu_nest_jamais_son_propre_parent(mocker, tmp_path):
@@ -439,7 +610,8 @@ def test_le_rapport_porte_les_erreurs_dapi(mocker, tmp_path):
     _, texte, _ = _lancer(mocker, tmp_path, places, pays=(), subdivisions=(VAUD,),
                           panne=_panne_en_ecriture)
     assert "- Erreurs : 1" in texte
-    assert "CH-VD" in texte and "500" in texte
+    assert "CH-VD" in _section_du_rapport(texte, "Erreurs")
+    assert "500" in texte
 
 
 def test_un_message_derreur_multiligne_ne_casse_pas_le_tableau(mocker, tmp_path):
@@ -456,8 +628,7 @@ def test_un_message_derreur_multiligne_ne_casse_pas_le_tableau(mocker, tmp_path)
 def test_le_rapport_signale_les_lieux_sans_parent_resolu(mocker, tmp_path):
     """Un rattachement manquant est une anomalie, pas un silence."""
     _, texte, _ = _lancer(mocker, tmp_path, [], pays=(), subdivisions=(VAUD,))
-    assert "Sans parent résolu" in texte
-    assert "| CH-VD | Q39 |" in texte
+    assert "| CH-VD | Q39 |" in _section_du_rapport(texte, "Sans parent résolu")
 
 
 def test_un_lieu_en_doublon_nest_pas_ecrit_et_est_signale(mocker, tmp_path):
@@ -471,8 +642,8 @@ def test_un_lieu_en_doublon_nest_pas_ecrit_et_est_signale(mocker, tmp_path):
     journal, texte, _ = _lancer(mocker, tmp_path, places, pays=(france,), subdivisions=(),
                                 doublons=doublons)
     assert journal["puts"] == [] and journal["posts"] == []
-    assert "Appariés sur un doublon de l'arbre" in texte
-    assert "P0295, P0386" in texte
+    assert "P0295, P0386" in _section_du_rapport(
+        texte, "Appariés sur un doublon de l'arbre")
 
 
 def test_un_lieu_portant_un_autre_qid_est_refuse(mocker, tmp_path):

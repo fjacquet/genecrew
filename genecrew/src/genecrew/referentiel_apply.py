@@ -7,8 +7,11 @@ détour par une seconde relecture.
 
 Cet invariant protège contre la **destruction**, pas contre l'écriture d'une valeur juste sur
 le **mauvais objet** : un GPS posé sur un homonyme n'écrase rien et reste une donnée fausse.
-D'où les gardes d'appariement (`_candidat_recevable`), la consommation des handles, et le
-refus d'un lieu qui affirme déjà une autre identité Wikidata.
+D'où la règle qui gouverne tout l'appariement de ce module :
+
+    écrire sur le mauvais lieu est irréversible en pratique — une fois la donnée posée, plus
+    rien ne distingue le juste du faux ; créer un doublon est réversible et outillé
+    (`merge places`). Dans le doute, on crée, et on dit ce qu'on a fait.
 
 Ne réinterroge JAMAIS Wikidata : le YAML relu est la seule entrée (spec §6).
 """
@@ -39,10 +42,11 @@ TYPES_CONTENANTS = frozenset({"Country", "State", "Region", "Department", "Provi
 # Types natifs de Gramps, RECOPIÉS de la spec §4 (relevé sur `/types/default/place_types`) et
 # jamais relus sur l'API vivante. Un type absent d'ici passe pour personnalisé, donc
 # retypable : si le serveur rendait autre chose qu'une chaîne simple, tout l'arbre deviendrait
-# candidat au retypage. D'où deux gardes — `decider` refuse un type qui n'est pas une chaîne,
-# et le rapport liste **chaque** retypage ligne à ligne. Un retypage de masse ne peut pas
-# passer inaperçu. La spec affirme aussi que `Wilaya` est le seul type personnalisé de
-# l'arbre : ce n'est pas mesuré, et la section « Retypages » est ce qui le vérifie au run.
+# candidat au retypage. D'où deux gardes — `type_lisible` écarte de l'appariement tout lieu
+# dont le type n'est pas une chaîne, et le rapport liste **chaque** retypage ligne à ligne.
+# Un retypage de masse ne peut pas passer inaperçu. La spec affirme aussi que `Wilaya` est le
+# seul type personnalisé de l'arbre : ce n'est pas mesuré, et c'est cette section de rapport
+# qui le vérifie au run.
 TYPES_NATIFS = frozenset({"Unknown", "Country", "State", "County", "City", "Parish",
                           "Locality", "Street", "Province", "Region", "Department",
                           "Neighborhood", "District", "Borough", "Municipality", "Town",
@@ -63,19 +67,70 @@ def _cellule(valeur) -> str:
     return " ".join(str(valeur).split()).replace("|", "\\|")
 
 
-def qid_pose(place: dict) -> str | None:
-    """Le QID déjà affirmé par le lieu, s'il en porte un. Une identité, pas un ornement."""
+# --- lecture défensive d'un lieu --------------------------------------------------------
+
+def type_lisible(place: dict) -> str | None:
+    """Le `place_type` du lieu comme chaîne (`""` s'il est absent), `None` s'il n'en est pas.
+
+    La normalisation se fait ICI, à la lecture, et pas au moment de décider : un
+    `place_type` non hachable faisait sauter la construction des index — hors de toute
+    boucle et de tout `try`, donc traceback nu et aucun rapport écrit.
+    """
+    brut = place.get("place_type")
+    if brut is None:
+        return ""
+    return brut if isinstance(brut, str) else None
+
+
+def qids_poses(place: dict) -> list[str]:
+    """Les QID distincts affirmés par les `urls` du lieu, dans l'ordre de la liste."""
+    vus: list[str] = []
     for url in place.get("urls") or []:
+        if not isinstance(url, dict):
+            continue
         chemin = url.get("path") or ""
         if chemin.startswith(_WIKIDATA):
-            return chemin[len(_WIKIDATA):]
+            qid = chemin[len(_WIKIDATA):]
+            if qid not in vus:
+                vus.append(qid)
+    return vus
+
+
+def qid_pose(place: dict) -> str | None:
+    """Le QID affirmé par le lieu. `None` s'il n'en porte aucun — **ou plusieurs**.
+
+    Rendre le premier reviendrait à laisser l'ordre de la liste `urls` décider d'une
+    identité, en silence, alors que ce module refuse par ailleurs de créer cette situation.
+    """
+    qids = qids_poses(place)
+    return qids[0] if len(qids) == 1 else None
+
+
+def motif_dexclusion(place: dict) -> str | None:
+    """Pourquoi ce lieu ne peut être la cible d'aucune subdivision. `None` = exploitable.
+
+    Un lieu exclu n'entre dans AUCUN index : on ne peut ni l'identifier ni arbitrer son
+    type, donc on ne lui écrit rien. Il sort au rapport.
+    """
+    if type_lisible(place) is None:
+        return f"type de lieu illisible ({type(place.get('place_type')).__name__})"
+    qids = qids_poses(place)
+    if len(qids) > 1:
+        return f"identités Wikidata concurrentes ({', '.join(qids)})"
     return None
 
+
+# --- index de l'arbre -------------------------------------------------------------------
+# Les trois index retiennent le PREMIER lieu rencontré (`setdefault`). `iter_places` trie
+# par `gramps_id`, donc deux exécutions sur le même arbre rendent le même résultat — c'est
+# ce déterminisme qui rend une simulation représentative de l'écriture qu'elle autorise.
 
 def index_par_qid(places: list[dict]) -> dict[str, str]:
     """QID → handle, lu dans les `urls` des lieux. L'identité durable de l'appariement."""
     index: dict[str, str] = {}
     for place in places:
+        if motif_dexclusion(place):
+            continue
         qid = qid_pose(place)
         if qid:
             index.setdefault(qid, place["handle"])
@@ -86,9 +141,11 @@ def index_par_nom_type(places: list[dict]) -> dict[tuple[str, str], str]:
     """(nom, type) → handle. Repli du premier passage, avant que les QID soient posés."""
     index: dict[tuple[str, str], str] = {}
     for place in places:
+        if motif_dexclusion(place):
+            continue
         nom = (place.get("name") or {}).get("value", "")
         if nom:
-            index.setdefault((nom, place.get("place_type", "")), place["handle"])
+            index.setdefault((nom, type_lisible(place)), place["handle"])
     return index
 
 
@@ -96,10 +153,35 @@ def index_par_nom_contenant(places: list[dict]) -> dict[str, str]:
     """nom → handle, restreint aux lieux CONTENANTS. Dernière prise de l'appariement."""
     index: dict[str, str] = {}
     for place in places:
+        if motif_dexclusion(place):
+            continue
         nom = (place.get("name") or {}).get("value", "")
-        if nom and place.get("place_type", "") in TYPES_CONTENANTS:
+        if nom and type_lisible(place) in TYPES_CONTENANTS:
             index.setdefault(nom, place["handle"])
     return index
+
+
+def handles_designant(sub: Subdivision, places: list[dict]) -> set[str]:
+    """TOUS les lieux de l'arbre qui pourraient désigner cette subdivision.
+
+    Sert à borner les prises par le parent. Un enfant rattaché à **n'importe lequel** des
+    lieux qui désignent le parent est au bon endroit : sans cet ensemble, un arbre portant
+    deux `France` — le QID sur l'une, les régions sous l'autre, configuration ordinaire —
+    ferait créer un second exemplaire de chaque région sous la « bonne » France, tandis que
+    la région existante, correctement rattachée, ne recevrait rien.
+    """
+    handles = set()
+    for place in places:
+        if motif_dexclusion(place):
+            continue
+        if sub.qid and qid_pose(place) == sub.qid:
+            handles.add(place["handle"])
+            continue
+        nom = (place.get("name") or {}).get("value", "")
+        type_ = type_lisible(place)
+        if nom in sub.noms and (type_ == sub.place_type or type_ in TYPES_CONTENANTS):
+            handles.add(place["handle"])
+    return handles
 
 
 def subdivision_de_pays(entite: EntitePays) -> Subdivision:
@@ -124,8 +206,9 @@ def identifiant(sub: Subdivision) -> str:
     return sub.iso or sub.qid or sub.libelle_fr
 
 
-def _candidat_recevable(sub: Subdivision, place: dict | None,
-                        parent_handle: str | None) -> bool:
+# --- appariement ------------------------------------------------------------------------
+
+def _candidat_recevable(sub: Subdivision, place: dict | None, parents: set[str]) -> bool:
     """Un candidat trouvé par son NOM est-il bien la cible visée ? (spec §5.3)
 
     Deux refus, tirés de cas reproduits :
@@ -134,36 +217,38 @@ def _candidat_recevable(sub: Subdivision, place: dict | None,
       l'État américain `Géorgie` s'apparie au **pays** Géorgie, qui reçoit alors le GPS
       d'Atlanta, le code `GA` et un rattachement sous les États-Unis. Même mécanique pour
       la province belge `Luxembourg` contre le pays `Luxembourg`.
-    - un lieu déjà rattaché AILLEURS que sous le parent attendu n'est pas le bon homonyme —
-      c'est la clause « sous le même parent » du §5.3, que l'index (nom, type) ignore.
+    - quand le parent est connu, le candidat doit être **sous ce parent** — c'est la clause
+      « sous le même parent » du §5.3, que l'index (nom, type) ignore. Un candidat NON
+      RATTACHÉ ne passe pas non plus : c'est l'état normal de l'arbre au premier run, donc
+      la clause serait inerte sur toute la population qu'elle doit protéger. Un `Province`
+      « Limbourg » néerlandais non rattaché recevrait les données du Limbourg belge.
 
-    Le second refus ne joue que si le parent est connu : rejeter faute de parent résolu
-    ferait créer un doublon de tout lieu correctement rattaché dont le parent n'est ni dans
-    le YAML relu ni porteur d'un QID.
+    `parents` vide = parent inconnu : aucune contrainte de lieu, on ne peut rien exiger.
     """
     if place is None:
         return True
-    if sub.niveau > 0 and (place.get("place_type") or "") == "Country":
+    if sub.niveau > 0 and type_lisible(place) == "Country":
         return False
-    refs = place.get("placeref_list") or []
-    if refs and parent_handle is not None:
-        return any(ref.get("ref") == parent_handle for ref in refs)
-    return True
+    if not parents:
+        return True
+    refs = {ref.get("ref") for ref in place.get("placeref_list") or []
+            if isinstance(ref, dict)}
+    return bool(refs & parents)
 
 
 def apparier(sub: Subdivision, par_qid: dict[str, str],
              par_nom_type: dict[tuple[str, str], str],
              par_nom: dict[str, str], *,
              par_handle: dict[str, dict] | None = None,
-             parent_handle: str | None = None) -> str | None:
+             parents: set[str] | frozenset[str] = frozenset()) -> str | None:
     """Trois prises, dans l'ordre : QID, puis (nom, type), puis nom seul chez les contenants.
 
     Les noms essayés sont ceux de `sub.noms` — français d'abord, vernaculaire ensuite —
     parce que l'arbre porte `Bayern` là où Wikidata rend `Bavière`.
 
-    Le QID est une identité : il s'impose seul. Les deux prises par le nom ne sont que des
-    présomptions et passent par `_candidat_recevable` ; `par_handle` leur donne les lieux
-    dont elles ont besoin pour se juger.
+    Le QID est une identité : il s'impose seul, sans passer par `_candidat_recevable`. Les
+    deux prises par le nom ne sont que des présomptions ; `par_handle` leur donne les lieux
+    dont elles ont besoin pour se juger, `parents` les handles du parent attendu.
     """
     if sub.qid and sub.qid in par_qid:
         return par_qid[sub.qid]
@@ -171,7 +256,7 @@ def apparier(sub: Subdivision, par_qid: dict[str, str],
     for prise in ([par_nom_type.get((nom, sub.place_type)) for nom in sub.noms],
                   [par_nom.get(nom) for nom in sub.noms]):
         for handle in prise:
-            if handle and _candidat_recevable(sub, index.get(handle), parent_handle):
+            if handle and _candidat_recevable(sub, index.get(handle), set(parents)):
                 return handle
     return None
 
@@ -188,6 +273,9 @@ def decider(sub: Subdivision, place: dict | None) -> dict:
 
     Rien de ce qui est déjà rempli n'est touché — le nom en particulier n'est jamais réécrit :
     `Bayern` reste `Bayern` et `Bavière` rejoint ses `alt_names`.
+
+    Le drapeau `type_illisible` est un contrat pour tout appelant direct : `run_referentiel_
+    apply` écarte ces lieux bien avant, dès la construction des index.
     """
     if place is None:
         return {"action": "creer", "name": sub.libelle_fr, "place_type": sub.place_type,
@@ -203,18 +291,14 @@ def decider(sub: Subdivision, place: dict | None) -> dict:
 
     # Unique réécriture permise : normaliser un type PERSONNALISÉ (`Wilaya`) vers un type
     # natif, ou remplir un type vide. Un type natif déjà posé est un choix humain : intact.
-    brut = place.get("place_type")
-    if brut is not None and not isinstance(brut, str):
-        # Type illisible (objet, libellé localisé) : la table des types natifs ne peut plus
-        # arbitrer, donc on ne décide rien. L'appelant refusera le lieu.
+    type_existant = type_lisible(place)
+    if type_existant is None:
         plan["type_illisible"] = True
-    else:
-        type_existant = brut or ""
-        if type_existant != sub.place_type and (type_existant in _TYPES_VIDES
-                                                or type_existant not in TYPES_NATIFS):
-            plan["place_type"] = sub.place_type
-            if type_existant not in _TYPES_VIDES:
-                plan["retypage"] = (type_existant, sub.place_type)
+    elif type_existant != sub.place_type and (type_existant in _TYPES_VIDES
+                                              or type_existant not in TYPES_NATIFS):
+        plan["place_type"] = sub.place_type
+        if type_existant not in _TYPES_VIDES:
+            plan["retypage"] = (type_existant, sub.place_type)
 
     nom_existant = (place.get("name") or {}).get("value", "")
     deja = {a.get("value") for a in (place.get("alt_names") or [])}
@@ -230,6 +314,8 @@ def _cibles_du_yaml(doc: dict) -> list[Subdivision]:
     subs = [Subdivision(**sub) for sub in doc.get("subdivisions") or []]
     return sorted(pays + subs, key=lambda s: s.niveau)
 
+
+# --- rapport ----------------------------------------------------------------------------
 
 def _section(titre: str, entetes: list[str], lignes: list[tuple],
              chapeau: str = "", vide: str = "Aucun.") -> list[str]:
@@ -259,6 +345,8 @@ def render_apply_report(date: str, bilan: dict, dry_run: bool) -> str:
               f"- URLs à poser : {bilan['urls_ajoutees']}",
               f"- Appariés sur un doublon connu (non écrits) : {len(bilan['doublons_touches'])}",
               f"- Conflits d'appariement (non écrits) : {len(bilan['conflits'])}",
+              f"- Descendance bloquée (non écrite) : {len(bilan['bloques'])}",
+              f"- Lieux écartés de l'appariement : {len(bilan['exclus'])}",
               f"- Sans parent résolu : {len(bilan['orphelins'])}",
               f"- Erreurs : {len(bilan['erreurs'])}", ""]
     lignes += _section("Créés", ["ISO", "Nom", "Type"], bilan["crees"])
@@ -275,11 +363,23 @@ def render_apply_report(date: str, bilan: dict, dry_run: bool) -> str:
                 "porte la vérité, donc aucune écriture (spec §5.4) : les arbitrer avec "
                 "`merge places`, puis relancer.")
     lignes += _section(
+        "Descendance bloquée — rien n'a été écrit",
+        ["ISO", "Nom", "Bloqué par", "Motif"], bilan["bloques"],
+        chapeau="Leur parent n'a pas été écrit, donc ces lieux naîtraient à la RACINE de "
+                "l'arbre. Un lieu sans rattachement est un dégât silencieux ; un lieu non "
+                "créé et nommé ici est un travail à faire, visible. Débloquer la cause, "
+                "puis relancer.")
+    lignes += _section(
         "Conflits d'appariement — rien n'a été écrit",
         ["Premier", "Second", "Nom", "Lieu"], bilan["conflits"],
         chapeau="Deux entrées du YAML relu désignent le MÊME lieu. Écrire la seconde "
                 "écraserait ce que la première a posé : seule la première a été écrite, et "
                 "les deux codes sont rendus ici pour arbitrage.")
+    lignes += _section(
+        "Lieux écartés de l'appariement", ["Lieu", "Motif"], bilan["exclus"],
+        chapeau="Ces lieux de l'arbre ne peuvent servir de cible à aucune subdivision : leur "
+                "type n'est pas exploitable, ou ils affirment plusieurs identités Wikidata. "
+                "Ils n'entrent dans aucun index et ne reçoivent rien.")
     lignes += _section(
         "Sans parent résolu", ["ISO", "Parent attendu (QID)"], bilan["orphelins"],
         chapeau="Ces lieux ont été écrits sans rattachement : leur parent n'est ni dans le "
@@ -301,14 +401,21 @@ def run_referentiel_apply(client, yaml_path, output_dir, *, date: str,
     par_qid = index_par_qid(places)
     par_nom_type = index_par_nom_type(places)
     par_nom = index_par_nom_contenant(places)
+    # Pas de filtre ici : un lieu écarté n'entre dans aucun index, donc `apparier` ne rend
+    # jamais son handle et ce cache ne peut pas le servir.
     par_handle = {p["handle"]: p for p in places}
 
     createur, majeur, urleur = (GrampsCreatePlaceTool(), GrampsUpdatePlaceTool(),
                                 GrampsAddUrlTool())
-    handles_qid = dict(par_qid)
-    consommes: dict[str, str] = {}          # handle -> ISO de l'entrée qui l'a déjà pris
+    handles_qid = dict(par_qid)                     # QID -> le handle où l'on écrit
+    handles_designants = {qid: {handle} for qid, handle in par_qid.items()}
+    consommes: dict[str, str] = {}                  # handle -> ISO qui l'a déjà pris
+    ecartes: dict[str, tuple[str, str]] = {}        # QID non écrit -> (bloquant, motif)
     bilan: dict = {"crees": [], "completes": [], "retypages": [], "doublons_touches": [],
-                   "conflits": [], "orphelins": [], "erreurs": [], "urls_ajoutees": 0}
+                   "conflits": [], "bloques": [], "orphelins": [], "erreurs": [],
+                   "exclus": [(p.get("gramps_id", p["handle"]), motif)
+                              for p in places if (motif := motif_dexclusion(p))],
+                   "urls_ajoutees": 0}
 
     # Niveau 0 (pays), puis 1, puis 2 : un enfant ne peut pas se rattacher à un parent
     # qui n'existe pas encore. `_cibles_du_yaml` a déjà trié.
@@ -317,22 +424,30 @@ def run_referentiel_apply(client, yaml_path, output_dir, *, date: str,
         # L'appariement et la décision sont DANS le try : une seule place malformée ne doit
         # pas faire sauter la boucle et emporter le rapport des écritures déjà faites.
         try:
-            parent_handle = handles_qid.get(sub.parent_qid) if sub.parent_qid else None
+            if sub.parent_qid and sub.parent_qid in ecartes:
+                # Le parent n'a pas été écrit : créer l'enfant le ferait naître à la racine
+                # de l'arbre. On propage le bloquant d'origine, pas le maillon intermédiaire.
+                bilan["bloques"].append((ident, sub.libelle_fr, *ecartes[sub.parent_qid]))
+                ecartes[sub.qid] = ecartes[sub.parent_qid]
+                continue
+
+            parents = handles_designants.get(sub.parent_qid, set()) if sub.parent_qid else set()
             handle = apparier(sub, par_qid, par_nom_type, par_nom,
-                              par_handle=par_handle, parent_handle=parent_handle)
+                              par_handle=par_handle, parents=parents)
             place = par_handle.get(handle) if handle else None
             gid = (place or {}).get("gramps_id", "")
 
             if handle and handle in handles_doublons:
-                doublon = handles_doublons[handle]
                 bilan["doublons_touches"].append(
-                    (ident, sub.libelle_fr, ", ".join(doublon.get("gramps_ids") or [])))
+                    (ident, sub.libelle_fr,
+                     ", ".join(handles_doublons[handle].get("gramps_ids") or [])))
+                ecartes[sub.qid] = (ident, "doublon de l'arbre")
                 continue
             if handle and handle in consommes:
                 # `par_handle` est un cache lu une fois : une seconde écriture sur le même
-                # handle relirait un état périmé, écraserait le code posé par la première,
-                # et rattacherait le lieu à lui-même.
+                # handle relirait un état périmé et écraserait ce que la première a posé.
                 bilan["conflits"].append((consommes[handle], ident, sub.libelle_fr, gid))
+                ecartes[sub.qid] = (ident, "conflit d'appariement")
                 continue
             porte = qid_pose(place) if place else None
             if porte and sub.qid and porte != sub.qid:
@@ -341,16 +456,11 @@ def run_referentiel_apply(client, yaml_path, output_dir, *, date: str,
                 bilan["erreurs"].append(
                     (ident, f"le lieu {gid} affirme déjà le QID {porte}, "
                             f"incompatible avec {sub.qid}"))
+                ecartes[sub.qid] = (ident, "identité Wikidata divergente")
                 continue
 
             plan = decider(sub, place)
-            if plan.get("type_illisible"):
-                bilan["erreurs"].append(
-                    (ident, f"type de lieu illisible sur {gid} "
-                            f"({type(place.get('place_type')).__name__}) : aucune écriture, "
-                            "la table des types natifs ne peut pas arbitrer"))
-                continue
-
+            parent_handle = handles_qid.get(sub.parent_qid) if sub.parent_qid else None
             if sub.parent_qid and parent_handle is None:
                 bilan["orphelins"].append((ident, sub.parent_qid))
             if parent_handle is not None and parent_handle == handle:
@@ -377,7 +487,7 @@ def run_referentiel_apply(client, yaml_path, output_dir, *, date: str,
                 payload = json.loads(majeur._run(
                     handle=handle,
                     name=(place.get("name") or {}).get("value", ""),   # jamais réécrit
-                    place_type=plan.get("place_type") or place.get("place_type") or "Unknown",
+                    place_type=plan.get("place_type") or type_lisible(place) or "Unknown",
                     lat=plan.get("lat"), long=plan.get("long"), code=plan.get("code"),
                     placeref_list=placerefs, alt_names=plan["alt_names"], dry_run=dry_run))
                 if not payload["success"]:
@@ -388,6 +498,7 @@ def run_referentiel_apply(client, yaml_path, output_dir, *, date: str,
 
             consommes[handle] = ident
             handles_qid[sub.qid] = handle
+            handles_designants[sub.qid] = {handle} | handles_designant(sub, places)
             if handle.startswith("DRYRUN:"):
                 # Un handle simulé ne désigne aucun objet : l'interroger ferait un 404. Les
                 # URLs sont comptées quand même, sans quoi l'aperçu qui autorise l'écriture
@@ -405,6 +516,9 @@ def run_referentiel_apply(client, yaml_path, output_dir, *, date: str,
             # Tuple explicite plutôt qu'un `except Exception` : on absorbe l'échec d'API et
             # la donnée malformée, pas une erreur de programmation d'une autre nature.
             bilan["erreurs"].append((ident, exc))
+            if sub.qid not in handles_qid:
+                # Rien n'a été écrit pour cette cible : sa descendance naîtrait à la racine.
+                ecartes[sub.qid] = (ident, "erreur d'écriture")
 
     mode = "simulation" if dry_run else "ecritures"
     out = Path(output_dir) / "referentiel"
