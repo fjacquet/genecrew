@@ -7,6 +7,49 @@ Non publié / non versionné (`0.1.0`) : entrées **datées par livraison**. La 
 
 ---
 
+## 2026-07-22
+
+### Added
+
+- **`merge places --scope` — détection des doublons de lieux.** `apply places` ne traite que les
+  lieux de type `Unknown` (garde d'idempotence) et ne compose son YAML de fusions que pour ceux
+  qu'il vient de résoudre : **un doublon déjà typé n'entrait dans le champ d'aucune commande**.
+  Onze groupes de communes homonymes de l'arbre avaient dû être fusionnés à la main. `merge places`
+  n'avait qu'un mode `--yaml`, là où `merge people` en a deux depuis l'ADR 0013 — il manquait un
+  producteur, pas un exécutant. Deuxième mode sur une feuille existante, pas de nouveau verbe
+  (ADR 0012). Détection **pure** dans `crewai_custom_tools` 0.24.0 ; ici l'orchestration, le
+  rapport et le YAML d'arbitrage. Voir ADR 0015.
+  - **Le veto protège Paris.** Deux codes officiels renseignés et différents interdisent la
+    fusion : `Department` 75 et `Municipality` 75056 sont deux entités administratives réelles.
+    La paire est **retirée du lot** — ni fusion, ni arbitrage : la proposer reviendrait à
+    suggérer à un humain un rapprochement que l'algorithme sait faux, dans un fichier qu'une
+    commande irréversible exécute sans relire le verdict.
+  - **`--limit` et `--scope place:<ID>` désactivent les écritures.** Le veto raisonne sur le
+    groupe entier d'homonymes ; borner la lecture tronque les groupes et ferait tomber la garde.
+    Ces deux options forcent donc la simulation, quel que soit `--dry-run`, avec un avertissement
+    en console et dans le rapport — le réflexe qui borne ailleurs (`merge people --limit 200`)
+    produirait ici une simulation silencieuse.
+  - **Le survivant est le plus riche, pas le plus référencé.** La fusion Gramps unionne les
+    listes mais conserve les **champs simples** du survivant : garder une coquille vide effacerait
+    définitivement son code et ses coordonnées. Le rapport nomme ce que l'ordre inverse aurait
+    perdu, pour que la règle se vérifie au lieu de se croire.
+  - **Une fusion automatique ne détruit jamais d'information** — un attribut simple absent du
+    survivant, ou une valeur concurrente, fait basculer la paire en relecture humaine.
+  - **Le YAML d'arbitrage porte de quoi décider** : type, code, coordonnées, contenant et
+    rétroliens des deux lieux, pour que la relecture soit possible sans ouvrir Gramps. Il reste
+    consommable tel quel par `merge places --yaml`, et porte un en-tête rappelant qu'il doit être
+    élagué avant exécution.
+
+### Changed
+
+- `merge places` : `--yaml` passe de requis à **facultatif** — présent, il exécute un fichier
+  relu ; absent, il détecte. Symétrie avec `merge people`.
+- `render_merge_report` neutralise désormais les barres verticales et les sauts de ligne des
+  données de l'arbre : un nom de lieu issu d'un import bancal cassait la structure du tableau
+  Markdown, et un relecteur pouvait associer la mauvaise preuve au mauvais couple de lieux.
+
+---
+
 ## 2026-07-21
 
 ### Added
