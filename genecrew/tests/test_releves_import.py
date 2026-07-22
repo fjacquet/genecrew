@@ -237,26 +237,26 @@ def test_reference_vide_leve_une_erreur_explicite():
     """Une référence vide dégraderait la clé d'idempotence en constante — voir
     la docstring de parse_releve : refuser bruyamment plutôt que sauter en silence."""
     donnees = dict(_JSON_ATTENDU, reference="")
-    with pytest.raises(ValueError, match="(?i)référence"):
+    with pytest.raises(ValueError, match=r"(?i)référence"):
         parse_releve(COLLAGE_ROSE, llm=_LLMStub(json.dumps(donnees)))
 
 
 def test_fonds_vide_leve_une_erreur_explicite():
     donnees = dict(_JSON_ATTENDU, fonds="")
-    with pytest.raises(ValueError, match="(?i)fonds"):
+    with pytest.raises(ValueError, match=r"(?i)fonds"):
         parse_releve(COLLAGE_ROSE, llm=_LLMStub(json.dumps(donnees)))
 
 
 def test_reference_uniquement_blancs_leve_une_erreur():
     """Un strip() est nécessaire : une garde naïve sur `== ""` raterait ce cas."""
     donnees = dict(_JSON_ATTENDU, reference="   ")
-    with pytest.raises(ValueError, match="(?i)référence"):
+    with pytest.raises(ValueError, match=r"(?i)référence"):
         parse_releve(COLLAGE_ROSE, llm=_LLMStub(json.dumps(donnees)))
 
 
 def test_fonds_uniquement_blancs_leve_une_erreur():
     donnees = dict(_JSON_ATTENDU, fonds="\t \n")
-    with pytest.raises(ValueError, match="(?i)fonds"):
+    with pytest.raises(ValueError, match=r"(?i)fonds"):
         parse_releve(COLLAGE_ROSE, llm=_LLMStub(json.dumps(donnees)))
 
 
@@ -265,7 +265,7 @@ def test_json_syntaxiquement_casse_leve_une_erreur_exploitable():
     mais contenu non parsable (clé non quotée). La cause d'origine doit rester
     accessible pour un humain qui débogue un flux payant et non déterministe."""
     casse = "Voici : {fonds:}"
-    with pytest.raises(ValueError, match="(?i)JSON invalide") as exc_info:
+    with pytest.raises(ValueError, match=r"(?i)JSON invalide") as exc_info:
         parse_releve(COLLAGE_ROSE, llm=_LLMStub(casse))
     assert isinstance(exc_info.value.__cause__, json.JSONDecodeError)
 
@@ -362,7 +362,7 @@ def test_source_title_route_un_releve_de_cercle():
 def test_source_title_leve_sur_un_releve_sans_cercle(detail):
     """Régression : `(.+?)` paresseux + `\\s*` gourmand capturaient UN espace au
     lieu d'échouer, rendant ("  — relevés", "") — un auteur VIDE écrit sans erreur."""
-    with pytest.raises(ValueError, match="(?i)cercle"):
+    with pytest.raises(ValueError, match=r"(?i)cercle"):
         source_title_for(detail)
 
 
