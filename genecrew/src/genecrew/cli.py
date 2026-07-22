@@ -139,14 +139,24 @@ def build_parser() -> argparse.ArgumentParser:
     _add_dry_run(p)
     _add_date(p)
 
-    # --- merge : la fusion des lieux vient d'un YAML relu ; celle des personnes
-    # est automatique au-dessus d'une preuve STRUCTURELLE, jamais d'un score
-    # (voir docs/superpowers/specs/2026-07-20-fusion-doublons-personnes-design.md).
-    merge_p = sub.add_parser("merge", help="Fusions : lieux relus, personnes sur preuve")
+    # --- merge : lieux et personnes se fusionnent selon le même schéma — détection
+    # automatique au-dessus d'une preuve STRUCTURELLE, jamais d'un score, ou exécution
+    # d'un YAML relu quand la preuve manque (voir
+    # docs/superpowers/specs/2026-07-20-fusion-doublons-personnes-design.md pour les
+    # personnes, ADR 0015 pour les lieux).
+    merge_p = sub.add_parser(
+        "merge", help="Fusions : lieux et personnes, sur preuve ou depuis un YAML relu")
     merge_sub = merge_p.add_subparsers(dest="target", required=True)
 
-    p = merge_sub.add_parser("places", help="Fusionne les lieux listés dans un YAML relu")
-    _add_yaml(p)
+    p = merge_sub.add_parser(
+        "places", help="Détecte les doublons de lieux et fusionne les prouvés ; "
+             "ou exécute un YAML relu (ADR 0015)")
+    # `place:ID` ne lit qu'un lieu, qui ne forme jamais de groupe d'homonymes : le
+    # périmètre sert à inspecter, pas à détecter, et force la simulation comme --limit.
+    _add_scope(p, "all | place:ID (place:ID n'inspecte qu'un lieu : aucune détection "
+                  "possible, écritures désactivées)")
+    p.add_argument("--yaml", default=None,
+                   help="exécuter les fusions d'un YAML relu, au lieu de détecter")
     _add_dry_run(p)
     _add_date(p)
 

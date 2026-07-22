@@ -16,6 +16,7 @@ ROUTES = [
     (["apply", "citations", "--yaml", "relu.yaml"], "deces_apply_cmd"),
     (["apply", "all"], "apply_all_cmd"),
     (["merge", "places", "--yaml", "f.yaml"], "lieux_merge_cmd"),
+    (["merge", "places", "--scope", "all"], "lieux_merge_cmd"),
     (["enrich", "wiki"], "lieux_wiki_cmd"),
     (["import", "place", "Bourges"], "lieu_import_cmd"),
     (["crew", "audit"], "crew_audit_cmd"),

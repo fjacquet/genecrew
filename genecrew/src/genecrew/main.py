@@ -264,17 +264,41 @@ def lieux_apply_cmd(args) -> None:
 
 
 def lieux_merge_cmd(args) -> None:
-    """Execute human-reviewed place merges from a fusions YAML; print the report path."""
+    """Détecte et fusionne les doublons de lieux prouvés, ou exécute un YAML relu."""
     from pathlib import Path
 
     from crewai_custom_tools.tools.genealogy.gramps.client import get_client
 
-    from genecrew.places_merge import run_places_merge
+    from genecrew.places_merge import run_places_detect, run_places_merge
 
     client = get_client()
     output_dir = Path(os.environ.get("GENECREW_OUTPUT_DIR", "output"))
     date = args.date or __import__("datetime").date.today().isoformat()
-    report = run_places_merge(client, args.yaml, output_dir, date=date, dry_run=args.dry_run)
+    if args.yaml:
+        report = run_places_merge(client, args.yaml, output_dir, date=date,
+                                  dry_run=args.dry_run)
+    else:
+        resultat = run_places_detect(client, output_dir, scope=args.scope,
+                                     date=date, limit=args.limit,
+                                     dry_run=args.dry_run)
+        report = resultat.chemin
+        # Les deux gardes « une lecture tronquée ne fusionne jamais » vivent dans
+        # run_places_detect ET N'Y SONT DÉCIDÉES QUE LÀ ; leur explication n'est sinon
+        # disponible que dans le rapport Markdown. Sans ces mots ici, quelqu'un qui voit
+        # « zéro fusion » irait chercher une panne au lieu de relancer autrement. Les
+        # deux drapeaux sont le retour EXACT de la fonction — jamais un recalcul depuis
+        # `args.limit` ou `args.scope` : une seule source de vérité, pour que la console
+        # ne puisse plus dire « simulation forcée » pendant qu'une fusion irréversible a
+        # réellement lieu.
+        if resultat.lot_borne:
+            print("Lot borné (--limit) : simulation forcée, aucune fusion. Un groupe "
+                  "d'homonymes tronqué ne permet pas de décider d'une fusion "
+                  "irréversible — relancez sans --limit pour appliquer les fusions.")
+        if resultat.scope_unitaire:
+            print("Périmètre à un seul lieu (--scope place:<ID>) : simulation forcée, "
+                  "aucune fusion. Un lieu isolé ne forme aucun groupe d'homonymes, donc "
+                  "aucun doublon ne peut être détecté — ce n'est pas la preuve qu'il "
+                  "n'y en a pas. Relancez avec --scope all pour chercher les doublons.")
     print(f"Rapport : {report}")
 
 
