@@ -2117,7 +2117,7 @@ from crewai_custom_tools.tools.genealogy.gramps.write_tools import (
 )
 from crewai_custom_tools.tools.genealogy.models.domain import Subdivision
 
-from genecrew.referentiel import lire_places       # même lecture paginée, pas de copie
+from genecrew.batching import iter_places      # pagination déjà écrite, triée par gramps_id
 
 _WIKIDATA = "https://www.wikidata.org/wiki/"
 
@@ -2220,7 +2220,7 @@ def run_referentiel_apply(client, yaml_path, output_dir, *, date: str,
     doc = yaml.safe_load(Path(yaml_path).read_text(encoding="utf-8")) or {}
     subs = [Subdivision(**s) for s in doc.get("subdivisions", [])]
 
-    places = lire_places(client)
+    places = [place for lot in iter_places(client, "all", 200, None) for place in lot]
     par_qid = index_par_qid(places)
     par_nom_type = index_par_nom_type(places)
     par_nom = index_par_nom_contenant(places)
