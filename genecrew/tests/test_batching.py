@@ -7,10 +7,18 @@ from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient, Gram
 CONFIG = GrampsConfig(api_url="http://g.test/api", username="u", password="p")
 
 PERSON = {
-    "gramps_id": "I0001", "handle": "h1", "gender": 1, "citation_list": ["c"],
-    "family_list": [], "parent_family_list": [], "birth_ref_index": -1, "death_ref_index": -1,
+    "gramps_id": "I0001",
+    "handle": "h1",
+    "gender": 1,
+    "citation_list": ["c"],
+    "family_list": [],
+    "parent_family_list": [],
+    "birth_ref_index": -1,
+    "death_ref_index": -1,
     "primary_name": {"first_name": "Jean", "surname_list": [{"surname": "Test"}]},
-    "profile": {}, "event_ref_list": [], "extended": {"events": []},
+    "profile": {},
+    "event_ref_list": [],
+    "extended": {"events": []},
 }
 
 

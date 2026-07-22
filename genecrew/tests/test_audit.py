@@ -8,17 +8,43 @@ CONFIG = GrampsConfig(api_url="http://g.test/api", username="u", password="p")
 
 # Une personne avec naissance (1850) APRÈS décès (1820) → R1 attendu.
 PERSON = {
-    "gramps_id": "I0001", "handle": "h1", "gender": 1, "citation_list": ["c"],
-    "family_list": [], "parent_family_list": [], "birth_ref_index": 0, "death_ref_index": 1,
+    "gramps_id": "I0001",
+    "handle": "h1",
+    "gender": 1,
+    "citation_list": ["c"],
+    "family_list": [],
+    "parent_family_list": [],
+    "birth_ref_index": 0,
+    "death_ref_index": 1,
     "primary_name": {"first_name": "Jean", "surname_list": [{"surname": "Test"}]},
     "profile": {"birth": {"citations": 1}, "death": {"citations": 1}},
     "event_ref_list": [{"ref": "e1"}, {"ref": "e2"}],
-    "extended": {"events": [
-        {"type": "Birth", "citation_list": ["c"],
-         "date": {"sortval": 2396758, "year": 1850, "dateval": [1, 1, 1850, False], "modifier": 0, "quality": 0}},
-        {"type": "Death", "citation_list": ["c"],
-         "date": {"sortval": 2385800, "year": 1820, "dateval": [1, 1, 1820, False], "modifier": 0, "quality": 0}},
-    ]},
+    "extended": {
+        "events": [
+            {
+                "type": "Birth",
+                "citation_list": ["c"],
+                "date": {
+                    "sortval": 2396758,
+                    "year": 1850,
+                    "dateval": [1, 1, 1850, False],
+                    "modifier": 0,
+                    "quality": 0,
+                },
+            },
+            {
+                "type": "Death",
+                "citation_list": ["c"],
+                "date": {
+                    "sortval": 2385800,
+                    "year": 1820,
+                    "dateval": [1, 1, 1820, False],
+                    "modifier": 0,
+                    "quality": 0,
+                },
+            },
+        ]
+    },
 }
 
 
@@ -30,7 +56,9 @@ def _handler(request):
         page = int(request.url.params.get("page", 1))
         # liste de scope (sans profile) page 1 = [I0001], page 2 = []
         if "profile" not in request.url.params:
-            return httpx.Response(200, json=[{"handle": "h1", "gramps_id": "I0001"}] if page == 1 else [])
+            return httpx.Response(
+                200, json=[{"handle": "h1", "gramps_id": "I0001"}] if page == 1 else []
+            )
         # liste de faits (avec profile) — non utilisée ici car get_person_facts va par handle
         return httpx.Response(200, json=[PERSON] if page == 1 else [])
     if path == "/api/people/h1":
@@ -46,36 +74,74 @@ def test_run_audit_writes_report_with_r1(tmp_path):
     assert "R1" in text and "I0001" in text
     # le YAML de propositions D est toujours écrit (vide ici : pas de famille)
     props = yaml.safe_load(
-        (report_path.parent / "2026-07-17_propositions_audit_deterministes_all.yaml")
-        .read_text(encoding="utf-8"))
+        (
+            report_path.parent / "2026-07-17_propositions_audit_deterministes_all.yaml"
+        ).read_text(encoding="utf-8")
+    )
     assert props["propositions"] == []
 
 
 # --- règles D : cas I0010 reconstitué (événement = mariage des parents) ---
 
 CLAUDE = {
-    "gramps_id": "I0010", "handle": "h10", "gender": 1, "citation_list": ["c"],
-    "family_list": [], "parent_family_list": ["hF"], "birth_ref_index": 0,
+    "gramps_id": "I0010",
+    "handle": "h10",
+    "gender": 1,
+    "citation_list": ["c"],
+    "family_list": [],
+    "parent_family_list": ["hF"],
+    "birth_ref_index": 0,
     "death_ref_index": -1,
     "primary_name": {"first_name": "Claude", "surname_list": [{"surname": "Villaudy"}]},
     "profile": {"birth": {"citations": 1}},
     "event_ref_list": [{"ref": "e1"}, {"ref": "e2"}],
-    "extended": {"events": [
-        {"type": "Birth", "citation_list": ["c"],
-         "date": {"sortval": 2342800, "year": 1703, "dateval": [1, 1, 1703, False],
-                  "modifier": 0, "quality": 0}},
-        {"type": "Marriage", "citation_list": [],
-         "date": {"sortval": 2342000, "year": 1701, "dateval": [31, 1, 1701, False],
-                  "modifier": 0, "quality": 0}},
-    ]},
+    "extended": {
+        "events": [
+            {
+                "type": "Birth",
+                "citation_list": ["c"],
+                "date": {
+                    "sortval": 2342800,
+                    "year": 1703,
+                    "dateval": [1, 1, 1703, False],
+                    "modifier": 0,
+                    "quality": 0,
+                },
+            },
+            {
+                "type": "Marriage",
+                "citation_list": [],
+                "date": {
+                    "sortval": 2342000,
+                    "year": 1701,
+                    "dateval": [31, 1, 1701, False],
+                    "modifier": 0,
+                    "quality": 0,
+                },
+            },
+        ]
+    },
 }
 FAMILY = {
-    "gramps_id": "F0011", "handle": "hF", "father_handle": None, "mother_handle": None,
+    "gramps_id": "F0011",
+    "handle": "hF",
+    "father_handle": None,
+    "mother_handle": None,
     "child_ref_list": [{"ref": "h10"}],
-    "extended": {"events": [
-        {"type": "Marriage",
-         "date": {"sortval": 2342000, "year": 1701, "dateval": [31, 1, 1701, False],
-                  "modifier": 0, "quality": 0}}]},
+    "extended": {
+        "events": [
+            {
+                "type": "Marriage",
+                "date": {
+                    "sortval": 2342000,
+                    "year": 1701,
+                    "dateval": [31, 1, 1701, False],
+                    "modifier": 0,
+                    "quality": 0,
+                },
+            }
+        ]
+    },
 }
 
 
@@ -97,8 +163,10 @@ def test_run_audit_emits_d_rule_proposition(tmp_path):
     client = GrampsClient(CONFIG, transport=httpx.MockTransport(_handler_d))
     report_path = run_audit(client, "all", tmp_path, date="2026-07-17", batch_size=25)
     props = yaml.safe_load(
-        (report_path.parent / "2026-07-17_propositions_audit_deterministes_all.yaml")
-        .read_text(encoding="utf-8"))["propositions"]
+        (
+            report_path.parent / "2026-07-17_propositions_audit_deterministes_all.yaml"
+        ).read_text(encoding="utf-8")
+    )["propositions"]
     assert len(props) == 1
     p = props[0]
     assert p["gramps_id"] == "I0010" and p["type"] == "relation" and p["confiance"] == 2

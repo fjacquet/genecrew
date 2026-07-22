@@ -9,7 +9,10 @@ from crewai_custom_tools.tools.genealogy.gramps import write_tools
 from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient, GrampsConfig
 
 from genecrew.deces_apply import (
-    SOURCE_TITLE, citation_page, run_deces_apply, source_title_for,
+    SOURCE_TITLE,
+    citation_page,
+    run_deces_apply,
+    source_title_for,
 )
 
 CONFIG = GrampsConfig(api_url="http://g.test/api", username="u", password="p")
@@ -25,30 +28,45 @@ def _client(handler):
         if request.url.path == "/api/token/":
             return httpx.Response(200, json={"access_token": "t"})
         return handler(request)
+
     return GrampsClient(CONFIG, transport=httpx.MockTransport(_h))
 
 
 def _yaml(tmp_path, props):
     p = tmp_path / "props.yaml"
-    p.write_text(yaml.safe_dump({"propositions": props}, allow_unicode=True),
-                 encoding="utf-8")
+    p.write_text(
+        yaml.safe_dump({"propositions": props}, allow_unicode=True), encoding="utf-8"
+    )
     return p
 
 
 PROP = {
-    "type": "source", "gramps_id": "I0300", "handle": "H300",
-    "personne": "Odette Rippert", "cible": "décès de I0300 (2021-12-19, sans source)",
+    "type": "source",
+    "gramps_id": "I0300",
+    "handle": "H300",
+    "personne": "Odette Rippert",
+    "cible": "décès de I0300 (2021-12-19, sans source)",
     "action": "Ajouter la source INSEE…",
     "preuve_url": "https://deces.matchid.io/id/PpcgyN6TffIa",
     "preuve_detail": "Fichier des décès INSEE : 2021-12-19 à Bourges, acte 1511 — "
-                     "fichier INSEE 2021, ligne 610579 (score 1.000).",
-    "priorite": "basse", "confiance": 2,
+    "fichier INSEE 2021, ligne 610579 (score 1.000).",
+    "priorite": "basse",
+    "confiance": 2,
 }
 
-PERSON = {"handle": "H300", "gramps_id": "I0300", "death_ref_index": 1,
-          "event_ref_list": [{"ref": "EV_B"}, {"ref": "EV_D"}]}
-EVENT = {"_class": "Event", "handle": "EV_D", "gramps_id": "E0607",
-         "type": "Death", "citation_list": []}
+PERSON = {
+    "handle": "H300",
+    "gramps_id": "I0300",
+    "death_ref_index": 1,
+    "event_ref_list": [{"ref": "EV_B"}, {"ref": "EV_D"}],
+}
+EVENT = {
+    "_class": "Event",
+    "handle": "EV_D",
+    "gramps_id": "E0607",
+    "type": "Death",
+    "citation_list": [],
+}
 
 
 def test_source_title_routed_per_register():
@@ -65,15 +83,18 @@ def test_source_title_for_raises_on_unrecognized_register():
 
 
 def test_apply_militaires_prop_creates_mdh_source(tmp_path, mocker):
-    mdh_prop = {**PROP, "preuve_detail":
-                "Mémoire des hommes (Guerre 1914-1918) : décès 1915-09-28 à Neuville "
-                "(score 1.000).",
-                "preuve_url": "https://www.memoiredeshommes.sga.defense.gouv.fr/ark/x"}
+    mdh_prop = {
+        **PROP,
+        "preuve_detail": "Mémoire des hommes (Guerre 1914-1918) : décès 1915-09-28 à Neuville "
+        "(score 1.000).",
+        "preuve_url": "https://www.memoiredeshommes.sga.defense.gouv.fr/ark/x",
+    }
     state = {"source_posts": [], "citation_posts": [], "event_puts": []}
     client = _client(_full_handler(state))
     mocker.patch.object(write_tools, "get_client", return_value=client)
-    run_deces_apply(client, _yaml(tmp_path, [mdh_prop]), tmp_path,
-                    date="2026-07-19", dry_run=False)
+    run_deces_apply(
+        client, _yaml(tmp_path, [mdh_prop]), tmp_path, date="2026-07-19", dry_run=False
+    )
     assert state["source_posts"][0]["title"] == "Mémoire des hommes — Guerre 1914-1918"
     assert state["source_posts"][0]["author"] == "Ministère des Armées"
     assert "ark/x" in state["citation_posts"][0]["page"]
@@ -106,6 +127,7 @@ def _full_handler(state):
             state["event_puts"].append(json.loads(request.content))
             return httpx.Response(200, json={})
         return httpx.Response(404)
+
     return h
 
 
@@ -114,8 +136,9 @@ def test_apply_writes_source_citation_and_attaches(tmp_path, mocker):
     client = _client(_full_handler(state))
     mocker.patch.object(write_tools, "get_client", return_value=client)
 
-    report = run_deces_apply(client, _yaml(tmp_path, [PROP]), tmp_path,
-                             date="2026-07-19", dry_run=False)
+    report = run_deces_apply(
+        client, _yaml(tmp_path, [PROP]), tmp_path, date="2026-07-19", dry_run=False
+    )
 
     assert state["source_posts"][0]["title"] == SOURCE_TITLE
     assert state["citation_posts"][0]["source_handle"] == "SRC1"
@@ -133,8 +156,10 @@ def test_apply_is_idempotent_when_source_already_cited(tmp_path, mocker):
         p, m = request.url.path, request.method
         if m == "GET" and p == "/api/sources/":
             page = int(request.url.params.get("page"))
-            return httpx.Response(200, json=[{"title": SOURCE_TITLE, "handle": "SRC1"}]
-                                  if page == 1 else [])
+            return httpx.Response(
+                200,
+                json=[{"title": SOURCE_TITLE, "handle": "SRC1"}] if page == 1 else [],
+            )
         if m == "GET" and p == "/api/people/H300":
             return httpx.Response(200, json=PERSON)
         if m == "GET" and p == "/api/events/EV_D":
@@ -147,14 +172,21 @@ def test_apply_is_idempotent_when_source_already_cited(tmp_path, mocker):
 
     client = _client(h)
     mocker.patch.object(write_tools, "get_client", return_value=client)
-    report = run_deces_apply(client, _yaml(tmp_path, [PROP]), tmp_path,
-                             date="2026-07-19", dry_run=False)
-    assert "Déjà citées (ignorées, idempotent) : 1" in report.read_text(encoding="utf-8")
+    report = run_deces_apply(
+        client, _yaml(tmp_path, [PROP]), tmp_path, date="2026-07-19", dry_run=False
+    )
+    assert "Déjà citées (ignorées, idempotent) : 1" in report.read_text(
+        encoding="utf-8"
+    )
 
 
 def test_apply_filters_scope_and_flags_missing_death(tmp_path, mocker):
-    date_prop = {**PROP, "type": "date", "cible": "décès absent",
-                 "action": "Renseigner le décès…"}
+    date_prop = {
+        **PROP,
+        "type": "date",
+        "cible": "décès absent",
+        "action": "Renseigner le décès…",
+    }
     low_conf = {**PROP, "confiance": 1}
     no_death = {**PROP, "gramps_id": "I0002", "handle": "H2"}
 
@@ -162,20 +194,33 @@ def test_apply_filters_scope_and_flags_missing_death(tmp_path, mocker):
         p, m = request.url.path, request.method
         if m == "GET" and p == "/api/sources/":
             page = int(request.url.params.get("page"))
-            return httpx.Response(200, json=[{"title": SOURCE_TITLE, "handle": "SRC1"}]
-                                  if page == 1 else [])
+            return httpx.Response(
+                200,
+                json=[{"title": SOURCE_TITLE, "handle": "SRC1"}] if page == 1 else [],
+            )
         if m == "GET" and p == "/api/people/H2":
-            return httpx.Response(200, json={"handle": "H2", "gramps_id": "I0002",
-                                             "death_ref_index": -1,
-                                             "event_ref_list": []})
+            return httpx.Response(
+                200,
+                json={
+                    "handle": "H2",
+                    "gramps_id": "I0002",
+                    "death_ref_index": -1,
+                    "event_ref_list": [],
+                },
+            )
         if m in ("POST", "PUT"):
             raise AssertionError("aucune écriture attendue")
         return httpx.Response(404)
 
     client = _client(h)
     mocker.patch.object(write_tools, "get_client", return_value=client)
-    report = run_deces_apply(client, _yaml(tmp_path, [date_prop, low_conf, no_death]),
-                             tmp_path, date="2026-07-19", dry_run=False)
+    report = run_deces_apply(
+        client,
+        _yaml(tmp_path, [date_prop, low_conf, no_death]),
+        tmp_path,
+        date="2026-07-19",
+        dry_run=False,
+    )
     md = report.read_text(encoding="utf-8")
     assert "Hors périmètre v1 (type ≠ source ou confiance < 2) : 2" in md
     assert "aucun événement décès" in md
@@ -186,8 +231,10 @@ def test_apply_dry_run_writes_nothing(tmp_path, mocker):
         p, m = request.url.path, request.method
         if m == "GET" and p == "/api/sources/":
             page = int(request.url.params.get("page"))
-            return httpx.Response(200, json=[{"title": SOURCE_TITLE, "handle": "SRC1"}]
-                                  if page == 1 else [])
+            return httpx.Response(
+                200,
+                json=[{"title": SOURCE_TITLE, "handle": "SRC1"}] if page == 1 else [],
+            )
         if m == "GET" and p == "/api/people/H300":
             return httpx.Response(200, json=PERSON)
         if m == "GET" and p == "/api/events/EV_D":
@@ -198,7 +245,8 @@ def test_apply_dry_run_writes_nothing(tmp_path, mocker):
 
     client = _client(h)
     mocker.patch.object(write_tools, "get_client", return_value=client)
-    report = run_deces_apply(client, _yaml(tmp_path, [PROP]), tmp_path,
-                             date="2026-07-19", dry_run=True)
+    report = run_deces_apply(
+        client, _yaml(tmp_path, [PROP]), tmp_path, date="2026-07-19", dry_run=True
+    )
     md = report.read_text(encoding="utf-8")
     assert "simulation (dry-run" in md and "Citations posées : 1" in md

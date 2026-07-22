@@ -52,6 +52,7 @@ def test_stats_routes_without_a_target(monkeypatch, tmp_path):
 
 def test_merge_people_est_route():
     from genecrew.cli import build_parser
+
     args = build_parser().parse_args(["merge", "people"])
     assert (args.command, args.target) == ("merge", "people")
 

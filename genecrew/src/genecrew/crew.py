@@ -60,10 +60,12 @@ def build_llm(role: str | None = None) -> LLM:
     kwargs: dict = {}
     provider_order = os.environ.get("OPENROUTER_PROVIDER_ORDER", "").strip()
     if provider_order and model.startswith("openrouter/"):
-        kwargs["extra_body"] = {"provider": {
-            "order": [p.strip() for p in provider_order.split(",") if p.strip()],
-            "allow_fallbacks": False,
-        }}
+        kwargs["extra_body"] = {
+            "provider": {
+                "order": [p.strip() for p in provider_order.split(",") if p.strip()],
+                "allow_fallbacks": False,
+            }
+        }
     # is_litellm: CrewAI's native OpenAI-compatible provider hardcodes "strict": true on
     # every tool schema, which Mistral's API rejects (400 "Invalid structured output
     # syntax"). The LiteLLM path builds plain tool schemas that every provider accepts.

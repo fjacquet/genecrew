@@ -1,4 +1,7 @@
-from crewai_custom_tools.tools.genealogy.models.domain import Anomaly, DuplicateCandidate
+from crewai_custom_tools.tools.genealogy.models.domain import (
+    Anomaly,
+    DuplicateCandidate,
+)
 from genecrew.report import render_report
 
 
@@ -7,9 +10,11 @@ def _a(rule, sev, gid, msg):
 
 
 def test_report_orders_by_severity_and_counts():
-    anoms = [_a("R9", "basse", "I3", "sans source"),
-             _a("R1", "haute", "I1", "naissance après décès"),
-             _a("R6", "moyenne", "I2", "événement hors vie")]
+    anoms = [
+        _a("R9", "basse", "I3", "sans source"),
+        _a("R1", "haute", "I1", "naissance après décès"),
+        _a("R6", "moyenne", "I2", "événement hors vie"),
+    ]
     out = render_report("all", "2026-07-17", anoms, [], people_count=3)
     assert "# Audit qualité" in out
     # la ligne haute apparaît avant la moyenne, qui apparaît avant la basse
@@ -18,8 +23,11 @@ def test_report_orders_by_severity_and_counts():
 
 
 def test_report_includes_person_links_and_duplicates():
-    dups = [DuplicateCandidate(gramps_id_a="I1", gramps_id_b="I2", score=0.92,
-                               reason="homonymes")]
+    dups = [
+        DuplicateCandidate(
+            gramps_id_a="I1", gramps_id_b="I2", score=0.92, reason="homonymes"
+        )
+    ]
     out = render_report("all", "2026-07-17", [], dups, people_count=2)
     assert "http://localhost/person/I1" in out
     assert "0.92" in out

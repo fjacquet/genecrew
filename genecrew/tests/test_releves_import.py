@@ -50,7 +50,9 @@ def _client(handler):
         if request.url.path == "/api/token/":
             return httpx.Response(200, json={"access_token": "t"})
         return handler(request)
+
     return GrampsClient(CONFIG, transport=httpx.MockTransport(_h))
+
 
 COLLAGE_ROSE = """Rose JACQUET
 Le 10 décembre 1894
@@ -75,11 +77,16 @@ Source du relevé : Cercle Généalogique du Haut-Berry
 _JSON_ATTENDU = {
     "fonds": "Cercle Généalogique du Haut-Berry",
     "reference": "106710046161418286",
-    "sujet_nom": "JACQUET", "sujet_prenom": "Rose",
-    "evenement_type": "Death", "evenement_date": "1894-12-10",
-    "evenement_lieu": "Saint-Martin-d'Auxigny", "naissance_estimee": 1821,
-    "personnes_liees": [{"nom": "Pierre JACQUET", "role": "père", "detail": ""},
-                        {"nom": "Marie Anne VILLEPELLET", "role": "mère", "detail": ""}],
+    "sujet_nom": "JACQUET",
+    "sujet_prenom": "Rose",
+    "evenement_type": "Death",
+    "evenement_date": "1894-12-10",
+    "evenement_lieu": "Saint-Martin-d'Auxigny",
+    "naissance_estimee": 1821,
+    "personnes_liees": [
+        {"nom": "Pierre JACQUET", "role": "père", "detail": ""},
+        {"nom": "Marie Anne VILLEPELLET", "role": "mère", "detail": ""},
+    ],
 }
 
 
@@ -101,7 +108,11 @@ def test_parse_produit_un_releve_indexe():
 
 
 def test_parse_capte_le_departement_quand_present():
-    donnees = {**_JSON_ATTENDU, "evenement_departement": "Cher", "evenement_pays": "France"}
+    donnees = {
+        **_JSON_ATTENDU,
+        "evenement_departement": "Cher",
+        "evenement_pays": "France",
+    }
     r = parse_releve(COLLAGE_ROSE, llm=_LLMStub(json.dumps(donnees)))
     assert r.evenement_departement == "Cher"
 
@@ -113,9 +124,16 @@ def test_parse_departement_absent_vaut_vide():
 
 def _releve_lieu(commune="Saint-Martin-d'Auxigny", departement="Cher", pays="France"):
     return ReleveIndexe(
-        fonds="CGHB", reference="R1", sujet_nom="JACQUET", sujet_prenom="Rose",
-        evenement_type="Death", evenement_lieu=commune,
-        evenement_departement=departement, evenement_pays=pays, texte_brut="…")
+        fonds="CGHB",
+        reference="R1",
+        sujet_nom="JACQUET",
+        sujet_prenom="Rose",
+        evenement_type="Death",
+        evenement_lieu=commune,
+        evenement_departement=departement,
+        evenement_pays=pays,
+        texte_brut="…",
+    )
 
 
 def test_raw_lieu_assemble_commune_departement_pays():
@@ -135,24 +153,26 @@ def test_raw_lieu_sans_commune_est_vide():
 
 # --- genre_infere : mapping + seuil ---
 
+
 def _inf(sex, ratio):
     from crewai_custom_tools.tools.genealogy.analysis.gender import GenderInference
+
     return GenderInference(sex=sex, ratio=ratio, total=100, key="x")
 
 
 def test_genre_infere_feminin_haut_ratio(mocker):
     mocker.patch("genecrew.releves_import.infer_sex", return_value=_inf("F", 0.99))
-    assert genre_infere("Rose") == 0            # 0 = F
+    assert genre_infere("Rose") == 0  # 0 = F
 
 
 def test_genre_infere_masculin_haut_ratio(mocker):
     mocker.patch("genecrew.releves_import.infer_sex", return_value=_inf("M", 0.995))
-    assert genre_infere("Pierre") == 1          # 1 = M
+    assert genre_infere("Pierre") == 1  # 1 = M
 
 
 def test_genre_infere_inconnu_hors_table(mocker):
     mocker.patch("genecrew.releves_import.infer_sex", return_value=_inf(None, 0.0))
-    assert genre_infere("Xyzzy") == 2           # 2 = U
+    assert genre_infere("Xyzzy") == 2  # 2 = U
 
 
 def test_genre_infere_sous_le_seuil_reste_inconnu(mocker):
@@ -163,9 +183,12 @@ def test_genre_infere_sous_le_seuil_reste_inconnu(mocker):
 
 # --- resoudre_ou_creer_lieu : cascade déléguée à run_lieu_import ---
 
+
 def test_resoudre_lieu_rend_le_handle_quand_ecrit(mocker):
-    mocker.patch("genecrew.releves_import.run_lieu_import",
-                 return_value={"action": "ecrire", "handle": "P_SMA", "created": True})
+    mocker.patch(
+        "genecrew.releves_import.run_lieu_import",
+        return_value={"action": "ecrire", "handle": "P_SMA", "created": True},
+    )
     h = resoudre_ou_creer_lieu(None, _releve_lieu(), dry_run=False)
     assert h == "P_SMA"
 
@@ -174,13 +197,15 @@ def test_resoudre_lieu_sans_commune_ne_resout_pas(mocker):
     appels = mocker.patch("genecrew.releves_import.run_lieu_import")
     h = resoudre_ou_creer_lieu(None, _releve_lieu(commune=""), dry_run=False)
     assert h is None
-    appels.assert_not_called()                  # rien à résoudre : pas d'appel réseau
+    appels.assert_not_called()  # rien à résoudre : pas d'appel réseau
 
 
 def test_resoudre_lieu_ambigu_ne_pose_aucun_lieu(mocker):
     # run_lieu_import a refusé (score/ambiguïté) : handle None -> événement sans lieu.
-    mocker.patch("genecrew.releves_import.run_lieu_import",
-                 return_value={"action": "proposer", "handle": None})
+    mocker.patch(
+        "genecrew.releves_import.run_lieu_import",
+        return_value={"action": "proposer", "handle": None},
+    )
     h = resoudre_ou_creer_lieu(None, _releve_lieu(), dry_run=False)
     assert h is None
 
@@ -247,7 +272,10 @@ def test_json_syntaxiquement_casse_leve_une_erreur_exploitable():
 
 
 def test_code_fonds_est_stable_et_sobre():
-    assert code_fonds("Cercle Généalogique du Haut-Berry") == "cercle-genealogique-du-haut-berry"
+    assert (
+        code_fonds("Cercle Généalogique du Haut-Berry")
+        == "cercle-genealogique-du-haut-berry"
+    )
 
 
 def test_code_fonds_tiret_et_espace_sont_equivalents():
@@ -256,8 +284,9 @@ def test_code_fonds_tiret_et_espace_sont_equivalents():
     Les distinguer réimporterait le même relevé en double — voir la docstring
     de code_fonds. Ce test doit continuer à passer même si un futur relecteur
     reproduit le raisonnement inverse."""
-    assert (code_fonds("Cercle Généalogique du Haut-Berry")
-            == code_fonds("Cercle Généalogique du Haut Berry"))
+    assert code_fonds("Cercle Généalogique du Haut-Berry") == code_fonds(
+        "Cercle Généalogique du Haut Berry"
+    )
 
 
 def test_code_fonds_supprime_la_ponctuation_parasite():
@@ -269,8 +298,9 @@ def test_code_fonds_supprime_la_ponctuation_parasite():
 def test_code_fonds_distingue_des_fonds_reellement_differents():
     """Garde contre une normalisation devenue trop agressive : deux fonds
     dont les mots diffèrent doivent rester distincts."""
-    assert (code_fonds("Cercle Généalogique du Haut-Berry")
-            != code_fonds("Cercle Généalogique du Berry"))
+    assert code_fonds("Cercle Généalogique du Haut-Berry") != code_fonds(
+        "Cercle Généalogique du Berry"
+    )
 
 
 def test_code_fonds_retire_les_caracteres_qui_casseraient_le_marqueur():
@@ -292,17 +322,26 @@ def test_marqueur_porte_l_identite_jamais_la_date():
 
 def test_deja_importe_detecte_le_marqueur_pose():
     m = marqueur_releve("CGHB", "106710046161418286")
+
     def h(request):
-        return httpx.Response(200, json=[{"extended": {"notes": [
-            {"text": {"string": m + "\nRelevé — CGHB"}}]}}])
+        return httpx.Response(
+            200,
+            json=[
+                {"extended": {"notes": [{"text": {"string": m + "\nRelevé — CGHB"}}]}}
+            ],
+        )
+
     assert deja_importe(_client(h), "I0001", m) is True
 
 
 def test_deja_importe_faux_sur_une_autre_reference():
     autre = marqueur_releve("CGHB", "999")
+
     def h(request):
-        return httpx.Response(200, json=[{"extended": {"notes": [
-            {"text": {"string": autre}}]}}])
+        return httpx.Response(
+            200, json=[{"extended": {"notes": [{"text": {"string": autre}}]}}]
+        )
+
     m = marqueur_releve("CGHB", "106710046161418286")
     assert deja_importe(_client(h), "I0001", m) is False
 
@@ -310,6 +349,7 @@ def test_deja_importe_faux_sur_une_autre_reference():
 def test_deja_importe_faux_sans_note():
     def h(request):
         return httpx.Response(200, json=[{"extended": {"notes": []}}])
+
     assert deja_importe(_client(h), "I0001", marqueur_releve("CGHB", "1")) is False
 
 
@@ -335,16 +375,20 @@ def test_source_title_leve_toujours_sur_un_registre_inconnu():
 
 def test_note_recopie_le_texte_brut():
     r = parse_releve(COLLAGE_ROSE, llm=_LLMStub(json.dumps(_JSON_ATTENDU)))
-    corps = corps_note_releve(r, Appariement(verdict="net", gramps_id="I1",
-                                             facteurs=["date complète", "lieu"],
-                                             poids=8))
+    corps = corps_note_releve(
+        r,
+        Appariement(
+            verdict="net", gramps_id="I1", facteurs=["date complète", "lieu"], poids=8
+        ),
+    )
     assert COLLAGE_ROSE.strip() in corps
 
 
 def test_note_porte_le_marqueur_en_tete_et_les_facteurs():
     r = parse_releve(COLLAGE_ROSE, llm=_LLMStub(json.dumps(_JSON_ATTENDU)))
-    corps = corps_note_releve(r, Appariement(verdict="net", facteurs=["date complète"],
-                                             poids=5))
+    corps = corps_note_releve(
+        r, Appariement(verdict="net", facteurs=["date complète"], poids=5)
+    )
     assert corps.startswith("[genecrew:releve:")
     assert "date complète" in corps
 
@@ -365,7 +409,8 @@ def test_note_affirme_le_rattachement_force():
     humaine plutôt que la laisser se déduire d'un « poids 0 » opaque."""
     r = parse_releve(COLLAGE_ROSE, llm=_LLMStub(json.dumps(_JSON_ATTENDU)))
     corps = corps_note_releve(
-        r, Appariement(verdict="net", gramps_id="I1", facteurs=[], poids=0))
+        r, Appariement(verdict="net", gramps_id="I1", facteurs=[], poids=0)
+    )
     assert "forcé" in corps.lower()
     assert "--person" in corps
 
@@ -375,7 +420,8 @@ def test_note_mesuree_ne_mentionne_pas_de_forcage():
     (donc plausiblement issu du moteur) ne doit jamais être étiqueté forcé."""
     r = parse_releve(COLLAGE_ROSE, llm=_LLMStub(json.dumps(_JSON_ATTENDU)))
     corps = corps_note_releve(
-        r, Appariement(verdict="net", facteurs=["date complète", "lieu"], poids=8))
+        r, Appariement(verdict="net", facteurs=["date complète", "lieu"], poids=8)
+    )
     assert "forcé" not in corps.lower()
 
 
@@ -388,20 +434,42 @@ def test_note_mesuree_ne_mentionne_pas_de_forcage():
 # d'appariement inopérant : c'est la forme réelle qu'on recopie, pas une forme
 # plausible.
 
-def _personne(gramps_id, handle, *, prenom="Rose", nom="JACQUET",
-              familles_parentales=()):
+
+def _personne(
+    gramps_id, handle, *, prenom="Rose", nom="JACQUET", familles_parentales=()
+):
     return {
-        "gramps_id": gramps_id, "handle": handle, "gender": 0,
-        "primary_name": {"first_name": prenom,
-                         "surname_list": [{"surname": nom}]},
-        "birth_ref_index": 0, "death_ref_index": 1,
+        "gramps_id": gramps_id,
+        "handle": handle,
+        "gender": 0,
+        "primary_name": {"first_name": prenom, "surname_list": [{"surname": nom}]},
+        "birth_ref_index": 0,
+        "death_ref_index": 1,
         "parent_family_list": list(familles_parentales),
-        "extended": {"events": [
-            {"type": "Birth", "date": {"dateval": [0, 0, 1821, False], "year": 1821,
-                                       "sortval": 664000, "modifier": 3, "quality": 0}},
-            {"type": "Death", "date": {"dateval": [10, 12, 1894, False], "year": 1894,
-                                       "sortval": 692000, "modifier": 0, "quality": 0}},
-        ]},
+        "extended": {
+            "events": [
+                {
+                    "type": "Birth",
+                    "date": {
+                        "dateval": [0, 0, 1821, False],
+                        "year": 1821,
+                        "sortval": 664000,
+                        "modifier": 3,
+                        "quality": 0,
+                    },
+                },
+                {
+                    "type": "Death",
+                    "date": {
+                        "dateval": [10, 12, 1894, False],
+                        "year": 1894,
+                        "sortval": 692000,
+                        "modifier": 0,
+                        "quality": 0,
+                    },
+                },
+            ]
+        },
         "profile": {"death": {"place_name": "Saint-Martin-d'Auxigny"}},
     }
 
@@ -483,13 +551,22 @@ def test_surface_c_idempotente_ne_redouble_pas_un_sujet_marque(monkeypatch):
     monkeypatch.setenv("GENECREW_DRY_RUN", "false")
     m = marqueur_releve("Cercle Généalogique du Haut-Berry", "106710046161418286")
     partiel = {
-        "gramps_id": "I0001", "handle": "h1", "gender": 0,
-        "primary_name": {"first_name": "Marie", "surname_list": [{"surname": "JACQUET"}]},
-        "birth_ref_index": -1, "death_ref_index": -1,
-        "parent_family_list": [], "extended": {"events": []}, "profile": {},
+        "gramps_id": "I0001",
+        "handle": "h1",
+        "gender": 0,
+        "primary_name": {
+            "first_name": "Marie",
+            "surname_list": [{"surname": "JACQUET"}],
+        },
+        "birth_ref_index": -1,
+        "death_ref_index": -1,
+        "parent_family_list": [],
+        "extended": {"events": []},
+        "profile": {},
     }
-    out = run_import_releve(_arbre(partiel, notes=[{"text": {"string": m}}]),
-                            COLLAGE_ROSE, llm=_llm())
+    out = run_import_releve(
+        _arbre(partiel, notes=[{"text": {"string": m}}]), COLLAGE_ROSE, llm=_llm()
+    )
     assert out["appariement"].verdict == "aucun"
     assert out["ecrit"] is False
     assert "déjà importée" in out["raison"]
@@ -500,7 +577,8 @@ def test_deuxieme_passage_n_ecrit_rien(monkeypatch):
     monkeypatch.setenv("GENECREW_DRY_RUN", "false")
     m = marqueur_releve("Cercle Généalogique du Haut-Berry", "106710046161418286")
     out = run_import_releve(
-        _arbre(_ROSE_ARBRE, notes=[{"text": {"string": m}}]), COLLAGE_ROSE, llm=_llm())
+        _arbre(_ROSE_ARBRE, notes=[{"text": {"string": m}}]), COLLAGE_ROSE, llm=_llm()
+    )
     assert out["ecrit"] is False
     assert out["raison"] == "déjà importée"
 
@@ -519,8 +597,9 @@ def test_pagination_reelle_collecte_les_pages_suivantes(monkeypatch):
                 return httpx.Response(200, json=[{"extended": {"notes": []}}])
             page = request.url.params.get("page", "1")
             if page == "1":
-                return httpx.Response(200, json=[_personne("I0009", "h9",
-                                                           prenom="Jean", nom="DURAND")])
+                return httpx.Response(
+                    200, json=[_personne("I0009", "h9", prenom="Jean", nom="DURAND")]
+                )
             if page == "2":
                 return httpx.Response(200, json=[_ROSE_ARBRE])
             return httpx.Response(200, json=[])
@@ -533,9 +612,14 @@ def test_pagination_reelle_collecte_les_pages_suivantes(monkeypatch):
 
 # --- le type d'événement non géré -------------------------------------------
 
-_FAMILLE_ROSE = {"gramps_id": "F0001", "handle": "f1",
-                 "father_handle": "hp", "mother_handle": "hm",
-                 "child_ref_list": [{"ref": "h1"}], "extended": {"events": []}}
+_FAMILLE_ROSE = {
+    "gramps_id": "F0001",
+    "handle": "f1",
+    "father_handle": "hp",
+    "mother_handle": "hm",
+    "child_ref_list": [{"ref": "h1"}],
+    "extended": {"events": []},
+}
 
 _JSON_MARIAGE = dict(_JSON_ATTENDU, evenement_type="Marriage")
 
@@ -574,8 +658,13 @@ def _sans_deces_correlant(gramps_id, handle, *, prenom, nom, familles_parentales
     n'est produite non plus. Même logique pour le lieu, VIDÉ plutôt que changé :
     une valeur seulement différente déclencherait un veto au lieu de rien.
     """
-    p = _personne(gramps_id, handle, prenom=prenom, nom=nom,
-                 familles_parentales=familles_parentales)
+    p = _personne(
+        gramps_id,
+        handle,
+        prenom=prenom,
+        nom=nom,
+        familles_parentales=familles_parentales,
+    )
     p["extended"]["events"][1]["date"]["modifier"] = 3
     p["profile"]["death"]["place_name"] = ""
     return p
@@ -617,17 +706,31 @@ def test_index_des_parents_borne_aux_candidats(monkeypatch):
     monkeypatch.delenv("GENECREW_DRY_RUN", raising=False)
     familles_vues: list[str] = []
 
-    rose = _sans_deces_correlant("I0001", "h1", prenom="Rose", nom="JACQUET",
-                                 familles_parentales=["f1"])
+    rose = _sans_deces_correlant(
+        "I0001", "h1", prenom="Rose", nom="JACQUET", familles_parentales=["f1"]
+    )
     pere = _sans_deces_correlant("I0002", "hp", prenom="Pierre", nom="JACQUET")
     mere = _personne("I0003", "hm", prenom="Marie Anne", nom="VILLEPELLET")
-    etrangers = [_personne(f"I01{i}", f"hd{i}", prenom="Jean", nom="DURAND",
-                           familles_parentales=[f"f1{i}"]) for i in range(5)]
+    etrangers = [
+        _personne(
+            f"I01{i}",
+            f"hd{i}",
+            prenom="Jean",
+            nom="DURAND",
+            familles_parentales=[f"f1{i}"],
+        )
+        for i in range(5)
+    ]
     familles = {"f1": _FAMILLE_ROSE}
     for i in range(5):
-        familles[f"f1{i}"] = {"gramps_id": f"F01{i}", "handle": f"f1{i}",
-                              "father_handle": "", "mother_handle": "",
-                              "child_ref_list": [], "extended": {"events": []}}
+        familles[f"f1{i}"] = {
+            "gramps_id": f"F01{i}",
+            "handle": f"f1{i}",
+            "father_handle": "",
+            "mother_handle": "",
+            "child_ref_list": [],
+            "extended": {"events": []},
+        }
 
     base = _handler_arbre([rose, pere, mere, *etrangers], familles)
 
@@ -655,9 +758,10 @@ def test_type_evenement_non_gere_refuse_d_ecrire(monkeypatch):
     poserait une note sur un type que la chaîne ne sait pas traiter.
     """
     monkeypatch.setenv("GENECREW_DRY_RUN", "false")
-    out = run_import_releve(_arbre_avec_parents(), COLLAGE_ROSE,
-                            llm=_LLMStub(json.dumps(_JSON_MARIAGE)))
-    assert out["appariement"].verdict == "net"       # le piège est bien armé
+    out = run_import_releve(
+        _arbre_avec_parents(), COLLAGE_ROSE, llm=_LLMStub(json.dumps(_JSON_MARIAGE))
+    )
+    assert out["appariement"].verdict == "net"  # le piège est bien armé
     assert out["ecrit"] is False
     assert "Marriage" in out["raison"]
 
@@ -675,8 +779,9 @@ _ID_FORCE = "I0421"
 _HANDLE_FORCE = "h42"
 
 
-def _handler_force(*, notes=(), evenements=(("ev1", "Death"), ("eb", "Birth")),
-                   existe=True, vu=None):
+def _handler_force(
+    *, notes=(), evenements=(("ev1", "Death"), ("eb", "Birth")), existe=True, vu=None
+):
     """Mock d'un arbre où SEULE la personne désignée est adressée par gramps_id.
 
     Le chemin forcé ne pagine pas l'arbre : on ne répond donc jamais à une
@@ -698,17 +803,35 @@ def _handler_force(*, notes=(), evenements=(("ev1", "Death"), ("eb", "Birth")),
                 return httpx.Response(200, json=[])
             extend = params.get("extend")
             if extend == "note_list":
-                return httpx.Response(200, json=[{
-                    "gramps_id": _ID_FORCE, "handle": _HANDLE_FORCE,
-                    "extended": {"notes": list(notes)}}])
+                return httpx.Response(
+                    200,
+                    json=[
+                        {
+                            "gramps_id": _ID_FORCE,
+                            "handle": _HANDLE_FORCE,
+                            "extended": {"notes": list(notes)},
+                        }
+                    ],
+                )
             if extend == "event_ref_list":
-                return httpx.Response(200, json=[{
-                    "gramps_id": _ID_FORCE, "handle": _HANDLE_FORCE,
-                    "extended": {"events": [{"handle": hv, "type": tv}
-                                            for hv, tv in evenements]}}])
+                return httpx.Response(
+                    200,
+                    json=[
+                        {
+                            "gramps_id": _ID_FORCE,
+                            "handle": _HANDLE_FORCE,
+                            "extended": {
+                                "events": [
+                                    {"handle": hv, "type": tv} for hv, tv in evenements
+                                ]
+                            },
+                        }
+                    ],
+                )
             # Lecture nue : la résolution du handle de la personne désignée.
-            return httpx.Response(200, json=[{"gramps_id": _ID_FORCE,
-                                              "handle": _HANDLE_FORCE}])
+            return httpx.Response(
+                200, json=[{"gramps_id": _ID_FORCE, "handle": _HANDLE_FORCE}]
+            )
         if request.method == "POST" and chemin == "/api/notes/":
             vu["notes"].append(json.loads(request.content))
             return httpx.Response(201, json=[{"new": {"handle": "n1"}}])
@@ -728,15 +851,22 @@ def _handler_force(*, notes=(), evenements=(("ev1", "Death"), ("eb", "Birth")),
             vu["citations"].append(json.loads(request.content))
             return httpx.Response(201, json=[{"handle": "c1"}])
         if request.method == "GET" and chemin == "/api/events/ev1":
-            return httpx.Response(200, json={"_class": "Event", "handle": "ev1",
-                                             "citation_list": []})
+            return httpx.Response(
+                200, json={"_class": "Event", "handle": "ev1", "citation_list": []}
+            )
         if request.method == "PUT" and chemin == "/api/events/ev1":
             vu["event_put"].append(json.loads(request.content))
             return httpx.Response(200, json={})
         if chemin == f"/api/people/{_HANDLE_FORCE}":
-            return httpx.Response(200, json={"gramps_id": _ID_FORCE,
-                                             "handle": _HANDLE_FORCE,
-                                             "note_list": ["n0"], "tag_list": ["t0"]})
+            return httpx.Response(
+                200,
+                json={
+                    "gramps_id": _ID_FORCE,
+                    "handle": _HANDLE_FORCE,
+                    "note_list": ["n0"],
+                    "tag_list": ["t0"],
+                },
+            )
         return httpx.Response(200, json=[])
 
     return h
@@ -753,7 +883,8 @@ def test_person_force_le_net_et_pose_note_tag_citation(monkeypatch, mocker):
     client = _client(_handler_force(vu=vu))
     mocker.patch(
         "crewai_custom_tools.tools.genealogy.gramps.write_tools.get_client",
-        return_value=client)
+        return_value=client,
+    )
 
     out = run_import_releve(client, COLLAGE_ROSE, llm=_llm(), person=_ID_FORCE)
     assert out["dry_run"] is False
@@ -776,8 +907,12 @@ def test_person_introuvable_refuse_sans_ecrire(monkeypatch):
     de l'arbre est refusé explicitement, aucune écriture n'est tentée."""
     monkeypatch.setenv("GENECREW_DRY_RUN", "false")
     vu = {}
-    out = run_import_releve(_client(_handler_force(existe=False, vu=vu)),
-                            COLLAGE_ROSE, llm=_llm(), person="I9999")
+    out = run_import_releve(
+        _client(_handler_force(existe=False, vu=vu)),
+        COLLAGE_ROSE,
+        llm=_llm(),
+        person="I9999",
+    )
     assert out["ecrit"] is False
     assert "introuvable" in out["raison"]
     assert "I9999" in out["raison"]
@@ -791,8 +926,12 @@ def test_person_ne_contourne_pas_la_garde_de_type(monkeypatch):
     """
     monkeypatch.setenv("GENECREW_DRY_RUN", "false")
     vu = {}
-    out = run_import_releve(_client(_handler_force(vu=vu)), COLLAGE_ROSE,
-                            llm=_LLMStub(json.dumps(_JSON_MARIAGE)), person=_ID_FORCE)
+    out = run_import_releve(
+        _client(_handler_force(vu=vu)),
+        COLLAGE_ROSE,
+        llm=_LLMStub(json.dumps(_JSON_MARIAGE)),
+        person=_ID_FORCE,
+    )
     assert out["ecrit"] is False
     assert "Marriage" in out["raison"]
     assert vu["notes"] == []
@@ -806,7 +945,10 @@ def test_person_respecte_l_idempotence(monkeypatch):
     vu = {}
     out = run_import_releve(
         _client(_handler_force(notes=[{"text": {"string": m}}], vu=vu)),
-        COLLAGE_ROSE, llm=_llm(), person=_ID_FORCE)
+        COLLAGE_ROSE,
+        llm=_llm(),
+        person=_ID_FORCE,
+    )
     assert out["ecrit"] is False
     assert out["raison"] == "déjà importée"
     assert vu["notes"] == []
@@ -817,8 +959,9 @@ def test_person_respecte_la_simulation_par_defaut(monkeypatch):
     désigne QUI, il ne force pas le DROIT d'écrire."""
     monkeypatch.delenv("GENECREW_DRY_RUN", raising=False)
     vu = {}
-    out = run_import_releve(_client(_handler_force(vu=vu)), COLLAGE_ROSE,
-                            llm=_llm(), person=_ID_FORCE)
+    out = run_import_releve(
+        _client(_handler_force(vu=vu)), COLLAGE_ROSE, llm=_llm(), person=_ID_FORCE
+    )
     assert out["dry_run"] is True
     assert out["ecrit"] is False
     assert out["raison"] == "simulation"
@@ -826,6 +969,7 @@ def test_person_respecte_la_simulation_par_defaut(monkeypatch):
 
 
 # --- l'écriture, quand tout concorde ----------------------------------------
+
 
 def test_net_hors_simulation_pose_note_et_tag(monkeypatch, mocker):
     """Le chemin nominal complet : note créée, tag garanti, les deux AJOUTÉS,
@@ -860,12 +1004,26 @@ def test_net_hors_simulation_pose_note_et_tag(monkeypatch, mocker):
         if chemin == "/api/tags/":
             return httpx.Response(200, json=[])
         # --- la citation : source garantie, citation créée, rattachée à ev1 ---
-        if (chemin == "/api/people/" and "gramps_id" in request.url.params
-                and request.url.params.get("extend") == "event_ref_list"):
-            return httpx.Response(200, json=[{
-                "gramps_id": "I0001", "handle": "h1",
-                "extended": {"events": [{"handle": "ev1", "type": "Death"},
-                                        {"handle": "eb", "type": "Birth"}]}}])
+        if (
+            chemin == "/api/people/"
+            and "gramps_id" in request.url.params
+            and request.url.params.get("extend") == "event_ref_list"
+        ):
+            return httpx.Response(
+                200,
+                json=[
+                    {
+                        "gramps_id": "I0001",
+                        "handle": "h1",
+                        "extended": {
+                            "events": [
+                                {"handle": "ev1", "type": "Death"},
+                                {"handle": "eb", "type": "Birth"},
+                            ]
+                        },
+                    }
+                ],
+            )
         if request.method == "GET" and chemin == "/api/sources/":
             return httpx.Response(200, json=[])
         if request.method == "POST" and chemin == "/api/sources/":
@@ -874,22 +1032,31 @@ def test_net_hors_simulation_pose_note_et_tag(monkeypatch, mocker):
             vu["citations"].append(json.loads(request.content))
             return httpx.Response(201, json=[{"handle": "c1"}])
         if request.method == "GET" and chemin == "/api/events/ev1":
-            return httpx.Response(200, json={"_class": "Event", "handle": "ev1",
-                                             "citation_list": []})
+            return httpx.Response(
+                200, json={"_class": "Event", "handle": "ev1", "citation_list": []}
+            )
         if request.method == "PUT" and chemin == "/api/events/ev1":
             vu["event_put"].append(json.loads(request.content))
             return httpx.Response(200, json={})
         if chemin == "/api/people/h1":
             # Personne NON vierge : une note et un tag préexistants, que
             # l'écriture doit conserver.
-            return httpx.Response(200, json={"gramps_id": "I0001", "handle": "h1",
-                                             "note_list": ["n0"], "tag_list": ["t0"]})
+            return httpx.Response(
+                200,
+                json={
+                    "gramps_id": "I0001",
+                    "handle": "h1",
+                    "note_list": ["n0"],
+                    "tag_list": ["t0"],
+                },
+            )
         return _handler_arbre([_ROSE_ARBRE])(request)
 
     client = _client(h)
     mocker.patch(
         "crewai_custom_tools.tools.genealogy.gramps.write_tools.get_client",
-        return_value=client)
+        return_value=client,
+    )
 
     out = run_import_releve(client, COLLAGE_ROSE, llm=_llm())
     assert out["dry_run"] is False
@@ -939,7 +1106,8 @@ def test_echec_apres_la_note_signale_l_orpheline(monkeypatch, mocker, casse):
     client = _client(h)
     mocker.patch(
         "crewai_custom_tools.tools.genealogy.gramps.write_tools.get_client",
-        return_value=client)
+        return_value=client,
+    )
 
     out = run_import_releve(client, COLLAGE_ROSE, llm=_llm())
     assert out["ecrit"] is False
@@ -991,7 +1159,8 @@ def test_dry_run_est_propage_aux_trois_outils(monkeypatch, mocker):
     client = _client(h)
     mocker.patch(
         "crewai_custom_tools.tools.genealogy.gramps.write_tools.get_client",
-        return_value=client)
+        return_value=client,
+    )
     appels = _espionner_les_outils(mocker)
 
     out = run_import_releve(client, COLLAGE_ROSE, llm=_llm(), dry_run=False)
@@ -1008,14 +1177,22 @@ def test_dry_run_est_propage_aux_trois_outils(monkeypatch, mocker):
 # est un dict complet dont `type` est une CHAÎNE (miroir de `facts._event_from_raw`,
 # qui lit `raw.get("type", "")`) et qui porte son propre `handle`.
 
+
 def _arbre_avec_evenement(type_="Death", handle="e1"):
     def h(request):
         if request.url.path == "/api/people/":
-            return httpx.Response(200, json=[{
-                "gramps_id": "I0001", "handle": "h1",
-                "extended": {"events": [{"handle": handle, "type": type_}]},
-            }])
+            return httpx.Response(
+                200,
+                json=[
+                    {
+                        "gramps_id": "I0001",
+                        "handle": "h1",
+                        "extended": {"events": [{"handle": handle, "type": type_}]},
+                    }
+                ],
+            )
         return httpx.Response(200, json=[])
+
     return _client(h)
 
 
@@ -1048,12 +1225,24 @@ def test_citation_porte_la_reference_et_une_confiance_normal(monkeypatch):
             return json.dumps({"success": True, "data": {"handle": "c1"}})
 
     monkeypatch.setattr("genecrew.releves_import.GrampsCreateCitationTool", _Citation)
-    monkeypatch.setattr("genecrew.releves_import.GrampsEnsureSourceTool",
-                        lambda: type("T", (), {"_run": lambda s, **k: json.dumps(
-                            {"success": True, "data": {"handle": "s1"}})})())
-    monkeypatch.setattr("genecrew.releves_import.GrampsAttachCitationTool",
-                        lambda: type("T", (), {"_run": lambda s, **k: json.dumps(
-                            {"success": True, "data": {}})})())
+    monkeypatch.setattr(
+        "genecrew.releves_import.GrampsEnsureSourceTool",
+        lambda: type(
+            "T",
+            (),
+            {
+                "_run": lambda s, **k: json.dumps(
+                    {"success": True, "data": {"handle": "s1"}}
+                )
+            },
+        )(),
+    )
+    monkeypatch.setattr(
+        "genecrew.releves_import.GrampsAttachCitationTool",
+        lambda: type(
+            "T", (), {"_run": lambda s, **k: json.dumps({"success": True, "data": {}})}
+        )(),
+    )
 
     r = parse_releve(COLLAGE_ROSE, llm=_LLMStub(json.dumps(_JSON_ATTENDU)))
     app = Appariement(verdict="net", gramps_id="I0001", handle="h1")
@@ -1066,8 +1255,11 @@ def test_citation_porte_la_reference_et_une_confiance_normal(monkeypatch):
 def _espionner_les_outils_citation(mocker) -> dict:
     """Enregistre les kwargs reçus par les trois outils de citation."""
     appels: dict[str, dict] = {}
-    for classe in (GrampsEnsureSourceTool, GrampsCreateCitationTool,
-                  GrampsAttachCitationTool):
+    for classe in (
+        GrampsEnsureSourceTool,
+        GrampsCreateCitationTool,
+        GrampsAttachCitationTool,
+    ):
         original = classe._run
 
         def espion(self, *args, _classe=classe, _original=original, **kwargs):
@@ -1090,24 +1282,33 @@ def test_dry_run_est_propage_aux_trois_outils_de_citation(mocker):
     d'écrire — `_arbre_avec_evenement` seul ne les couvre pas (ses chemins hors
     `/people/` rendent une liste vide, invalide pour ces deux lectures).
     """
+
     def h(request):
         chemin = request.url.path
         if chemin == "/api/people/":
-            return httpx.Response(200, json=[{
-                "gramps_id": "I0001", "handle": "h1",
-                "extended": {"events": [{"handle": "e1", "type": "Death"}]},
-            }])
+            return httpx.Response(
+                200,
+                json=[
+                    {
+                        "gramps_id": "I0001",
+                        "handle": "h1",
+                        "extended": {"events": [{"handle": "e1", "type": "Death"}]},
+                    }
+                ],
+            )
         if chemin == "/api/sources/":
             return httpx.Response(200, json=[])
         if chemin == "/api/events/e1":
             return httpx.Response(
-                200, json={"handle": "e1", "gramps_id": "I0001", "citation_list": []})
+                200, json={"handle": "e1", "gramps_id": "I0001", "citation_list": []}
+            )
         return httpx.Response(200, json=[])
 
     client = _client(h)
     mocker.patch(
         "crewai_custom_tools.tools.genealogy.gramps.write_tools.get_client",
-        return_value=client)
+        return_value=client,
+    )
     appels = _espionner_les_outils_citation(mocker)
 
     r = parse_releve(COLLAGE_ROSE, llm=_LLMStub(json.dumps(_JSON_ATTENDU)))
@@ -1122,10 +1323,12 @@ def test_dry_run_est_propage_aux_trois_outils_de_citation(mocker):
 
 # --- rapport lisible -----------------------------------------------------
 
+
 def test_rapport_affiche_le_mode_effectif(monkeypatch):
     monkeypatch.delenv("GENECREW_DRY_RUN", raising=False)
-    out = run_import_releve(_arbre(_ROSE_ARBRE), COLLAGE_ROSE,
-                            llm=_LLMStub(json.dumps(_JSON_ATTENDU)))
+    out = run_import_releve(
+        _arbre(_ROSE_ARBRE), COLLAGE_ROSE, llm=_LLMStub(json.dumps(_JSON_ATTENDU))
+    )
     texte = format_import_releve(out)
     assert "simulation" in texte
     assert "I0001" in texte
@@ -1135,8 +1338,11 @@ def test_rapport_affiche_le_mode_effectif(monkeypatch):
 def test_rapport_liste_les_candidats_d_un_gris(monkeypatch):
     monkeypatch.setenv("GENECREW_DRY_RUN", "false")
     jumeau = _personne("I0002", "h2")
-    out = run_import_releve(_arbre(_ROSE_ARBRE, jumeau), COLLAGE_ROSE,
-                            llm=_LLMStub(json.dumps(_JSON_ATTENDU)))
+    out = run_import_releve(
+        _arbre(_ROSE_ARBRE, jumeau),
+        COLLAGE_ROSE,
+        llm=_LLMStub(json.dumps(_JSON_ATTENDU)),
+    )
     texte = format_import_releve(out)
     assert "I0001" in texte and "I0002" in texte
 
@@ -1150,8 +1356,9 @@ def test_rapport_sur_personne_introuvable_ne_plante_pas(monkeypatch):
     calculée. Ce test verrouille le cas : pas de crash, et le rapport reste
     lisible (l'ID et le mot « introuvable » y figurent)."""
     monkeypatch.setenv("GENECREW_DRY_RUN", "false")
-    out = run_import_releve(_client(_handler_force(existe=False)),
-                            COLLAGE_ROSE, llm=_llm(), person="I9999")
+    out = run_import_releve(
+        _client(_handler_force(existe=False)), COLLAGE_ROSE, llm=_llm(), person="I9999"
+    )
     texte = format_import_releve(out)
     assert "I9999" in texte
     assert "introuvable" in texte
@@ -1165,12 +1372,19 @@ def test_rapport_sur_personne_introuvable_ne_plante_pas(monkeypatch):
 # candidat vetoé ne revient jamais devant le relecteur. Le contrat de granularité
 # — n'ajouter QUE ce qu'on sait être une commune — sert cette asymétrie.
 
+
 def _resolved(place_type="Municipality", code="18209", ambiguous=False):
     """Un `ResolvedPlace` minimal pour les tests (name/place_type/score/source/query
     sont requis par le modèle de la bibliothèque voisine)."""
-    return ResolvedPlace(name="Saint-Martin-d'Auxigny", place_type=place_type,
-                         code=code, ambiguous=ambiguous, score=1.0,
-                         source="stub", query="x")
+    return ResolvedPlace(
+        name="Saint-Martin-d'Auxigny",
+        place_type=place_type,
+        code=code,
+        ambiguous=ambiguous,
+        score=1.0,
+        source="stub",
+        query="x",
+    )
 
 
 def test_prefixe_pays_mappe_les_pays_connus():
@@ -1220,7 +1434,8 @@ def test_construire_lieux_resolus_clef_nue_valeur_qualifiee():
     commune = "Saint-Martin-d'Auxigny"
     chaine = "Saint-Martin-d'Auxigny, Cher, France"
     out = construire_lieux_resolus(
-        {commune: chaine}, resolveur=lambda s: {chaine: _resolved()}.get(s))
+        {commune: chaine}, resolveur=lambda s: {chaine: _resolved()}.get(s)
+    )
     assert out == {_normaliser(commune): "FR:18209"}
 
 
@@ -1229,7 +1444,10 @@ def test_construire_lieux_resolus_ecarte_les_non_communes():
     chaine = "Cher, France"
     out = construire_lieux_resolus(
         {commune: chaine},
-        resolveur=lambda s: {chaine: _resolved(place_type="Department", code="18")}.get(s))
+        resolveur=lambda s: {chaine: _resolved(place_type="Department", code="18")}.get(
+            s
+        ),
+    )
     assert out == {}
 
 
@@ -1245,7 +1463,8 @@ def test_construire_lieux_resolus_une_exception_ne_fait_pas_tomber_les_autres():
         return {chaine_bon: _resolved()}.get(s)
 
     out = construire_lieux_resolus(
-        {"boum": "boum, France", bon: chaine_bon}, resolveur=resolveur)
+        {"boum": "boum, France", bon: chaine_bon}, resolveur=resolveur
+    )
     assert out == {_normaliser(bon): "FR:18209"}
 
 
@@ -1282,7 +1501,8 @@ def test_construire_cote_releve_resout_avec_le_pays():
         return _resolved() if s == "Saint-Martin-d'Auxigny, France" else None
 
     avec = construire_lieux_resolus(
-        {commune: "Saint-Martin-d'Auxigny, France"}, resolveur=resolveur)
+        {commune: "Saint-Martin-d'Auxigny, France"}, resolveur=resolveur
+    )
     assert avec == {_normaliser(commune): "FR:18209"}
     sans = construire_lieux_resolus({commune: commune}, resolveur=resolveur)
     assert sans == {}
@@ -1317,34 +1537,57 @@ def test_veto_lieu_ecarte_l_homonyme_d_une_autre_commune(monkeypatch):
     l'homonyme resterait dans la marge ex aequo du bon, et le verdict serait
     `gris` : ce test tomberait sur `assert 'gris' == 'net'`."""
     monkeypatch.delenv("GENECREW_DRY_RUN", raising=False)
-    json_rose = dict(_JSON_ATTENDU, evenement_lieu="Saint-Martin-d'Auxigny",
-                     evenement_pays="France")
+    json_rose = dict(
+        _JSON_ATTENDU, evenement_lieu="Saint-Martin-d'Auxigny", evenement_pays="France"
+    )
 
     bonne = _personne("I0001", "h1")
-    bonne["profile"]["death"] = {"place": "Saint-Martin-d'Auxigny, Cher, France",
-                                 "place_name": "Saint-Martin-d'Auxigny"}
+    bonne["profile"]["death"] = {
+        "place": "Saint-Martin-d'Auxigny, Cher, France",
+        "place_name": "Saint-Martin-d'Auxigny",
+    }
     autre = _personne("I0002", "h2")
-    autre["profile"]["death"] = {"place": "Bourges, Cher, France",
-                                 "place_name": "Bourges"}
+    autre["profile"]["death"] = {
+        "place": "Bourges, Cher, France",
+        "place_name": "Bourges",
+    }
 
     # Table keyée par la CHAÎNE DE RÉSOLUTION (qualifiée) : côté relevé
     # « commune, pays » ; côté candidat la hiérarchie de `ev.place`. Deux chaînes
     # distinctes désignant la même commune rendent le même code — c'est voulu.
     table = {
         "Saint-Martin-d'Auxigny, France": ResolvedPlace(
-            name="Saint-Martin-d'Auxigny", place_type="Municipality",
-            code="18209", score=1.0, source="stub", query="x"),
+            name="Saint-Martin-d'Auxigny",
+            place_type="Municipality",
+            code="18209",
+            score=1.0,
+            source="stub",
+            query="x",
+        ),
         "Saint-Martin-d'Auxigny, Cher, France": ResolvedPlace(
-            name="Saint-Martin-d'Auxigny", place_type="Municipality",
-            code="18209", score=1.0, source="stub", query="x"),
+            name="Saint-Martin-d'Auxigny",
+            place_type="Municipality",
+            code="18209",
+            score=1.0,
+            source="stub",
+            query="x",
+        ),
         "Bourges, Cher, France": ResolvedPlace(
-            name="Bourges", place_type="Municipality",
-            code="18033", score=1.0, source="stub", query="x"),
+            name="Bourges",
+            place_type="Municipality",
+            code="18033",
+            score=1.0,
+            source="stub",
+            query="x",
+        ),
     }
 
-    out = run_import_releve(_arbre(bonne, autre), COLLAGE_ROSE,
-                            llm=_LLMStub(json.dumps(json_rose)),
-                            resolveur_lieux=lambda s: table.get(s))
+    out = run_import_releve(
+        _arbre(bonne, autre),
+        COLLAGE_ROSE,
+        llm=_LLMStub(json.dumps(json_rose)),
+        resolveur_lieux=lambda s: table.get(s),
+    )
     assert out["appariement"].verdict == "net"
     assert out["appariement"].gramps_id == "I0001"
     assert "lieu" in out["appariement"].facteurs
@@ -1352,12 +1595,20 @@ def test_veto_lieu_ecarte_l_homonyme_d_une_autre_commune(monkeypatch):
 
 # --- Surface A : sur un net, un décès ABSENT est créé (pas seulement rapporté) ---
 
+
 def _releve_deces_complet():
     return ReleveIndexe(
-        fonds="Cercle Généalogique du Haut-Berry", reference="106710046161418286",
-        sujet_nom="JACQUET", sujet_prenom="Rose", evenement_type="Death",
-        evenement_date="1894-12-10", evenement_lieu="Saint-Martin-d'Auxigny",
-        evenement_departement="Cher", evenement_pays="France", texte_brut="…")
+        fonds="Cercle Généalogique du Haut-Berry",
+        reference="106710046161418286",
+        sujet_nom="JACQUET",
+        sujet_prenom="Rose",
+        evenement_type="Death",
+        evenement_date="1894-12-10",
+        evenement_lieu="Saint-Martin-d'Auxigny",
+        evenement_departement="Cher",
+        evenement_pays="France",
+        texte_brut="…",
+    )
 
 
 def test_surface_a_deces_absent_est_cree(monkeypatch, mocker):
@@ -1367,17 +1618,26 @@ def test_surface_a_deces_absent_est_cree(monkeypatch, mocker):
     faisait que dupliquer le copier-coller.
     """
     monkeypatch.setenv("GENECREW_DRY_RUN", "false")
-    mocker.patch("genecrew.releves_import.run_lieu_import",
-                 return_value={"action": "ecrire", "handle": "P_SMA"})
+    mocker.patch(
+        "genecrew.releves_import.run_lieu_import",
+        return_value={"action": "ecrire", "handle": "P_SMA"},
+    )
     vu = {"events": [], "person_put": []}
 
     def h(request):
         chemin = request.url.path
         # handle_evenement : la personne existe mais ne porte qu'une NAISSANCE.
         if chemin == "/api/people/" and "gramps_id" in request.url.params:
-            return httpx.Response(200, json=[{
-                "gramps_id": "I0001", "handle": "h1",
-                "extended": {"events": [{"handle": "eb", "type": "Birth"}]}}])
+            return httpx.Response(
+                200,
+                json=[
+                    {
+                        "gramps_id": "I0001",
+                        "handle": "h1",
+                        "extended": {"events": [{"handle": "eb", "type": "Birth"}]},
+                    }
+                ],
+            )
         if request.method == "GET" and chemin == "/api/sources/":
             return httpx.Response(200, json=[])
         if request.method == "POST" and chemin == "/api/sources/":
@@ -1388,10 +1648,19 @@ def test_surface_a_deces_absent_est_cree(monkeypatch, mocker):
             vu["events"].append(json.loads(request.content))
             return httpx.Response(201, json=[{"handle": "e_new"}])
         if request.method == "GET" and chemin == "/api/people/h1":
-            return httpx.Response(200, json={
-                "_class": "Person", "handle": "h1", "gramps_id": "I0001",
-                "event_ref_list": [{"_class": "EventRef", "ref": "eb", "role": "Primary"}],
-                "birth_ref_index": 0, "death_ref_index": -1})
+            return httpx.Response(
+                200,
+                json={
+                    "_class": "Person",
+                    "handle": "h1",
+                    "gramps_id": "I0001",
+                    "event_ref_list": [
+                        {"_class": "EventRef", "ref": "eb", "role": "Primary"}
+                    ],
+                    "birth_ref_index": 0,
+                    "death_ref_index": -1,
+                },
+            )
         if request.method == "PUT" and chemin == "/api/people/h1":
             vu["person_put"].append(json.loads(request.content))
             return httpx.Response(200, json={})
@@ -1400,39 +1669,52 @@ def test_surface_a_deces_absent_est_cree(monkeypatch, mocker):
     client = _client(h)
     mocker.patch(
         "crewai_custom_tools.tools.genealogy.gramps.write_tools.get_client",
-        return_value=client)
-    app = Appariement(verdict="net", gramps_id="I0001", handle="h1",
-                      facteurs=["date complète"])
-    out = completer_evenement_principal(client, _releve_deces_complet(), app, dry_run=False)
+        return_value=client,
+    )
+    app = Appariement(
+        verdict="net", gramps_id="I0001", handle="h1", facteurs=["date complète"]
+    )
+    out = completer_evenement_principal(
+        client, _releve_deces_complet(), app, dry_run=False
+    )
 
     assert out["cree"] is True and out["posee"] is True
     assert out["event_handle"] == "e_new" and out["lieu"] == "P_SMA"
     ev = vu["events"][0]
     assert ev["type"] == "Death"
     assert ev["date"]["dateval"] == [10, 12, 1894, False]
-    assert ev["place"] == "P_SMA"                      # lieu résolu en cascade
-    assert ev["citation_list"] == ["c1"]               # citation rattachée à la création
+    assert ev["place"] == "P_SMA"  # lieu résolu en cascade
+    assert ev["citation_list"] == ["c1"]  # citation rattachée à la création
     # Rattachement append-only : EventRef ajouté, death_ref_index posé sur le neuf.
     put = vu["person_put"][0]
-    assert put["event_ref_list"][-1] == {"_class": "EventRef", "ref": "e_new",
-                                         "role": "Primary"}
+    assert put["event_ref_list"][-1] == {
+        "_class": "EventRef",
+        "ref": "e_new",
+        "role": "Primary",
+    }
     assert put["death_ref_index"] == 1
-    assert put["birth_ref_index"] == 0                 # naissance inchangée
+    assert put["birth_ref_index"] == 0  # naissance inchangée
 
 
 def test_surface_a_lieu_non_resolu_cree_le_deces_sans_lieu(monkeypatch, mocker):
     """Cascade refusée (lieu ambigu / sous le seuil) : le décès est tout de même
     créé, mais SANS lieu — jamais un lieu faux. La citation reste posée."""
     monkeypatch.setenv("GENECREW_DRY_RUN", "false")
-    mocker.patch("genecrew.releves_import.run_lieu_import",
-                 return_value={"action": "proposer", "handle": None})
+    mocker.patch(
+        "genecrew.releves_import.run_lieu_import",
+        return_value={"action": "proposer", "handle": None},
+    )
     vu = {"events": []}
 
     def h(request):
         chemin = request.url.path
         if chemin == "/api/people/" and "gramps_id" in request.url.params:
-            return httpx.Response(200, json=[{
-                "gramps_id": "I0001", "handle": "h1", "extended": {"events": []}}])
+            return httpx.Response(
+                200,
+                json=[
+                    {"gramps_id": "I0001", "handle": "h1", "extended": {"events": []}}
+                ],
+            )
         if request.method == "GET" and chemin == "/api/sources/":
             return httpx.Response(200, json=[])
         if request.method == "POST" and chemin == "/api/sources/":
@@ -1443,8 +1725,15 @@ def test_surface_a_lieu_non_resolu_cree_le_deces_sans_lieu(monkeypatch, mocker):
             vu["events"].append(json.loads(request.content))
             return httpx.Response(201, json=[{"handle": "e_new"}])
         if request.method == "GET" and chemin == "/api/people/h1":
-            return httpx.Response(200, json={"_class": "Person", "handle": "h1",
-                                             "event_ref_list": [], "death_ref_index": -1})
+            return httpx.Response(
+                200,
+                json={
+                    "_class": "Person",
+                    "handle": "h1",
+                    "event_ref_list": [],
+                    "death_ref_index": -1,
+                },
+            )
         if request.method == "PUT" and chemin == "/api/people/h1":
             return httpx.Response(200, json={})
         return httpx.Response(404)
@@ -1452,17 +1741,22 @@ def test_surface_a_lieu_non_resolu_cree_le_deces_sans_lieu(monkeypatch, mocker):
     client = _client(h)
     mocker.patch(
         "crewai_custom_tools.tools.genealogy.gramps.write_tools.get_client",
-        return_value=client)
-    app = Appariement(verdict="net", gramps_id="I0001", handle="h1",
-                      facteurs=["date complète"])
-    out = completer_evenement_principal(client, _releve_deces_complet(), app, dry_run=False)
+        return_value=client,
+    )
+    app = Appariement(
+        verdict="net", gramps_id="I0001", handle="h1", facteurs=["date complète"]
+    )
+    out = completer_evenement_principal(
+        client, _releve_deces_complet(), app, dry_run=False
+    )
 
     assert out["cree"] is True and out["lieu"] is None
-    assert "place" not in vu["events"][0]              # aucun lieu posé
+    assert "place" not in vu["events"][0]  # aucun lieu posé
     assert vu["events"][0]["citation_list"] == ["c1"]
 
 
 # --- Surface C : aucun candidat -> le sujet est CRÉÉ (l'exemple Rose lui-même) ---
+
 
 def test_surface_c_cree_le_sujet_puis_son_deces(monkeypatch, mocker):
     """Le cœur de la demande : un relevé dont le sujet est ABSENT de l'arbre crée
@@ -1471,8 +1765,10 @@ def test_surface_c_cree_le_sujet_puis_son_deces(monkeypatch, mocker):
     """
     monkeypatch.setenv("GENECREW_DRY_RUN", "false")
     mocker.patch("genecrew.releves_import.infer_sex", return_value=_inf("F", 0.99))
-    mocker.patch("genecrew.releves_import.run_lieu_import",
-                 return_value={"action": "ecrire", "handle": "P_SMA"})
+    mocker.patch(
+        "genecrew.releves_import.run_lieu_import",
+        return_value={"action": "ecrire", "handle": "P_SMA"},
+    )
     vu = {"person": [], "notes": [], "events": [], "person_put": []}
 
     def h(request):
@@ -1488,9 +1784,17 @@ def test_surface_c_cree_le_sujet_puis_son_deces(monkeypatch, mocker):
         if request.method == "POST" and chemin == "/api/tags/":
             return httpx.Response(201, json=[{"handle": "t1"}])
         if request.method == "GET" and chemin == "/api/people/h_new":
-            return httpx.Response(200, json={
-                "_class": "Person", "handle": "h_new", "note_list": [], "tag_list": [],
-                "event_ref_list": [], "death_ref_index": -1})
+            return httpx.Response(
+                200,
+                json={
+                    "_class": "Person",
+                    "handle": "h_new",
+                    "note_list": [],
+                    "tag_list": [],
+                    "event_ref_list": [],
+                    "death_ref_index": -1,
+                },
+            )
         if request.method == "PUT" and chemin == "/api/people/h_new":
             vu["person_put"].append(json.loads(request.content))
             return httpx.Response(200, json={})
@@ -1508,13 +1812,19 @@ def test_surface_c_cree_le_sujet_puis_son_deces(monkeypatch, mocker):
     client = _client(h)
     mocker.patch(
         "crewai_custom_tools.tools.genealogy.gramps.write_tools.get_client",
-        return_value=client)
-    out = {"releve": _releve_deces_complet(), "appariement": None,
-           "ecrit": False, "raison": "", "dry_run": False}
+        return_value=client,
+    )
+    out = {
+        "releve": _releve_deces_complet(),
+        "appariement": None,
+        "ecrit": False,
+        "raison": "",
+        "dry_run": False,
+    }
     out = creer_sujet(client, _releve_deces_complet(), out, dry_run=False)
 
     assert out["ecrit"] is True
-    assert out["sujet_cree"] == {"handle": "h_new", "genre": 0}   # 0 = F inféré
+    assert out["sujet_cree"] == {"handle": "h_new", "genre": 0}  # 0 = F inféré
     # Personne créée : nom mis en casse (JACQUET -> Jacquet), genre inféré.
     p = vu["person"][0]
     assert p["primary_name"]["first_name"] == "Rose"
@@ -1529,19 +1839,29 @@ def test_surface_c_cree_le_sujet_puis_son_deces(monkeypatch, mocker):
     assert ev["type"] == "Death" and ev["date"]["dateval"] == [10, 12, 1894, False]
     assert ev["place"] == "P_SMA" and ev["citation_list"] == ["c1"]
     # Le décès est rattaché au sujet créé (un des PUT porte l'EventRef).
-    assert any(put.get("event_ref_list") == [{"_class": "EventRef", "ref": "e_new",
-                                              "role": "Primary"}]
-               for put in vu["person_put"])
+    assert any(
+        put.get("event_ref_list")
+        == [{"_class": "EventRef", "ref": "e_new", "role": "Primary"}]
+        for put in vu["person_put"]
+    )
 
 
 # --- Surface B : naissance estimée, écrite seulement si l'arbre n'a rien ---
 
+
 def _releve_avec_naissance_estimee(annee=1821):
     return ReleveIndexe(
-        fonds="CGHB", reference="R1", sujet_nom="JACQUET", sujet_prenom="Rose",
-        evenement_type="Death", evenement_date="1894-12-10",
-        evenement_lieu="Saint-Martin-d'Auxigny", evenement_pays="France",
-        naissance_estimee=annee, texte_brut="…")
+        fonds="CGHB",
+        reference="R1",
+        sujet_nom="JACQUET",
+        sujet_prenom="Rose",
+        evenement_type="Death",
+        evenement_date="1894-12-10",
+        evenement_lieu="Saint-Martin-d'Auxigny",
+        evenement_pays="France",
+        naissance_estimee=annee,
+        texte_brut="…",
+    )
 
 
 def test_surface_b_naissance_estimee_creee_si_arbre_vide(monkeypatch, mocker):
@@ -1553,9 +1873,16 @@ def test_surface_b_naissance_estimee_creee_si_arbre_vide(monkeypatch, mocker):
         chemin = request.url.path
         if chemin == "/api/people/" and "gramps_id" in request.url.params:
             # aucune naissance dans l'arbre
-            return httpx.Response(200, json=[{
-                "gramps_id": "I0001", "handle": "h1",
-                "extended": {"events": [{"handle": "ev1", "type": "Death"}]}}])
+            return httpx.Response(
+                200,
+                json=[
+                    {
+                        "gramps_id": "I0001",
+                        "handle": "h1",
+                        "extended": {"events": [{"handle": "ev1", "type": "Death"}]},
+                    }
+                ],
+            )
         if request.method == "GET" and chemin == "/api/sources/":
             return httpx.Response(200, json=[])
         if request.method == "POST" and chemin == "/api/sources/":
@@ -1566,8 +1893,15 @@ def test_surface_b_naissance_estimee_creee_si_arbre_vide(monkeypatch, mocker):
             vu["events"].append(json.loads(request.content))
             return httpx.Response(201, json=[{"handle": "eb_new"}])
         if request.method == "GET" and chemin == "/api/people/h1":
-            return httpx.Response(200, json={"_class": "Person", "handle": "h1",
-                                             "event_ref_list": [], "birth_ref_index": -1})
+            return httpx.Response(
+                200,
+                json={
+                    "_class": "Person",
+                    "handle": "h1",
+                    "event_ref_list": [],
+                    "birth_ref_index": -1,
+                },
+            )
         if request.method == "PUT" and chemin == "/api/people/h1":
             return httpx.Response(200, json={})
         return httpx.Response(404)
@@ -1575,16 +1909,18 @@ def test_surface_b_naissance_estimee_creee_si_arbre_vide(monkeypatch, mocker):
     client = _client(h)
     mocker.patch(
         "crewai_custom_tools.tools.genealogy.gramps.write_tools.get_client",
-        return_value=client)
-    out = completer_naissance_estimee(client, _releve_avec_naissance_estimee(), "h1",
-                                      gramps_id="I0001", dry_run=False)
+        return_value=client,
+    )
+    out = completer_naissance_estimee(
+        client, _releve_avec_naissance_estimee(), "h1", gramps_id="I0001", dry_run=False
+    )
     assert out is not None
     ev = vu["events"][0]
     assert ev["type"] == "Birth"
-    assert ev["date"]["dateval"] == [0, 0, 1821, False]   # jour/mois inconnus
-    assert ev["date"]["modifier"] == 3                    # about
-    assert ev["date"]["quality"] == 1                     # estimée
-    assert "place" not in ev                              # une naissance estimée n'a pas de lieu
+    assert ev["date"]["dateval"] == [0, 0, 1821, False]  # jour/mois inconnus
+    assert ev["date"]["modifier"] == 3  # about
+    assert ev["date"]["quality"] == 1  # estimée
+    assert "place" not in ev  # une naissance estimée n'a pas de lieu
 
 
 def test_surface_b_ne_remplace_pas_une_naissance_connue(monkeypatch, mocker):
@@ -1595,9 +1931,16 @@ def test_surface_b_ne_remplace_pas_une_naissance_connue(monkeypatch, mocker):
     def h(request):
         chemin = request.url.path
         if chemin == "/api/people/" and "gramps_id" in request.url.params:
-            return httpx.Response(200, json=[{
-                "gramps_id": "I0001", "handle": "h1",
-                "extended": {"events": [{"handle": "eb", "type": "Birth"}]}}])
+            return httpx.Response(
+                200,
+                json=[
+                    {
+                        "gramps_id": "I0001",
+                        "handle": "h1",
+                        "extended": {"events": [{"handle": "eb", "type": "Birth"}]},
+                    }
+                ],
+            )
         if request.method == "POST":
             posts.append(chemin)
             return httpx.Response(201, json=[{"handle": "x"}])
@@ -1606,11 +1949,13 @@ def test_surface_b_ne_remplace_pas_une_naissance_connue(monkeypatch, mocker):
     client = _client(h)
     mocker.patch(
         "crewai_custom_tools.tools.genealogy.gramps.write_tools.get_client",
-        return_value=client)
-    out = completer_naissance_estimee(client, _releve_avec_naissance_estimee(), "h1",
-                                      gramps_id="I0001", dry_run=False)
+        return_value=client,
+    )
+    out = completer_naissance_estimee(
+        client, _releve_avec_naissance_estimee(), "h1", gramps_id="I0001", dry_run=False
+    )
     assert out is None
-    assert not any(c == "/api/events/" for c in posts)     # rien créé
+    assert not any(c == "/api/events/" for c in posts)  # rien créé
 
 
 def test_surface_b_sans_estimation_ne_fait_rien():

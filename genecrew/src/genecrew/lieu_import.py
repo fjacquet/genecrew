@@ -11,19 +11,23 @@ from __future__ import annotations
 import json
 
 from crewai_custom_tools.tools.genealogy.geo.registry import (
-    confiance_of, decide_action, resolve_place,
+    confiance_of,
+    decide_action,
+    resolve_place,
 )
 from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient
 from crewai_custom_tools.tools.genealogy.gramps.write_tools import (
-    GrampsCreatePlaceTool, effective_dry_run,
+    GrampsCreatePlaceTool,
+    effective_dry_run,
 )
 from crewai_custom_tools.tools.genealogy.standardize.places import parse_pname
 
 from genecrew.places_apply import _ensure_parents, _seed_parent_index
 
 
-def run_lieu_import(client: GrampsClient, raw: str, *, min_score: float = 0.90,
-                    dry_run: bool = False) -> dict:
+def run_lieu_import(
+    client: GrampsClient, raw: str, *, min_score: float = 0.90, dry_run: bool = False
+) -> dict:
     """Resolve one raw place string; create its hierarchy when the score allows.
 
     Returns a summary dict: raw, action, confiance, resolved (or None), created,
@@ -34,9 +38,14 @@ def run_lieu_import(client: GrampsClient, raw: str, *, min_score: float = 0.90,
     resolved = resolve_place(parsed)
     action = decide_action(resolved, min_score)
     out = {
-        "raw": raw, "action": action, "confiance": confiance_of(resolved, min_score),
+        "raw": raw,
+        "action": action,
+        "confiance": confiance_of(resolved, min_score),
         "resolved": resolved.model_dump() if resolved else None,
-        "created": False, "existing": False, "handle": None, "chain": "",
+        "created": False,
+        "existing": False,
+        "handle": None,
+        "chain": "",
         "dry_run": dry_run,
     }
     if action != "ecrire" or not resolved or not resolved.chains:
@@ -50,17 +59,25 @@ def run_lieu_import(client: GrampsClient, raw: str, *, min_score: float = 0.90,
     out["chain"] = full_path
 
     index = _seed_parent_index(client)
-    if full_path in index:                          # déjà dans l'arbre — rien à créer
+    if full_path in index:  # déjà dans l'arbre — rien à créer
         out["existing"] = True
         out["handle"] = index[full_path]
         return out
 
     creator = GrampsCreatePlaceTool()
     parent_handle = _ensure_parents(chain, index, creator, dry_run)
-    payload = json.loads(creator._run(
-        name=resolved.name, place_type=resolved.place_type, parent_handle=parent_handle,
-        date_qualifier=chain.date_qualifier, lat=resolved.lat, long=resolved.long,
-        code=resolved.code, dry_run=dry_run))
+    payload = json.loads(
+        creator._run(
+            name=resolved.name,
+            place_type=resolved.place_type,
+            parent_handle=parent_handle,
+            date_qualifier=chain.date_qualifier,
+            lat=resolved.lat,
+            long=resolved.long,
+            code=resolved.code,
+            dry_run=dry_run,
+        )
+    )
     if not payload["success"]:
         raise RuntimeError(f"création de '{resolved.name}' : {payload['error']}")
     out["created"] = True
@@ -70,13 +87,17 @@ def run_lieu_import(client: GrampsClient, raw: str, *, min_score: float = 0.90,
 
 def format_lieu_import(out: dict) -> str:
     """Console rendering of a run_lieu_import summary. Pure."""
-    lines = [f"Adresse   : {out['raw']}",
-             f"Action    : {out['action']} (confiance {out['confiance']})"]
+    lines = [
+        f"Adresse   : {out['raw']}",
+        f"Action    : {out['action']} (confiance {out['confiance']})",
+    ]
     r = out.get("resolved")
     if r:
-        lines.append(f"Résolu    : {r['name']} [{r['place_type']}] "
-                     f"GPS {r.get('lat')},{r.get('long')} code {r.get('code') or '—'} "
-                     f"— {r['source']} (score {r['score']})")
+        lines.append(
+            f"Résolu    : {r['name']} [{r['place_type']}] "
+            f"GPS {r.get('lat')},{r.get('long')} code {r.get('code') or '—'} "
+            f"— {r['source']} (score {r['score']})"
+        )
     if out["chain"]:
         lines.append(f"Chaîne    : {out['chain'].replace('>', ' › ')}")
     if out["existing"]:
@@ -85,6 +106,8 @@ def format_lieu_import(out: dict) -> str:
         mode = "SIMULÉ (dry-run)" if out["dry_run"] else "créé"
         lines.append(f"Lieu {mode} : handle {out['handle']}")
     elif out["action"] != "ecrire":
-        lines.append("Aucune écriture : score sous le seuil ou résolution ambiguë — "
-                     "à traiter en proposition.")
+        lines.append(
+            "Aucune écriture : score sous le seuil ou résolution ambiguë — "
+            "à traiter en proposition."
+        )
     return "\n".join(lines)

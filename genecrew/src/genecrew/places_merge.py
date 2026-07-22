@@ -29,7 +29,8 @@ import yaml
 from crewai_custom_tools.tools.genealogy.analysis.place_duplicates import etager_lieux
 from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient
 from crewai_custom_tools.tools.genealogy.gramps.write_tools import (
-    GrampsMergePlacesTool, effective_dry_run,
+    GrampsMergePlacesTool,
+    effective_dry_run,
 )
 from crewai_custom_tools.tools.genealogy.models.domain import PlaceFacts
 
@@ -100,8 +101,7 @@ def _valeur_de_fait(lieu, extraire) -> str:
 
 def _cellule_paire(garde, absorbe, extraire) -> str:
     """Le même fait pour les deux lieux d'une paire : « gardé / absorbé »."""
-    return (f"{_valeur_de_fait(garde, extraire)} / "
-            f"{_valeur_de_fait(absorbe, extraire)}")
+    return f"{_valeur_de_fait(garde, extraire)} / {_valeur_de_fait(absorbe, extraire)}"
 
 
 def bloc_relecture(lieu) -> dict:
@@ -115,26 +115,47 @@ def bloc_relecture(lieu) -> dict:
     """
     if lieu is None:
         return {}
-    return {"type": lieu.place_type, "code": lieu.code, "lat": lieu.lat,
-            "long": lieu.long, "contenant": lieu.parent_id,
-            "retroliens": lieu.retroliens}
+    return {
+        "type": lieu.place_type,
+        "code": lieu.code,
+        "lat": lieu.lat,
+        "long": lieu.long,
+        "contenant": lieu.parent_id,
+        "retroliens": lieu.retroliens,
+    }
 
 
-def render_merge_report(date, done, errors, dry_run, base_url="http://localhost") -> str:
+def render_merge_report(
+    date, done, errors, dry_run, base_url="http://localhost"
+) -> str:
     mode = "simulation (dry-run, aucune fusion)" if dry_run else "fusions appliquées"
-    lines = [f"# Fusions de lieux — {date}", "", f"Mode : {mode}.", "",
-             f"- Fusions : {len(done)}", f"- Erreurs : {len(errors)}", "", "## Fusions", ""]
+    lines = [
+        f"# Fusions de lieux — {date}",
+        "",
+        f"Mode : {mode}.",
+        "",
+        f"- Fusions : {len(done)}",
+        f"- Erreurs : {len(errors)}",
+        "",
+        "## Fusions",
+        "",
+    ]
     if done:
         lines += ["| Gardé | Fusionné | Canonique |", "|---|---|---|"]
         for keep, merge, canon in done:
-            lines.append(f"| {_link(keep, base_url)} | {_link(merge, base_url)} "
-                        f"| {_cellule_sure(canon)} |")
+            lines.append(
+                f"| {_link(keep, base_url)} | {_link(merge, base_url)} "
+                f"| {_cellule_sure(canon)} |"
+            )
     else:
         lines.append("Aucune.")
     lines += ["", "## Erreurs", ""]
-    lines += (["| Fusionné | Erreur |", "|---|---|"]
-              + [f"| {_link(m, base_url)} | {_cellule_sure(e)} |" for m, e in errors]
-              if errors else ["Aucune erreur."])
+    lines += (
+        ["| Fusionné | Erreur |", "|---|---|"]
+        + [f"| {_link(m, base_url)} | {_cellule_sure(e)} |" for m, e in errors]
+        if errors
+        else ["Aucune erreur."]
+    )
     lines.append("")
     return "\n".join(lines)
 
@@ -163,12 +184,18 @@ _AVERTISSEMENT_SCOPE_UNITAIRE = [
 ]
 
 
-def render_detect_report(date: str, fusions: list, arbitrage: list, errors: list,
-                         total_lieux: int, dry_run: bool,
-                         base_url: str = "http://localhost",
-                         lot_borne: bool = False,
-                         scope_unitaire: bool = False,
-                         faits: dict | None = None) -> str:
+def render_detect_report(
+    date: str,
+    fusions: list,
+    arbitrage: list,
+    errors: list,
+    total_lieux: int,
+    dry_run: bool,
+    base_url: str = "http://localhost",
+    lot_borne: bool = False,
+    scope_unitaire: bool = False,
+    faits: dict | None = None,
+) -> str:
     """Rapport Markdown du mode détection. Pur.
 
     Les libellés se conjuguent avec le mode : en simulation rien n'est écrit, et un
@@ -202,47 +229,69 @@ def render_detect_report(date: str, fusions: list, arbitrage: list, errors: list
     else:
         mode = "écritures appliquées"
     titre_fusions = "Fusions à appliquer" if simule else "Fusions appliquées"
-    lines = [f"# Doublons de lieux — {date}", "",
-             f"Mode : {mode}.", ""]
+    lines = [f"# Doublons de lieux — {date}", "", f"Mode : {mode}.", ""]
     if lot_borne:
         lines += [*_AVERTISSEMENT_LOT_BORNE, ""]
     if scope_unitaire:
         lines += [*_AVERTISSEMENT_SCOPE_UNITAIRE, ""]
-    lines += [f"- Lieux examinés : {total_lieux}",
-              f"- {titre_fusions} : {len(fusions)}",
-              f"- À relire : {len(arbitrage)}",
-              f"- Erreurs : {len(errors)}", ""]
+    lines += [
+        f"- Lieux examinés : {total_lieux}",
+        f"- {titre_fusions} : {len(fusions)}",
+        f"- À relire : {len(arbitrage)}",
+        f"- Erreurs : {len(errors)}",
+        "",
+    ]
     if fusions:
-        lines += [f"## {titre_fusions}", "",
-                  "| Gardé | Absorbé | Nom | Preuve | Perte évitée |",
-                  "|---|---|---|---|---|"]
-        lines += [f"| {_link(p.gramps_id_keep, base_url)} "
-                  f"| {_link(p.gramps_id_merge, base_url)} | {_cellule_sure(p.canonical)} "
-                  f"| {_cellule_sure(p.reason)} "
-                  f"| {_cellule_sure(p.perte_evitee) or '—'} |" for p in fusions]
+        lines += [
+            f"## {titre_fusions}",
+            "",
+            "| Gardé | Absorbé | Nom | Preuve | Perte évitée |",
+            "|---|---|---|---|---|",
+        ]
+        lines += [
+            f"| {_link(p.gramps_id_keep, base_url)} "
+            f"| {_link(p.gramps_id_merge, base_url)} | {_cellule_sure(p.canonical)} "
+            f"| {_cellule_sure(p.reason)} "
+            f"| {_cellule_sure(p.perte_evitee) or '—'} |"
+            for p in fusions
+        ]
         lines.append("")
     if arbitrage:
-        colonnes = ["Gardé", "Absorbé", "Nom",
-                    *(f"{titre} (G/A)" for titre, _ in _FAITS_ARBITRAGE),
-                    "Motif", "Perte évitée"]
-        lines += ["## Arbitrage", "",
-                  "Aucune preuve ne les départage : à relire, puis à exécuter avec "
-                  "`merge places --yaml`.", "",
-                  "Les faits sont donnés **pour les deux lieux** — `G` = gardé, "
-                  "`A` = absorbé — pour que la relecture n'oblige pas à ouvrir Gramps ; "
-                  f"« {_ABSENT} » = non renseigné. « Perte évitée » est ce que l'ordre "
-                  "inverse aurait effacé.", "",
-                  "| " + " | ".join(colonnes) + " |",
-                  "|" + "---|" * len(colonnes)]
+        colonnes = [
+            "Gardé",
+            "Absorbé",
+            "Nom",
+            *(f"{titre} (G/A)" for titre, _ in _FAITS_ARBITRAGE),
+            "Motif",
+            "Perte évitée",
+        ]
+        lines += [
+            "## Arbitrage",
+            "",
+            "Aucune preuve ne les départage : à relire, puis à exécuter avec "
+            "`merge places --yaml`.",
+            "",
+            "Les faits sont donnés **pour les deux lieux** — `G` = gardé, "
+            "`A` = absorbé — pour que la relecture n'oblige pas à ouvrir Gramps ; "
+            f"« {_ABSENT} » = non renseigné. « Perte évitée » est ce que l'ordre "
+            "inverse aurait effacé.",
+            "",
+            "| " + " | ".join(colonnes) + " |",
+            "|" + "---|" * len(colonnes),
+        ]
         for p in arbitrage:
             garde, absorbe = faits.get(p.handle_keep), faits.get(p.handle_merge)
-            cellules = [_link(p.gramps_id_keep, base_url),
-                        _link(p.gramps_id_merge, base_url),
-                        _cellule_sure(p.canonical),
-                        *(_cellule_paire(garde, absorbe, extraire)
-                          for _titre, extraire in _FAITS_ARBITRAGE),
-                        _cellule_sure(p.reason),
-                        _cellule_sure(p.perte_evitee) or _ABSENT]
+            cellules = [
+                _link(p.gramps_id_keep, base_url),
+                _link(p.gramps_id_merge, base_url),
+                _cellule_sure(p.canonical),
+                *(
+                    _cellule_paire(garde, absorbe, extraire)
+                    for _titre, extraire in _FAITS_ARBITRAGE
+                ),
+                _cellule_sure(p.reason),
+                _cellule_sure(p.perte_evitee) or _ABSENT,
+            ]
             lines.append("| " + " | ".join(cellules) + " |")
         lines.append("")
     if errors:
@@ -315,14 +364,18 @@ def _contenant_unique(placeref_list) -> str:
     vide ou blanche n'est pas un contenant — elle ne vaut pas identifiant et ne rend
     pas ambigu celui qui l'accompagne.
     """
-    refs = {(ref.get("ref") or "").strip()
-            for ref in (placeref_list or []) if isinstance(ref, dict)}
+    refs = {
+        (ref.get("ref") or "").strip()
+        for ref in (placeref_list or [])
+        if isinstance(ref, dict)
+    }
     refs.discard("")
     return refs.pop() if len(refs) == 1 else ""
 
 
-def collecter_lieux(client: GrampsClient, scope: str, batch_size: int = 200,
-                    limit: int | None = None) -> list[PlaceFacts]:
+def collecter_lieux(
+    client: GrampsClient, scope: str, batch_size: int = 200, limit: int | None = None
+) -> list[PlaceFacts]:
     """Lit les lieux du périmètre et les réduit aux faits utiles à la détection."""
     lieux: list[PlaceFacts] = []
     for lot in iter_places(client, scope, batch_size, limit):
@@ -330,21 +383,25 @@ def collecter_lieux(client: GrampsClient, scope: str, batch_size: int = 200,
             if not isinstance(place, dict):
                 continue
             handle = place.get("handle", "")
-            lieux.append(PlaceFacts(
-                gramps_id=place.get("gramps_id", ""),
-                handle=handle,
-                nom=(place.get("name") or {}).get("value", "") or "",
-                place_type=place.get("place_type") or "",
-                code=place.get("code") or "",
-                lat=place.get("lat") or "",
-                long=place.get("long") or "",
-                parent_id=_contenant_unique(place.get("placeref_list")),
-                retroliens=_retroliens(client, handle)))
+            lieux.append(
+                PlaceFacts(
+                    gramps_id=place.get("gramps_id", ""),
+                    handle=handle,
+                    nom=(place.get("name") or {}).get("value", "") or "",
+                    place_type=place.get("place_type") or "",
+                    code=place.get("code") or "",
+                    lat=place.get("lat") or "",
+                    long=place.get("long") or "",
+                    parent_id=_contenant_unique(place.get("placeref_list")),
+                    retroliens=_retroliens(client, handle),
+                )
+            )
     return lieux
 
 
-def run_places_merge(client: GrampsClient, merges_yaml, output_dir, *, date: str,
-                     dry_run: bool = False) -> Path:
+def run_places_merge(
+    client: GrampsClient, merges_yaml, output_dir, *, date: str, dry_run: bool = False
+) -> Path:
     """Execute the merges listed in a reviewed YAML. Gated by dry_run + GENECREW_DRY_RUN."""
     output_dir = Path(output_dir)
     merges = yaml.safe_load(Path(merges_yaml).read_text(encoding="utf-8")) or []
@@ -352,18 +409,27 @@ def run_places_merge(client: GrampsClient, merges_yaml, output_dir, *, date: str
     done: list = []
     errors: list = []
     for m in merges:
-        payload = json.loads(tool._run(keep_handle=m["handle_keep"],
-                                       merge_handle=m["handle_merge"], dry_run=dry_run))
+        payload = json.loads(
+            tool._run(
+                keep_handle=m["handle_keep"],
+                merge_handle=m["handle_merge"],
+                dry_run=dry_run,
+            )
+        )
         if payload["success"]:
-            done.append((m["gramps_id_keep"], m["gramps_id_merge"], m.get("canonical", "")))
+            done.append(
+                (m["gramps_id_keep"], m["gramps_id_merge"], m.get("canonical", ""))
+            )
         else:
             errors.append((m["gramps_id_merge"], payload["error"]))
     out = output_dir / "lieux"
     out.mkdir(parents=True, exist_ok=True)
     slug = Path(merges_yaml).stem
     path = out / f"{date}_fusions_appliquees_{slug}.md"
-    path.write_text(render_merge_report(date, done, errors, effective_dry_run(dry_run)),
-                    encoding="utf-8")
+    path.write_text(
+        render_merge_report(date, done, errors, effective_dry_run(dry_run)),
+        encoding="utf-8",
+    )
     return path
 
 
@@ -399,15 +465,29 @@ def _ligne_arbitrage(proposition, faits: dict) -> dict:
         `apply places`. L'élargir pour les besoins d'un document de relecture ferait
         porter à un modèle partagé la forme d'un fichier qui n'est pas le sien.
     """
-    return {**proposition.model_dump(),
-            "relecture": {"garde": bloc_relecture(faits.get(proposition.handle_keep)),
-                          "absorbe": bloc_relecture(
-                              faits.get(proposition.handle_merge))}}
+    return {
+        **proposition.model_dump(),
+        "relecture": {
+            "garde": bloc_relecture(faits.get(proposition.handle_keep)),
+            "absorbe": bloc_relecture(faits.get(proposition.handle_merge)),
+        },
+    }
 
 
-def _ecrire_sorties(output_dir: Path, *, date: str, scope: str, fusions: list,
-                    arbitrage: list, errors: list, total_lieux: int, dry_run: bool,
-                    lot_borne: bool, scope_unitaire: bool, faits: dict) -> Path:
+def _ecrire_sorties(
+    output_dir: Path,
+    *,
+    date: str,
+    scope: str,
+    fusions: list,
+    arbitrage: list,
+    errors: list,
+    total_lieux: int,
+    dry_run: bool,
+    lot_borne: bool,
+    scope_unitaire: bool,
+    faits: dict,
+) -> Path:
     """Dépose le YAML d'arbitrage et le rapport ; rend le chemin du rapport.
 
     Extrait de `run_places_detect` pour être appelable depuis un `finally` : une
@@ -418,15 +498,29 @@ def _ecrire_sorties(output_dir: Path, *, date: str, scope: str, fusions: list,
     out.mkdir(parents=True, exist_ok=True)
     scope_slug = scope.replace(":", "_")
     (out / f"{date}_arbitrage_lieux_{scope_slug}.yaml").write_text(
-        _ENTETE_ARBITRAGE + yaml.safe_dump([_ligne_arbitrage(p, faits)
-                                            for p in arbitrage],
-                                           allow_unicode=True, sort_keys=False),
-        encoding="utf-8")
+        _ENTETE_ARBITRAGE
+        + yaml.safe_dump(
+            [_ligne_arbitrage(p, faits) for p in arbitrage],
+            allow_unicode=True,
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
     path = out / f"{date}_doublons_lieux_{scope_slug}.md"
-    path.write_text(render_detect_report(date, fusions, arbitrage, errors, total_lieux,
-                                         dry_run, lot_borne=lot_borne,
-                                         scope_unitaire=scope_unitaire, faits=faits),
-                    encoding="utf-8")
+    path.write_text(
+        render_detect_report(
+            date,
+            fusions,
+            arbitrage,
+            errors,
+            total_lieux,
+            dry_run,
+            lot_borne=lot_borne,
+            scope_unitaire=scope_unitaire,
+            faits=faits,
+        ),
+        encoding="utf-8",
+    )
     return path
 
 
@@ -450,9 +544,15 @@ class ResultatDetection(NamedTuple):
     scope_unitaire: bool
 
 
-def run_places_detect(client: GrampsClient, output_dir, *, scope: str, date: str,
-                      limit: int | None = None,
-                      dry_run: bool = False) -> ResultatDetection:
+def run_places_detect(
+    client: GrampsClient,
+    output_dir,
+    *,
+    scope: str,
+    date: str,
+    limit: int | None = None,
+    dry_run: bool = False,
+) -> ResultatDetection:
     """Détecte les doublons de lieux, fusionne les prouvés, dépose le reste en YAML.
 
     Une seule passe : les candidats sont groupés par égalité de nom normalisé, une
@@ -488,11 +588,17 @@ def run_places_detect(client: GrampsClient, output_dir, *, scope: str, date: str
     arbitrage = [p for p in propositions if p.verdict != "auto"]
     log = get_logger()
     if lot_borne:
-        log.info("lot borné (limit=%s) : simulation forcée, un groupe d'homonymes "
-                 "tronqué ne permet pas de décider d'une fusion irréversible", limit)
+        log.info(
+            "lot borné (limit=%s) : simulation forcée, un groupe d'homonymes "
+            "tronqué ne permet pas de décider d'une fusion irréversible",
+            limit,
+        )
     if scope_unitaire:
-        log.info("périmètre à un seul lieu (scope=%s) : simulation forcée, un lieu "
-                 "isolé ne forme aucun groupe d'homonymes", scope)
+        log.info(
+            "périmètre à un seul lieu (scope=%s) : simulation forcée, un lieu "
+            "isolé ne forme aucun groupe d'homonymes",
+            scope,
+        )
 
     tool = GrampsMergePlacesTool()
     fusions: list = []
@@ -504,28 +610,44 @@ def run_places_detect(client: GrampsClient, output_dir, *, scope: str, date: str
         # l'absorbé renseigne).
         for prop in (p for p in propositions if p.verdict == "auto"):
             if eff:
-                fusions.append(prop)             # simulation : rapporté, jamais exécuté
+                fusions.append(prop)  # simulation : rapporté, jamais exécuté
                 continue
             # `dry_run=False` en clair : la branche simulation ci-dessus a déjà pris la
             # main, donc `eff` vaudrait forcément False ici. Le transmettre laisserait
             # croire à une seconde barrière — il n'y en a qu'une, et elle est plus haut.
-            payload = json.loads(tool._run(keep_handle=prop.handle_keep,
-                                           merge_handle=prop.handle_merge,
-                                           dry_run=False))
+            payload = json.loads(
+                tool._run(
+                    keep_handle=prop.handle_keep,
+                    merge_handle=prop.handle_merge,
+                    dry_run=False,
+                )
+            )
             if payload["success"]:
                 # Journalisée ICI, au moment de l'écriture : c'est la seule trace qui
                 # survive à une coupure ou à un Ctrl-C au milieu du lot.
-                log.info("fusion de lieux exécutée : %s absorbé dans %s (%s)",
-                         prop.gramps_id_merge, prop.gramps_id_keep, prop.canonical)
+                log.info(
+                    "fusion de lieux exécutée : %s absorbé dans %s (%s)",
+                    prop.gramps_id_merge,
+                    prop.gramps_id_keep,
+                    prop.canonical,
+                )
                 fusions.append(prop)
             else:
                 errors.append((prop.gramps_id_merge, payload["error"]))
     finally:
         # `finally` et non `except` : `KeyboardInterrupt` dérive de `BaseException`.
         # L'exception poursuit son chemin — on la trace, on ne l'avale pas.
-        chemin = _ecrire_sorties(output_dir, date=date, scope=scope, fusions=fusions,
-                                 arbitrage=arbitrage, errors=errors,
-                                 total_lieux=len(lieux), dry_run=eff,
-                                 lot_borne=lot_borne, scope_unitaire=scope_unitaire,
-                                 faits=faits)
+        chemin = _ecrire_sorties(
+            output_dir,
+            date=date,
+            scope=scope,
+            fusions=fusions,
+            arbitrage=arbitrage,
+            errors=errors,
+            total_lieux=len(lieux),
+            dry_run=eff,
+            lot_borne=lot_borne,
+            scope_unitaire=scope_unitaire,
+            faits=faits,
+        )
     return ResultatDetection(chemin, lot_borne, scope_unitaire)

@@ -4,8 +4,15 @@ from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient, Gram
 from genecrew.batching import iter_places
 
 CONFIG = GrampsConfig(api_url="http://g.test/api", username="u", password="p")
-PLACES = [{"handle": f"h{i}", "gramps_id": f"P{i:04d}",
-           "name": {"value": f"L{i}"}, "place_type": "Unknown"} for i in range(3)]
+PLACES = [
+    {
+        "handle": f"h{i}",
+        "gramps_id": f"P{i:04d}",
+        "name": {"value": f"L{i}"},
+        "place_type": "Unknown",
+    }
+    for i in range(3)
+]
 
 
 def _handler(request):
@@ -21,7 +28,7 @@ def test_iter_places_paginates_and_limits():
     client = GrampsClient(CONFIG, transport=httpx.MockTransport(_handler))
     batches = list(iter_places(client, "all", batch_size=25, limit=2))
     flat = [p for b in batches for p in b]
-    assert [p["handle"] for p in flat] == ["h0", "h1"]     # limit respecté
+    assert [p["handle"] for p in flat] == ["h0", "h1"]  # limit respecté
 
 
 def test_iter_places_rejects_unsupported_scope():
@@ -32,7 +39,10 @@ def test_iter_places_rejects_unsupported_scope():
 
 def test_iter_places_place_scope_fetches_single_place():
     import httpx
-    from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient, GrampsConfig
+    from crewai_custom_tools.tools.genealogy.gramps.client import (
+        GrampsClient,
+        GrampsConfig,
+    )
     from genecrew.batching import iter_places
 
     def handler(request):
@@ -44,14 +54,18 @@ def test_iter_places_place_scope_fetches_single_place():
 
     client = GrampsClient(
         GrampsConfig(api_url="http://g.test/api", username="u", password="p"),
-        transport=httpx.MockTransport(handler))
+        transport=httpx.MockTransport(handler),
+    )
     batches = list(iter_places(client, "place:P0080", 25, None))
     assert batches == [[{"handle": "h80", "gramps_id": "P0080"}]]
 
 
 def test_iter_places_place_scope_unknown_id_yields_nothing():
     import httpx
-    from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient, GrampsConfig
+    from crewai_custom_tools.tools.genealogy.gramps.client import (
+        GrampsClient,
+        GrampsConfig,
+    )
     from genecrew.batching import iter_places
 
     def handler(request):
@@ -61,5 +75,6 @@ def test_iter_places_place_scope_unknown_id_yields_nothing():
 
     client = GrampsClient(
         GrampsConfig(api_url="http://g.test/api", username="u", password="p"),
-        transport=httpx.MockTransport(handler))
+        transport=httpx.MockTransport(handler),
+    )
     assert list(iter_places(client, "place:P9999", 25, None)) == []

@@ -25,9 +25,11 @@ def test_resolve_person_scope_single():
 
 
 def test_resolve_all_paginates_until_empty_and_respects_limit():
-    pages = {1: [{"handle": f"h{i}", "gramps_id": f"I{i}"} for i in range(25)],
-             2: [{"handle": f"h{i}", "gramps_id": f"I{i}"} for i in range(25, 40)],
-             3: []}
+    pages = {
+        1: [{"handle": f"h{i}", "gramps_id": f"I{i}"} for i in range(25)],
+        2: [{"handle": f"h{i}", "gramps_id": f"I{i}"} for i in range(25, 40)],
+        3: [],
+    }
 
     def handler(request):
         if request.url.path == "/api/token/":
@@ -41,7 +43,12 @@ def test_resolve_all_paginates_until_empty_and_respects_limit():
 
 
 def test_branch_scope_not_implemented():
-    client = GrampsClient(CONFIG, transport=httpx.MockTransport(lambda r: httpx.Response(200, json={"access_token": "t"})))
+    client = GrampsClient(
+        CONFIG,
+        transport=httpx.MockTransport(
+            lambda r: httpx.Response(200, json={"access_token": "t"})
+        ),
+    )
     with pytest.raises(NotImplementedError):
         resolve_handles(client, "branch:I0042")
 
@@ -53,7 +60,11 @@ def test_parse_scope_accepts_place():
 def test_resolve_handles_rejects_place_scope():
     # parse_scope est partagé ; sans garde explicite, "place:" retomberait sur la
     # branche "all" et paginerait TOUTES les personnes en silence.
-    client = GrampsClient(CONFIG, transport=httpx.MockTransport(
-        lambda request: httpx.Response(200, json={"access_token": "t"})))
+    client = GrampsClient(
+        CONFIG,
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(200, json={"access_token": "t"})
+        ),
+    )
     with pytest.raises(NotImplementedError):
         resolve_handles(client, "place:P0080")

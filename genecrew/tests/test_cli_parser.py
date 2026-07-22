@@ -34,9 +34,21 @@ def test_every_leaf_parses(argv, command, target):
 
 
 OLD_NAMES = [
-    "audit", "names", "gender", "gender-apply", "apply-all", "lieux",
-    "lieux-apply", "lieux-merge", "lieux-wiki", "deces", "deces-apply",
-    "militaires", "militaires-apply", "lieu-import", "crew-audit",
+    "audit",
+    "names",
+    "gender",
+    "gender-apply",
+    "apply-all",
+    "lieux",
+    "lieux-apply",
+    "lieux-merge",
+    "lieux-wiki",
+    "deces",
+    "deces-apply",
+    "militaires",
+    "militaires-apply",
+    "lieu-import",
+    "crew-audit",
 ]
 
 
@@ -86,6 +98,7 @@ def test_propose_accepte_les_deux_sources_d_archives(cible):
     args = build_parser().parse_args(["propose", cible, "--scope", "all"])
     assert args.command == "propose" and args.target == cible
 
+
 # Pas de test dédié au rejet de "scriptorium" : il ne prouverait rien de plus que
 # le rejet générique d'un mot inconnu, déjà couvert par `test_old_names_are_rejected`
 # et par argparse lui-même (choix fermé). "scriptorium" n'a jamais été une feuille
@@ -119,7 +132,8 @@ def test_import_releve_person_absent_vaut_none():
 
 def test_merge_people_accepte_le_mode_detection():
     args = build_parser().parse_args(
-        ["merge", "people", "--scope", "all", "--limit", "50", "--dry-run"])
+        ["merge", "people", "--scope", "all", "--limit", "50", "--dry-run"]
+    )
     assert (args.command, args.target) == ("merge", "people")
     assert args.scope == "all"
     assert args.limit == 50
@@ -148,6 +162,7 @@ def test_l_aide_du_verbe_merge_ne_contredit_pas_l_aide_de_la_feuille_places():
     en dessous) ; l'aide du verbe, un cran au-dessus, ne doit donc pas prétendre que les
     lieux ne fusionnent QUE depuis un YAML relu."""
     aide_verbe = build_parser().format_help()
-    ligne_merge = next(ligne for ligne in aide_verbe.splitlines()
-                       if ligne.strip().startswith("merge"))
+    ligne_merge = next(
+        ligne for ligne in aide_verbe.splitlines() if ligne.strip().startswith("merge")
+    )
     assert "lieux relus" not in ligne_merge

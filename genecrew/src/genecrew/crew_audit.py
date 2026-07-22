@@ -58,7 +58,9 @@ def render_anomalies_block(persons: list[PersonAnomalies]) -> str:
     """Render a batch of flagged persons as the ``{anomalies_block}`` LLM input. Pure."""
     blocks = []
     for i, p in enumerate(persons, 1):
-        lines = [f"Personne {i} — {p.name} (gramps_id={p.gramps_id}, handle={p.handle})"]
+        lines = [
+            f"Personne {i} — {p.name} (gramps_id={p.gramps_id}, handle={p.handle})"
+        ]
         for a in p.anomalies:
             lines.append(f"  - [{a.rule} / {a.severity}] {a.message}")
         blocks.append("\n".join(lines))
@@ -66,7 +68,7 @@ def render_anomalies_block(persons: list[PersonAnomalies]) -> str:
 
 
 def _chunk(items: list, size: int) -> list[list]:
-    return [items[i:i + size] for i in range(0, len(items), size)]
+    return [items[i : i + size] for i in range(0, len(items), size)]
 
 
 def _parse_lot(text: str) -> PropositionsLot | None:
@@ -78,9 +80,9 @@ def _parse_lot(text: str) -> PropositionsLot | None:
     if start == -1 or end <= start:
         return None
     try:
-        data = json.loads(text[start:end + 1])
+        data = json.loads(text[start : end + 1])
         return PropositionsLot(**data) if isinstance(data, dict) else None
-    except Exception:                               # invalid JSON/schema → graceful
+    except Exception:  # invalid JSON/schema → graceful
         return None
 
 
@@ -100,7 +102,7 @@ def extract_propositions(crew_output) -> tuple[list, bool]:
         if isinstance(json_dict, dict) and "propositions" in json_dict:
             try:
                 return list(PropositionsLot(**json_dict).propositions), True
-            except Exception:                       # malformed → keep looking
+            except Exception:  # malformed → keep looking
                 continue
     for task_output in task_outputs:
         lot = _parse_lot(getattr(task_output, "raw", "") or "")
@@ -123,8 +125,14 @@ def _usage_tokens(crew_output) -> int:
 
 
 def render_crew_report(
-    scope: str, date: str, batch_results: list[dict], *,
-    dry_run: bool, n_persons: int, n_anomalies: int, n_propositions: int = 0,
+    scope: str,
+    date: str,
+    batch_results: list[dict],
+    *,
+    dry_run: bool,
+    n_persons: int,
+    n_anomalies: int,
+    n_propositions: int = 0,
 ) -> str:
     """Render the interpreted-audit Markdown report. Pure."""
     mode = "simulation (dry-run)" if dry_run else "écriture réelle"
@@ -142,14 +150,20 @@ def render_crew_report(
         "",
     ]
     if not batch_results:
-        lines.append("_Aucune anomalie déterministe sur ce périmètre — rien à interpréter._")
+        lines.append(
+            "_Aucune anomalie déterministe sur ce périmètre — rien à interpréter._"
+        )
         return "\n".join(lines) + "\n"
     for b in batch_results:
-        lines.append(f"## Lot {b['index']} — {b['n_persons']} personne(s), {b['tokens']} tokens")
+        lines.append(
+            f"## Lot {b['index']} — {b['n_persons']} personne(s), {b['tokens']} tokens"
+        )
         lines.append("")
         if not b.get("structured", True):
-            lines.append("> ⚠️ Sortie structurée du Standardisateur absente sur ce lot "
-                         "(propositions non extraites).")
+            lines.append(
+                "> ⚠️ Sortie structurée du Standardisateur absente sur ce lot "
+                "(propositions non extraites)."
+            )
             lines.append("")
         lines.append(b["raw"] or "_(sortie vide)_")
         lines.append("")
@@ -157,8 +171,14 @@ def render_crew_report(
 
 
 def run_crew_audit(
-    client: GrampsClient, scope: str, output_dir: Path, *,
-    date: str, batch_size: int = 25, limit: int | None = None, dry_run: bool = False,
+    client: GrampsClient,
+    scope: str,
+    output_dir: Path,
+    *,
+    date: str,
+    batch_size: int = 25,
+    limit: int | None = None,
+    dry_run: bool = False,
     crew_factory=Genecrew,
 ) -> Path:
     """Run the audit crew over ``scope`` and write a Markdown report (+ YAML summary).
@@ -179,7 +199,8 @@ def run_crew_audit(
     crew_log_path = report_dir / f"{date}_crew_audit_{slug}.log.txt"
 
     anomalies, _duplicates, all_people, _det_props = collect_audit_findings(
-        client, scope, batch_size=batch_size, limit=limit)
+        client, scope, batch_size=batch_size, limit=limit
+    )
     persons = group_anomalies_by_person(anomalies, all_people)
 
     batch_results: list[dict] = []
@@ -188,36 +209,50 @@ def run_crew_audit(
         crew = crew_factory().crew()
         crew.output_log_file = str(crew_log_path)
         try:
-            crew_output = crew.kickoff(inputs={
-                "anomalies_block": render_anomalies_block(batch),
-                "date": date,
-            })
+            crew_output = crew.kickoff(
+                inputs={
+                    "anomalies_block": render_anomalies_block(batch),
+                    "date": date,
+                }
+            )
         except Exception:
             # Un lot qui plante (fournisseur LLM, réseau...) ne tue pas le run.
             get_logger().exception("crew-audit lot %d : échec du kickoff", idx)
-            batch_results.append({
-                "index": idx, "n_persons": len(batch),
-                "raw": "_Lot en échec (voir le log) — personnes non traitées._",
-                "tokens": 0, "structured": False,
-            })
+            batch_results.append(
+                {
+                    "index": idx,
+                    "n_persons": len(batch),
+                    "raw": "_Lot en échec (voir le log) — personnes non traitées._",
+                    "tokens": 0,
+                    "structured": False,
+                }
+            )
             continue
         propositions, structured = extract_propositions(crew_output)
         if not structured:
             get_logger().warning(
-                "crew-audit lot %d : sortie structurée du Standardisateur absente", idx)
+                "crew-audit lot %d : sortie structurée du Standardisateur absente", idx
+            )
         all_propositions.extend(propositions)
-        batch_results.append({
-            "index": idx,
-            "n_persons": len(batch),
-            "raw": getattr(crew_output, "raw", str(crew_output)),
-            "tokens": _usage_tokens(crew_output),
-            "structured": structured,
-        })
+        batch_results.append(
+            {
+                "index": idx,
+                "n_persons": len(batch),
+                "raw": getattr(crew_output, "raw", str(crew_output)),
+                "tokens": _usage_tokens(crew_output),
+                "structured": structured,
+            }
+        )
 
     report = render_crew_report(
-        scope, date, batch_results,
-        dry_run=simulate, n_persons=len(persons), n_anomalies=len(anomalies),
-        n_propositions=len(all_propositions))
+        scope,
+        date,
+        batch_results,
+        dry_run=simulate,
+        n_persons=len(persons),
+        n_anomalies=len(anomalies),
+        n_propositions=len(all_propositions),
+    )
 
     report_path = report_dir / f"{date}_crew_audit_{slug}.md"
     report_path.write_text(report, encoding="utf-8")
@@ -227,18 +262,27 @@ def run_crew_audit(
     propositions_path.write_text(
         yaml.safe_dump(
             {"propositions": [p.model_dump() for p in all_propositions]},
-            allow_unicode=True, sort_keys=False),
-        encoding="utf-8")
+            allow_unicode=True,
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
 
     summary = {
-        "scope": scope, "date": date, "dry_run": simulate,
-        "personnes_signalees": len(persons), "anomalies": len(anomalies),
+        "scope": scope,
+        "date": date,
+        "dry_run": simulate,
+        "personnes_signalees": len(persons),
+        "anomalies": len(anomalies),
         "propositions": len(all_propositions),
-        "lots": [{"index": b["index"], "personnes": b["n_persons"], "tokens": b["tokens"]}
-                 for b in batch_results],
+        "lots": [
+            {"index": b["index"], "personnes": b["n_persons"], "tokens": b["tokens"]}
+            for b in batch_results
+        ],
         "tokens_total": sum(b["tokens"] for b in batch_results),
     }
     yaml_path = report_dir / f"{date}_crew_audit_{slug}.yaml"
     yaml_path.write_text(
-        yaml.safe_dump(summary, allow_unicode=True, sort_keys=False), encoding="utf-8")
+        yaml.safe_dump(summary, allow_unicode=True, sort_keys=False), encoding="utf-8"
+    )
     return report_path

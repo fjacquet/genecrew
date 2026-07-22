@@ -34,8 +34,9 @@ def _link(gramps_id: str, base_url: str) -> str:
     return f"[{gramps_id}]({base_url}/person/{gramps_id})"
 
 
-def executer_grappes(grappes: list[MergeCluster], *, dry_run: bool = False
-                     ) -> tuple[list[tuple[str, str]], list[tuple[str, str]]]:
+def executer_grappes(
+    grappes: list[MergeCluster], *, dry_run: bool = False
+) -> tuple[list[tuple[str, str]], list[tuple[str, str]]]:
     """Exécute les fusions d'une liste de grappes. Rend (faites, erreurs).
 
     Le patch de genre précède impérativement la fusion : `Person.merge()` ignore
@@ -47,21 +48,35 @@ def executer_grappes(grappes: list[MergeCluster], *, dry_run: bool = False
     erreurs: list[tuple[str, str]] = []
     for grappe in grappes:
         if grappe.gender_patch is not None:
-            patch = json.loads(genre._run(handle=grappe.phoenix_handle,
-                                          gender=grappe.gender_patch, dry_run=dry_run))
+            patch = json.loads(
+                genre._run(
+                    handle=grappe.phoenix_handle,
+                    gender=grappe.gender_patch,
+                    dry_run=dry_run,
+                )
+            )
             if not patch["success"]:
                 # Fusionner malgré l'échec du patch supprimerait le titanic ET
                 # perdrait son genre sans trace — précisément ce que le patch
                 # existe pour empêcher. On abandonne la grappe ; elle repassera
                 # à la prochaine exécution.
-                erreurs.append((grappe.phoenix_gramps_id,
-                                f"patch de genre échoué, fusion abandonnée : {patch['error']}"))
+                erreurs.append(
+                    (
+                        grappe.phoenix_gramps_id,
+                        f"patch de genre échoué, fusion abandonnée : {patch['error']}",
+                    )
+                )
                 continue
-        for titanic_handle, titanic_id in zip(grappe.titanic_handles,
-                                              grappe.titanic_gramps_ids):
-            payload = json.loads(fusion._run(phoenix_handle=grappe.phoenix_handle,
-                                             titanic_handle=titanic_handle,
-                                             dry_run=dry_run))
+        for titanic_handle, titanic_id in zip(
+            grappe.titanic_handles, grappe.titanic_gramps_ids
+        ):
+            payload = json.loads(
+                fusion._run(
+                    phoenix_handle=grappe.phoenix_handle,
+                    titanic_handle=titanic_handle,
+                    dry_run=dry_run,
+                )
+            )
             if payload["success"]:
                 faites.append((grappe.phoenix_gramps_id, titanic_id))
             else:
@@ -93,18 +108,30 @@ def filtrer_grappes_contradictoires(
     erreurs: list[tuple[str, str]] = []
     for grappe in grappes:
         if grappe.gender_patch is not None:
-            genres = {par_handle[h].sex for h in grappe.titanic_handles
-                      if h in par_handle}
+            genres = {
+                par_handle[h].sex for h in grappe.titanic_handles if h in par_handle
+            }
             if "M" in genres and "F" in genres:
-                erreurs.append((grappe.phoenix_gramps_id,
-                                "genres titanics contradictoires, fusion abandonnée"))
+                erreurs.append(
+                    (
+                        grappe.phoenix_gramps_id,
+                        "genres titanics contradictoires, fusion abandonnée",
+                    )
+                )
                 continue
         valides.append(grappe)
     return valides, erreurs
 
 
-def render_people_merge_report(date, passes, arbitrage, ignores, dry_run,
-                               fusions=(), base_url: str = "http://localhost") -> str:
+def render_people_merge_report(
+    date,
+    passes,
+    arbitrage,
+    ignores,
+    dry_run,
+    fusions=(),
+    base_url: str = "http://localhost",
+) -> str:
     """Rapport Markdown : une ligne par passe, la liste nominative des fusions faites,
     puis les paires à relire.
 
@@ -115,32 +142,47 @@ def render_people_merge_report(date, passes, arbitrage, ignores, dry_run,
     """
     mode = "simulation (dry-run, aucune fusion)" if dry_run else "fusions appliquées"
     total = sum(faites for _, faites, _ in passes)
-    lines = [f"# Fusion des doublons de personnes — {date}", "",
-             f"Mode : {mode}.", "",
-             f"- Fusions automatiques : {total}",
-             f"- Paires en arbitrage : {len(arbitrage)}",
-             f"- Blocs ignorés (trop gros) : {len(ignores)}", "",
-             "## Passes", "", "| Passe | Fusions | Erreurs |", "|---|---|---|"]
+    lines = [
+        f"# Fusion des doublons de personnes — {date}",
+        "",
+        f"Mode : {mode}.",
+        "",
+        f"- Fusions automatiques : {total}",
+        f"- Paires en arbitrage : {len(arbitrage)}",
+        f"- Blocs ignorés (trop gros) : {len(ignores)}",
+        "",
+        "## Passes",
+        "",
+        "| Passe | Fusions | Erreurs |",
+        "|---|---|---|",
+    ]
     for numero, faites, erreurs in passes:
         lines.append(f"| {numero} | {faites} | {erreurs} |")
     derniere = passes[-1][1] if passes else 0
     if derniere:
-        lines += ["", "La dernière passe a encore fusionné : la déduplication est "
-                  "transitive, **relancer** la commande pour aller plus loin."]
+        lines += [
+            "",
+            "La dernière passe a encore fusionné : la déduplication est "
+            "transitive, **relancer** la commande pour aller plus loin.",
+        ]
     lines += ["", "## Fusions", ""]
     if fusions:
         lines += ["| Gardé (phoenix) | Fusionné puis supprimé (titanic) |", "|---|---|"]
         for phoenix_id, titanic_id in fusions:
-            lines.append(f"| {_link(phoenix_id, base_url)} | {_link(titanic_id, base_url)} |")
+            lines.append(
+                f"| {_link(phoenix_id, base_url)} | {_link(titanic_id, base_url)} |"
+            )
     else:
         lines.append("Aucune.")
     lines += ["", "## Paires en arbitrage", ""]
     if arbitrage:
         lines += ["| A | B | Blocs |", "|---|---|---|"]
         for paire in arbitrage:
-            lines.append(f"| {_link(paire.gramps_id_a, base_url)} | "
-                         f"{_link(paire.gramps_id_b, base_url)} | "
-                         f"{', '.join(paire.blocs)} |")
+            lines.append(
+                f"| {_link(paire.gramps_id_a, base_url)} | "
+                f"{_link(paire.gramps_id_b, base_url)} | "
+                f"{', '.join(paire.blocs)} |"
+            )
     else:
         lines.append("Aucune.")
     lines += ["", "## Blocs ignorés", ""]
@@ -165,9 +207,16 @@ def _collecter(client: GrampsClient, scope: str, limit: int | None):
     return personnes, familles
 
 
-def run_people_merge(client: GrampsClient, output_dir, *, scope: str, date: str,
-                     limit: int | None = None, max_passes: int = 5,
-                     dry_run: bool = False) -> Path:
+def run_people_merge(
+    client: GrampsClient,
+    output_dir,
+    *,
+    scope: str,
+    date: str,
+    limit: int | None = None,
+    max_passes: int = 5,
+    dry_run: bool = False,
+) -> Path:
     """Détecte, fusionne l'étage auto, dépose l'arbitrage en YAML. Rend le rapport."""
     output_dir = Path(output_dir)
     # Le dry-run EFFECTIF (env inclus) gouverne TOUT : la boucle, l'exécution et le
@@ -186,7 +235,8 @@ def run_people_merge(client: GrampsClient, output_dir, *, scope: str, date: str,
         arbitrage = [p for p in paires if p.tier == "arbitrage"]
         grappes = plan_fusions(paires, par_handle)
         grappes, erreurs_contradiction = filtrer_grappes_contradictoires(
-            grappes, par_handle)
+            grappes, par_handle
+        )
         faites, erreurs = executer_grappes(grappes, dry_run=eff)
         erreurs = erreurs_contradiction + erreurs
         fusions.extend(faites)
@@ -199,17 +249,24 @@ def run_people_merge(client: GrampsClient, output_dir, *, scope: str, date: str,
     out.mkdir(parents=True, exist_ok=True)
     scope_slug = scope.replace(":", "_")
     (out / f"{date}_arbitrage_doublons_{scope_slug}.yaml").write_text(
-        yaml.safe_dump([p.model_dump() for p in arbitrage], allow_unicode=True,
-                       sort_keys=False), encoding="utf-8")
+        yaml.safe_dump(
+            [p.model_dump() for p in arbitrage], allow_unicode=True, sort_keys=False
+        ),
+        encoding="utf-8",
+    )
     path = out / f"{date}_fusions_doublons_{scope_slug}.md"
-    path.write_text(render_people_merge_report(date, passes, arbitrage, ignores, eff,
-                                               fusions=fusions),
-                    encoding="utf-8")
+    path.write_text(
+        render_people_merge_report(
+            date, passes, arbitrage, ignores, eff, fusions=fusions
+        ),
+        encoding="utf-8",
+    )
     return path
 
 
-def run_people_merge_yaml(client: GrampsClient, merges_yaml, output_dir, *,
-                          date: str, dry_run: bool = False) -> Path:
+def run_people_merge_yaml(
+    client: GrampsClient, merges_yaml, output_dir, *, date: str, dry_run: bool = False
+) -> Path:
     """Exécute les paires d'arbitrage conservées après relecture humaine.
 
     Le survivant et le patch de genre sont recalculés à partir des VRAIS
@@ -236,10 +293,19 @@ def run_people_merge_yaml(client: GrampsClient, merges_yaml, output_dir, *,
             continue
         par_handle[a.handle] = a
         par_handle[b.handle] = b
-        mpaires.append(MergePair(gramps_id_a=a.gramps_id, gramps_id_b=b.gramps_id,
-                                 handle_a=a.handle, handle_b=b.handle, tier="auto"))
+        mpaires.append(
+            MergePair(
+                gramps_id_a=a.gramps_id,
+                gramps_id_b=b.gramps_id,
+                handle_a=a.handle,
+                handle_b=b.handle,
+                tier="auto",
+            )
+        )
     grappes = plan_fusions(mpaires, par_handle)
-    grappes, erreurs_contradiction = filtrer_grappes_contradictoires(grappes, par_handle)
+    grappes, erreurs_contradiction = filtrer_grappes_contradictoires(
+        grappes, par_handle
+    )
     faites, erreurs = executer_grappes(grappes, dry_run=eff)
     erreurs = erreurs_collecte + erreurs_contradiction + erreurs
     out = output_dir / "doublons"
@@ -247,7 +313,9 @@ def run_people_merge_yaml(client: GrampsClient, merges_yaml, output_dir, *,
     slug = Path(merges_yaml).stem
     path = out / f"{date}_fusions_relues_{slug}.md"
     path.write_text(
-        render_people_merge_report(date, [(1, len(faites), len(erreurs))], [], [], eff,
-                                   fusions=faites),
-        encoding="utf-8")
+        render_people_merge_report(
+            date, [(1, len(faites), len(erreurs))], [], [], eff, fusions=faites
+        ),
+        encoding="utf-8",
+    )
     return path

@@ -21,15 +21,24 @@ from genecrew.releves import (
 
 
 def _p(gramps_id, surname, given, **kw):
-    return PersonFacts(gramps_id=gramps_id, handle=f"h{gramps_id}",
-                       name=f"{given} {surname}", surname=surname, given=given,
-                       sex=kw.pop("sex", "U"), **kw)
+    return PersonFacts(
+        gramps_id=gramps_id,
+        handle=f"h{gramps_id}",
+        name=f"{given} {surname}",
+        surname=surname,
+        given=given,
+        sex=kw.pop("sex", "U"),
+        **kw,
+    )
 
 
 def test_releve_indexe_minimal():
     r = ReleveIndexe(
-        fonds="Cercle Généalogique du Haut-Berry", reference="106710046161418286",
-        sujet_nom="JACQUET", sujet_prenom="Rose", evenement_type="Death",
+        fonds="Cercle Généalogique du Haut-Berry",
+        reference="106710046161418286",
+        sujet_nom="JACQUET",
+        sujet_prenom="Rose",
+        evenement_type="Death",
         texte_brut="Rose JACQUET\nLe 10 décembre 1894",
     )
     assert r.evenement_date == ""
@@ -63,8 +72,12 @@ def test_vocabulaire_des_facteurs_reste_synchronise():
 
 
 def test_rarete_est_une_fraction_de_l_arbre():
-    people = [_p("I1", "JACQUET", "Rose"), _p("I2", "JACQUET", "Pierre"),
-              _p("I3", "JACQUET", "Jean"), _p("I4", "VILLEPELLET", "Marie")]
+    people = [
+        _p("I1", "JACQUET", "Rose"),
+        _p("I2", "JACQUET", "Pierre"),
+        _p("I3", "JACQUET", "Jean"),
+        _p("I4", "VILLEPELLET", "Marie"),
+    ]
     r = rarete_patronymes(people)
     assert r["JACQUET"] == 0.75
     assert r["VILLEPELLET"] == 0.25
@@ -88,8 +101,14 @@ def test_patronyme_absent_de_l_arbre_n_est_pas_rare():
 
 
 def _releve(**kw):
-    base = dict(fonds="CGHB", reference="106710046161418286", sujet_nom="JACQUET",
-                sujet_prenom="Rose", evenement_type="Death", texte_brut="…")
+    base = dict(
+        fonds="CGHB",
+        reference="106710046161418286",
+        sujet_nom="JACQUET",
+        sujet_prenom="Rose",
+        evenement_type="Death",
+        texte_brut="…",
+    )
     base.update(kw)
     return ReleveIndexe(**base)
 
@@ -138,11 +157,12 @@ def test_blocage_ignore_les_personnes_a_patronyme_vide_quand_le_releve_en_a_un()
     patronyme vide — ce cas passe déjà, mais on le verrouille pour ne pas
     régresser si `_cle_blocage` change un jour."""
     people = [_p("I1", "", "Rose"), _p("I2", "JACQUET", "Pierre")]
-    assert [c.gramps_id for c in candidats_blocage(_releve(sujet_nom="JACQUET"), people)] == ["I2"]
+    assert [
+        c.gramps_id for c in candidats_blocage(_releve(sujet_nom="JACQUET"), people)
+    ] == ["I2"]
 
 
-def _ev(type_, jour=0, mois=0, annee=0, lieu="", modifier=0, dateval=None,
-        quality=0):
+def _ev(type_, jour=0, mois=0, annee=0, lieu="", modifier=0, dateval=None, quality=0):
     """`EventFact` ne porte PAS de champ `date` : la source est `dateval`, au
     format Gramps [jour, mois, année, slash]. 0 = composante inconnue.
 
@@ -153,11 +173,16 @@ def _ev(type_, jour=0, mois=0, annee=0, lieu="", modifier=0, dateval=None,
     masquerait le fait que comparer `place` à un lieu de relevé (une commune)
     échoue sur toutes les vraies données.
     """
-    return EventFact(type=type_, dateval=dateval or [jour, mois, annee, False],
-                     year=annee or None, modifier=modifier, quality=quality,
-                     place=f"{lieu}, Cher, France" if lieu else "",
-                     place_name=lieu,
-                     sortval=1 if annee else 0)
+    return EventFact(
+        type=type_,
+        dateval=dateval or [jour, mois, annee, False],
+        year=annee or None,
+        modifier=modifier,
+        quality=quality,
+        place=f"{lieu}, Cher, France" if lieu else "",
+        place_name=lieu,
+        sortval=1 if annee else 0,
+    )
 
 
 def _mort(person, jour, mois, annee, lieu=""):
@@ -165,10 +190,15 @@ def _mort(person, jour, mois, annee, lieu=""):
     return person
 
 
-ROSE = _releve(evenement_date="1894-12-10", evenement_lieu="Saint-Martin-d'Auxigny",
-               naissance_estimee=1821,
-               personnes_liees=[PersonneLiee(nom="Pierre JACQUET", role="père"),
-                                PersonneLiee(nom="Marie Anne VILLEPELLET", role="mère")])
+ROSE = _releve(
+    evenement_date="1894-12-10",
+    evenement_lieu="Saint-Martin-d'Auxigny",
+    naissance_estimee=1821,
+    personnes_liees=[
+        PersonneLiee(nom="Pierre JACQUET", role="père"),
+        PersonneLiee(nom="Marie Anne VILLEPELLET", role="mère"),
+    ],
+)
 
 
 def test_deux_facteurs_forts_donnent_net():
@@ -186,9 +216,14 @@ def test_le_lieu_se_compare_a_la_commune_pas_a_la_hierarchie():
     les vraies données : plus aucun facteur « lieu », donc plus aucun `net` en
     production. Ce test échoue si on revient à comparer `place`."""
     p = _p("I1", "JACQUET", "Rose")
-    p.death = EventFact(type="Death", dateval=[0, 0, 0, False], modifier=0,
-                        place="Saint-Martin-d'Auxigny, Cher, France",
-                        place_name="Saint-Martin-d'Auxigny", sortval=0)
+    p.death = EventFact(
+        type="Death",
+        dateval=[0, 0, 0, False],
+        modifier=0,
+        place="Saint-Martin-d'Auxigny, Cher, France",
+        place_name="Saint-Martin-d'Auxigny",
+        sortval=0,
+    )
     a = apparier(ROSE, [p], {"JACQUET": 0.75}, {})
     assert "lieu" in a.facteurs
 
@@ -197,9 +232,14 @@ def test_lieu_se_rabat_sur_le_premier_segment_si_place_name_est_vide():
     """`place_name` n'est pas toujours renseigné selon la façon dont la fiche a
     été saisie ; le premier segment de la hiérarchie est alors la commune."""
     p = _p("I1", "JACQUET", "Rose")
-    p.death = EventFact(type="Death", dateval=[0, 0, 0, False], modifier=0,
-                        place="Saint-Martin-d'Auxigny, Cher, France",
-                        place_name="", sortval=0)
+    p.death = EventFact(
+        type="Death",
+        dateval=[0, 0, 0, False],
+        modifier=0,
+        place="Saint-Martin-d'Auxigny, Cher, France",
+        place_name="",
+        sortval=0,
+    )
     a = apparier(ROSE, [p], {"JACQUET": 0.75}, {})
     assert "lieu" in a.facteurs
 
@@ -214,7 +254,7 @@ def test_lieu_discordant_n_est_ni_facteur_ni_divergence():
     a = apparier(ROSE, [p], {"JACQUET": 0.75}, {})
     assert a.divergences == []
     assert "lieu" not in a.facteurs
-    assert a.verdict == "gris"          # date complète (5) + prénom (1) = 6
+    assert a.verdict == "gris"  # date complète (5) + prénom (1) = 6
 
 
 def test_divergence_de_date_est_un_veto_pas_un_malus():
@@ -232,8 +272,12 @@ def test_veto_resiste_a_un_empilement_qui_depasse_le_seuil():
     lieu (3) + prénom (1) —, largement de quoi faire un `net`, et une seule
     date qui diverge doit tout de même tout annuler."""
     p = _mort(_p("I1", "JACQUET", "Rose"), 2, 3, 1901, "Saint-Martin-d'Auxigny")
-    a = apparier(ROSE, [p], {"JACQUET": 0.75},
-                 {"hI1": ["Pierre JACQUET", "Marie Anne VILLEPELLET"]})
+    a = apparier(
+        ROSE,
+        [p],
+        {"JACQUET": 0.75},
+        {"hI1": ["Pierre JACQUET", "Marie Anne VILLEPELLET"]},
+    )
     assert a.verdict == "aucun"
     assert a.divergences
 
@@ -247,8 +291,11 @@ def test_releve_de_mariage_ne_se_compare_a_aucun_evenement():
     qui n'avait jamais regardé le mariage."""
     p = _p("I1", "JACQUET", "Rose")
     p.birth = _ev("Birth", 10, 12, 1894, "Saint-Martin-d'Auxigny")
-    r = _releve(evenement_type="Marriage", evenement_date="1894-12-10",
-                evenement_lieu="Saint-Martin-d'Auxigny")
+    r = _releve(
+        evenement_type="Marriage",
+        evenement_date="1894-12-10",
+        evenement_lieu="Saint-Martin-d'Auxigny",
+    )
     a = apparier(r, [p], {"JACQUET": 0.75}, {})
     assert "lieu" not in a.facteurs
     assert "date complète" not in a.facteurs
@@ -289,10 +336,10 @@ def test_annee_seule_ne_fait_ni_facteur_ni_divergence():
     p = _p("I1", "JACQUET", "Rose")
     p.death = _ev("Death", annee=1901, lieu="Saint-Martin-d'Auxigny")
     a = apparier(ROSE, [p], {"JACQUET": 0.75}, {})
-    assert a.verdict != "aucun"         # l'assertion porte sur une liste peuplée
+    assert a.verdict != "aucun"  # l'assertion porte sur une liste peuplée
     assert "lieu" in a.facteurs
     assert "date complète" not in a.facteurs
-    assert a.divergences == []          # une année n'est pas non plus une divergence
+    assert a.divergences == []  # une année n'est pas non plus une divergence
 
 
 def test_candidat_sans_aucun_facteur_donne_aucun():
@@ -325,7 +372,7 @@ def test_date_approximative_n_est_pas_une_date_complete():
     a = apparier(ROSE, [p], {"JACQUET": 0.75}, {})
     assert "date complète" not in a.facteurs
     assert a.divergences == []
-    assert "lieu" in a.facteurs         # le candidat reste éligible
+    assert "lieu" in a.facteurs  # le candidat reste éligible
 
 
 def test_date_approximative_divergente_n_est_pas_un_veto():
@@ -346,8 +393,12 @@ def test_intervalle_de_dates_n_est_pas_une_date_complete():
     affirmerait « le 10/12/1894 » là où la source dit « entre le 10/12/1894 et
     le 02/03/1901 »."""
     p = _p("I1", "JACQUET", "Rose")
-    p.death = _ev("Death", lieu="Saint-Martin-d'Auxigny", modifier=4,
-                  dateval=[10, 12, 1894, False, 2, 3, 1901, False])
+    p.death = _ev(
+        "Death",
+        lieu="Saint-Martin-d'Auxigny",
+        modifier=4,
+        dateval=[10, 12, 1894, False, 2, 3, 1901, False],
+    )
     a = apparier(ROSE, [p], {"JACQUET": 0.75}, {})
     assert "date complète" not in a.facteurs
     assert a.divergences == []
@@ -368,7 +419,7 @@ def test_date_calculee_n_est_pas_une_date_complete():
     p.death.quality = 2
     a = apparier(ROSE, [p], {"JACQUET": 0.75}, {})
     assert "date complète" not in a.facteurs
-    assert "lieu" in a.facteurs          # le candidat reste éligible
+    assert "lieu" in a.facteurs  # le candidat reste éligible
 
 
 def test_date_calculee_divergente_n_est_pas_un_veto():
@@ -392,7 +443,7 @@ def test_annee_approximative_exige_une_date_exacte_ou_about():
     p.birth = _ev("Birth", annee=1821, modifier=1)
     a = apparier(ROSE, [p], {"JACQUET": 0.75}, {})
     assert "année approximative" not in a.facteurs
-    assert "lieu" in a.facteurs         # le candidat reste éligible
+    assert "lieu" in a.facteurs  # le candidat reste éligible
 
 
 def test_annee_about_reste_une_annee_approximative():
@@ -411,8 +462,8 @@ def test_facteurs_faibles_seuls_ne_font_jamais_un_net():
     la garde `FACTEURS_FORTS` donnerait `gris` (2 < SEUIL_NET) et le test
     passerait toujours. Seule la garde produit `aucun` ici — c'est donc elle
     que cette assertion-là teste vraiment."""
-    p = _p("I1", "JACQUET", "Rose")          # ni date ni lieu : prénom + année seuls
-    p.birth = _ev("Birth", annee=1821, modifier=3)      # 3 = about
+    p = _p("I1", "JACQUET", "Rose")  # ni date ni lieu : prénom + année seuls
+    p.birth = _ev("Birth", annee=1821, modifier=3)  # 3 = about
     a = apparier(ROSE, [p], {"JACQUET": 0.75}, {})
     assert a.verdict == "aucun"
 
@@ -424,8 +475,12 @@ def test_parent_nomme_concordant_pese_lourd():
     `facteurs_et_divergences`), sous peine de compter la même preuve deux
     fois."""
     p = _p("I1", "JACQUET", "Rose")
-    a = apparier(ROSE, [p], {"JACQUET": 0.75},
-                 {"hI1": ["Pierre JACQUET", "Marie Anne VILLEPELLET"]})
+    a = apparier(
+        ROSE,
+        [p],
+        {"JACQUET": 0.75},
+        {"hI1": ["Pierre JACQUET", "Marie Anne VILLEPELLET"]},
+    )
     assert "deux parents nommés" in a.facteurs
     assert "parent nommé" not in a.facteurs
     assert a.verdict == "net"
@@ -490,7 +545,7 @@ def test_concurrent_retenu_juste_au_dela_de_la_marge_laisse_le_gagnant_seul():
     a2 = _mort(_p("I2", "JACQUET", "Roze"), 10, 12, 1894, "Sancerre")
     a = apparier(ROSE, [a1, a2], {"JACQUET": 0.75}, {})
     assert a.verdict == "net"
-    assert a.poids == 9                 # date (5) + lieu (3) + prénom (1)
+    assert a.poids == 9  # date (5) + lieu (3) + prénom (1)
     assert a.gramps_id == "I1"
     assert a.candidats == ["I1"]
 
@@ -513,7 +568,7 @@ def test_concurrent_retenu_juste_en_deca_de_la_marge_donne_gris():
     a2 = _mort(_p("I2", "JACQUET", "Rose"), 10, 12, 1894, "Sancerre")
     a = apparier(ROSE, [a1, a2], {"JACQUET": 0.75}, {})
     assert a.verdict == "gris"
-    assert a.poids == 9                 # le meilleur des deux, mais pas élu
+    assert a.poids == 9  # le meilleur des deux, mais pas élu
     assert sorted(a.candidats) == ["I1", "I2"]
     assert a.gramps_id is None
 
@@ -526,8 +581,9 @@ def test_aucun_candidat_donne_aucun():
 
 def test_patronyme_rare_ajoute_un_facteur_fort():
     p = _mort(_p("I1", "VILLEPELLET", "Marie"), 10, 12, 1894)
-    r = _releve(sujet_nom="VILLEPELLET", sujet_prenom="Marie",
-                evenement_date="1894-12-10")
+    r = _releve(
+        sujet_nom="VILLEPELLET", sujet_prenom="Marie", evenement_date="1894-12-10"
+    )
     a = apparier(r, [p], {"VILLEPELLET": 0.01}, {})
     assert "patronyme rare" in a.facteurs
 
@@ -544,13 +600,16 @@ def test_patronyme_rare_ajoute_un_facteur_fort():
 # démontrablement deux communes différentes, là où deux chaînes différentes
 # peuvent n'être qu'une graphie.
 
+
 def test_deux_identifiants_canoniques_egaux_donnent_le_facteur_lieu():
     """Les deux graphies diffèrent (tirets contre espaces) : sans résolution, le
     repli sur la chaîne ne donnerait AUCUN facteur. C'est donc bien
     l'identifiant canonique qui produit le facteur ici, et rien d'autre."""
     p = _mort(_p("I1", "JACQUET", "Rose"), 10, 12, 1894, "Saint Martin d'Auxigny")
-    resolus = {"SAINT MARTIN D'AUXIGNY": "FR:18197",
-               "SAINT-MARTIN-D'AUXIGNY": "FR:18197"}
+    resolus = {
+        "SAINT MARTIN D'AUXIGNY": "FR:18197",
+        "SAINT-MARTIN-D'AUXIGNY": "FR:18197",
+    }
     a = apparier(ROSE, [p], {"JACQUET": 0.75}, {}, lieux_resolus=resolus)
     assert "lieu" in a.facteurs
     assert a.divergences == []
@@ -563,11 +622,16 @@ def test_deux_identifiants_canoniques_differents_vetoent_meme_un_candidat_lourd(
     candidat sortirait encore `net`."""
     p = _mort(_p("I1", "JACQUET", "Rose"), 10, 12, 1894, "Sancerre")
     resolus = {"SANCERRE": "FR:18241", "SAINT-MARTIN-D'AUXIGNY": "FR:18197"}
-    r = _releve(evenement_lieu="Saint-Martin-d'Auxigny",
-                personnes_liees=ROSE.personnes_liees)
-    a = apparier(r, [p], {"JACQUET": 0.75},
-                 {"hI1": ["Pierre JACQUET", "Marie Anne VILLEPELLET"]},
-                 lieux_resolus=resolus)
+    r = _releve(
+        evenement_lieu="Saint-Martin-d'Auxigny", personnes_liees=ROSE.personnes_liees
+    )
+    a = apparier(
+        r,
+        [p],
+        {"JACQUET": 0.75},
+        {"hI1": ["Pierre JACQUET", "Marie Anne VILLEPELLET"]},
+        lieux_resolus=resolus,
+    )
     assert a.verdict == "aucun"
     assert a.divergences
     assert "lieu" not in a.facteurs
@@ -583,11 +647,16 @@ def test_meme_numero_national_deux_pays_differents_est_une_divergence():
     fausse concordance que ce correctif élimine."""
     p = _mort(_p("I1", "JACQUET", "Rose"), 10, 12, 1894, "Sancerre")
     resolus = {"SANCERRE": "CH:18209", "SAINT-MARTIN-D'AUXIGNY": "FR:18209"}
-    r = _releve(evenement_lieu="Saint-Martin-d'Auxigny",
-                personnes_liees=ROSE.personnes_liees)
-    a = apparier(r, [p], {"JACQUET": 0.75},
-                 {"hI1": ["Pierre JACQUET", "Marie Anne VILLEPELLET"]},
-                 lieux_resolus=resolus)
+    r = _releve(
+        evenement_lieu="Saint-Martin-d'Auxigny", personnes_liees=ROSE.personnes_liees
+    )
+    a = apparier(
+        r,
+        [p],
+        {"JACQUET": 0.75},
+        {"hI1": ["Pierre JACQUET", "Marie Anne VILLEPELLET"]},
+        lieux_resolus=resolus,
+    )
     assert a.verdict == "aucun"
     assert a.divergences
     assert "lieu" not in a.facteurs
@@ -607,8 +676,8 @@ def test_identifiant_sans_prefixe_pays_est_traite_comme_non_resolu():
     resolus = {"SANCERRE": "18241", "SAINT-MARTIN-D'AUXIGNY": "FR:18197"}
     a = apparier(ROSE, [p], {"JACQUET": 0.75}, {}, lieux_resolus=resolus)
     assert a.divergences == []
-    assert "lieu" not in a.facteurs         # chaînes "Sancerre" ≠ "Saint-Martin-d'Auxigny"
-    assert a.verdict == "gris"              # date complète (5) + prénom (1) = 6
+    assert "lieu" not in a.facteurs  # chaînes "Sancerre" ≠ "Saint-Martin-d'Auxigny"
+    assert a.verdict == "gris"  # date complète (5) + prénom (1) = 6
 
 
 def test_un_seul_lieu_resolu_retombe_sur_la_chaine_sans_veto():
@@ -616,11 +685,16 @@ def test_un_seul_lieu_resolu_retombe_sur_la_chaine_sans_veto():
     aucune mesure comparable, donc pas de veto possible. Absent de la mesure ne
     veut pas dire contredit."""
     p = _mort(_p("I1", "JACQUET", "Rose"), 10, 12, 1894, "Sancerre")
-    a = apparier(ROSE, [p], {"JACQUET": 0.75}, {},
-                 lieux_resolus={"SAINT-MARTIN-D'AUXIGNY": "FR:18197"})
+    a = apparier(
+        ROSE,
+        [p],
+        {"JACQUET": 0.75},
+        {},
+        lieux_resolus={"SAINT-MARTIN-D'AUXIGNY": "FR:18197"},
+    )
     assert a.divergences == []
     assert "lieu" not in a.facteurs
-    assert a.verdict == "gris"          # date complète (5) + prénom (1) = 6
+    assert a.verdict == "gris"  # date complète (5) + prénom (1) = 6
 
 
 def test_un_seul_lieu_resolu_accorde_le_facteur_si_les_chaines_concordent():
@@ -628,8 +702,13 @@ def test_un_seul_lieu_resolu_accorde_le_facteur_si_les_chaines_concordent():
     des deux côtés est résolu. Sans ce test, un repli qui ne rendrait jamais de
     facteur passerait inaperçu."""
     p = _mort(_p("I1", "JACQUET", "Rose"), 10, 12, 1894, "Saint-Martin-d'Auxigny")
-    a = apparier(ROSE, [p], {"JACQUET": 0.75}, {},
-                 lieux_resolus={"SAINT-MARTIN-D'AUXIGNY": "FR:18197"})
+    a = apparier(
+        ROSE,
+        [p],
+        {"JACQUET": 0.75},
+        {},
+        lieux_resolus={"SAINT-MARTIN-D'AUXIGNY": "FR:18197"},
+    )
     assert "lieu" in a.facteurs
     assert a.divergences == []
 
@@ -638,8 +717,9 @@ def test_aucun_lieu_resolu_chaines_differentes_ne_veto_pas():
     """Non-régression du comportement acquis : sans résolution, une inégalité de
     chaîne n'est ni facteur ni divergence."""
     p = _mort(_p("I1", "JACQUET", "Rose"), 10, 12, 1894, "Sancerre")
-    a = apparier(ROSE, [p], {"JACQUET": 0.75}, {},
-                 lieux_resolus={"BOURGES": "FR:18033"})
+    a = apparier(
+        ROSE, [p], {"JACQUET": 0.75}, {}, lieux_resolus={"BOURGES": "FR:18033"}
+    )
     assert a.divergences == []
     assert "lieu" not in a.facteurs
 
@@ -663,6 +743,7 @@ def test_lieux_resolus_vide_ou_absent_ne_change_rien():
 # résolu — deux communes différentes et non codées auraient alors rendu la même
 # chaîne "FR:None", fabriquant soit un facteur "lieu" entre deux communes
 # jamais comparées, soit un veto sur une absence pure de donnée.
+
 
 def test_deux_fr_none_ne_donnent_pas_le_facteur_lieu():
     """Le pire des deux directions : Sancerre et Saint-Martin-d'Auxigny sont deux
@@ -691,7 +772,7 @@ def test_fr_none_contre_identifiant_reel_ne_veto_pas():
     a = apparier(ROSE, [p], {"JACQUET": 0.75}, {}, lieux_resolus=resolus)
     assert a.divergences == []
     assert "lieu" not in a.facteurs
-    assert a.verdict == "gris"          # date complète (5) + prénom (1) = 6
+    assert a.verdict == "gris"  # date complète (5) + prénom (1) = 6
 
 
 def test_prefixe_ou_code_vide_traites_comme_non_resolus():
@@ -706,7 +787,7 @@ def test_prefixe_ou_code_vide_traites_comme_non_resolus():
     a = apparier(ROSE, [p], {"JACQUET": 0.75}, {}, lieux_resolus=resolus)
     assert a.divergences == []
     assert "lieu" not in a.facteurs
-    assert a.verdict == "gris"          # date complète (5) + prénom (1) = 6
+    assert a.verdict == "gris"  # date complète (5) + prénom (1) = 6
 
 
 def test_casse_du_prefixe_pays_normalisee():
@@ -717,8 +798,10 @@ def test_casse_du_prefixe_pays_normalisee():
     concorder les deux identifiants ici. Sans elle, deux saisies de la même
     résolution différant seulement par la casse produiraient un veto absurde."""
     p = _mort(_p("I1", "JACQUET", "Rose"), 10, 12, 1894, "Saint Martin d'Auxigny")
-    resolus = {"SAINT MARTIN D'AUXIGNY": "fr:18209",
-               "SAINT-MARTIN-D'AUXIGNY": "FR:18209"}
+    resolus = {
+        "SAINT MARTIN D'AUXIGNY": "fr:18209",
+        "SAINT-MARTIN-D'AUXIGNY": "FR:18209",
+    }
     a = apparier(ROSE, [p], {"JACQUET": 0.75}, {}, lieux_resolus=resolus)
     assert "lieu" in a.facteurs
     assert a.divergences == []

@@ -11,7 +11,10 @@ from crewai_custom_tools.tools.genealogy.analysis.corrections import (
     suggest_misattached_parent_event,
 )
 from crewai_custom_tools.tools.genealogy.analysis.duplicates import find_duplicates
-from crewai_custom_tools.tools.genealogy.analysis.rules import check_family, check_person
+from crewai_custom_tools.tools.genealogy.analysis.rules import (
+    check_family,
+    check_person,
+)
 from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient
 from crewai_custom_tools.tools.genealogy.gramps.facts import FactsFetcher
 
@@ -20,7 +23,11 @@ from genecrew.report import render_report
 
 
 def collect_audit_findings(
-    client: GrampsClient, scope: str, *, batch_size: int = 25, limit: int | None = None,
+    client: GrampsClient,
+    scope: str,
+    *,
+    batch_size: int = 25,
+    limit: int | None = None,
 ) -> tuple[list, list, list, list]:
     """Run the deterministic rules over `scope` and return the STRUCTURED findings
     `(anomalies, duplicates, all_people, propositions)` in memory — the crew consumes
@@ -47,20 +54,30 @@ def collect_audit_findings(
                 if family is None:
                     continue
                 related = {}
-                for h in filter(None, [family.father_handle, family.mother_handle,
-                                        *family.child_handles]):
+                for h in filter(
+                    None,
+                    [family.father_handle, family.mother_handle, *family.child_handles],
+                ):
                     pf = fetcher.get_person_facts(h)
                     if pf is not None:
                         related[h] = pf
                 anomalies.extend(check_family(family, related))
 
                 # Règles D : détecteurs de corrections sur le contexte déjà chargé.
-                parents = [p for p in (related.get(family.father_handle),
-                                       related.get(family.mother_handle)) if p]
+                parents = [
+                    p
+                    for p in (
+                        related.get(family.father_handle),
+                        related.get(family.mother_handle),
+                    )
+                    if p
+                ]
                 children = [related[h] for h in family.child_handles if h in related]
                 for child in children:
-                    for prop in (suggest_misattached_parent_event(child, [family]),
-                                 suggest_century_typo(child, family, parents, children)):
+                    for prop in (
+                        suggest_misattached_parent_event(child, [family]),
+                        suggest_century_typo(child, family, parents, children),
+                    ):
                         if prop is None:
                             continue
                         key = (prop.gramps_id, prop.type, prop.cible)
@@ -75,15 +92,23 @@ def collect_audit_findings(
 
 
 def run_audit(
-    client: GrampsClient, scope: str, output_dir: Path, *,
-    date: str, batch_size: int = 25, limit: int | None = None,
+    client: GrampsClient,
+    scope: str,
+    output_dir: Path,
+    *,
+    date: str,
+    batch_size: int = 25,
+    limit: int | None = None,
 ) -> Path:
     """Run the deterministic audit over `scope`; write the Markdown report and the
     D-rule propositions YAML (human-reviewed) alongside it."""
     output_dir = Path(output_dir)
     anomalies, duplicates, all_people, propositions = collect_audit_findings(
-        client, scope, batch_size=batch_size, limit=limit)
-    report = render_report(scope, date, anomalies, duplicates, people_count=len(all_people))
+        client, scope, batch_size=batch_size, limit=limit
+    )
+    report = render_report(
+        scope, date, anomalies, duplicates, people_count=len(all_people)
+    )
 
     report_dir = output_dir / "audit"
     report_dir.mkdir(parents=True, exist_ok=True)
@@ -93,6 +118,11 @@ def run_audit(
 
     yaml_path = report_dir / f"{date}_propositions_audit_deterministes_{slug}.yaml"
     yaml_path.write_text(
-        yaml.safe_dump({"propositions": [p.model_dump() for p in propositions]},
-                       allow_unicode=True, sort_keys=False), encoding="utf-8")
+        yaml.safe_dump(
+            {"propositions": [p.model_dump() for p in propositions]},
+            allow_unicode=True,
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
     return report_path

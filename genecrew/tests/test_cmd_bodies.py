@@ -33,8 +33,10 @@ def _detection(tmp_path, *, lot_borne=False, scope_unitaire=False):
     NOMMÉES, et c'est ce que `lieux_merge_cmd` doit consommer sans jamais redériver la
     décision depuis `args`."""
     return places_merge_mod.ResultatDetection(
-        chemin=tmp_path / "rapport.md", lot_borne=lot_borne,
-        scope_unitaire=scope_unitaire)
+        chemin=tmp_path / "rapport.md",
+        lot_borne=lot_borne,
+        scope_unitaire=scope_unitaire,
+    )
 
 
 def _args(argv):
@@ -52,7 +54,9 @@ def test_lieux_merge_cmd_passes_yaml_flag_to_engine(monkeypatch, tmp_path):
 
     monkeypatch.setattr(places_merge_mod, "run_places_merge", _spy)
 
-    main_mod.lieux_merge_cmd(_args(["merge", "places", "--yaml", "fusions_relues.yaml"]))
+    main_mod.lieux_merge_cmd(
+        _args(["merge", "places", "--yaml", "fusions_relues.yaml"])
+    )
 
     assert captured["merges_yaml"] == "fusions_relues.yaml"
 
@@ -75,7 +79,8 @@ def test_lieux_merge_cmd_sans_yaml_detecte(monkeypatch, tmp_path):
 
 
 def test_lieux_merge_cmd_avertit_sur_la_console_quand_le_lot_est_borne(
-        monkeypatch, tmp_path, capsys):
+    monkeypatch, tmp_path, capsys
+):
     """La garde « un lot borné ne fusionne jamais » vit dans run_places_detect, et son
     explication n'existe sinon que dans le rapport Markdown. Quelqu'un qui lance la
     commande avec --limit et voit « zéro fusion » doit comprendre pourquoi sans aller
@@ -89,7 +94,8 @@ def test_lieux_merge_cmd_avertit_sur_la_console_quand_le_lot_est_borne(
     monkeypatch.setattr(places_merge_mod, "run_places_detect", _spy)
 
     main_mod.lieux_merge_cmd(
-        _args(["merge", "places", "--scope", "all", "--limit", "5"]))
+        _args(["merge", "places", "--scope", "all", "--limit", "5"])
+    )
 
     out = capsys.readouterr().out
     assert "--limit" in out
@@ -97,7 +103,8 @@ def test_lieux_merge_cmd_avertit_sur_la_console_quand_le_lot_est_borne(
 
 
 def test_lieux_merge_cmd_sans_limit_ne_dit_rien_sur_le_lot_borne(
-        monkeypatch, tmp_path, capsys):
+    monkeypatch, tmp_path, capsys
+):
     """Sans --limit, aucune garde ne s'applique : pas d'avertissement à afficher."""
     monkeypatch.setattr(gramps_client_mod, "get_client", lambda: FAKE_CLIENT)
     monkeypatch.setenv("GENECREW_OUTPUT_DIR", str(tmp_path))
@@ -122,8 +129,10 @@ def test_lieux_merge_cmd_sans_limit_ne_dit_rien_sur_le_lot_borne(
 # et lui seul — qui pilote l'avertissement console. Si la CLI se remettait à
 # réimplémenter `args.limit is not None`, l'un des deux tomberait.
 
+
 def test_lieux_merge_cmd_avertit_meme_sans_limit_si_la_fonction_le_dit(
-        monkeypatch, tmp_path, capsys):
+    monkeypatch, tmp_path, capsys
+):
     """Aucun --limit posé, mais la fonction dit quand même « lot borné » : l'avertissement
     doit apparaître. Une CLI qui déciderait elle-même depuis args.limit resterait muette."""
     monkeypatch.setattr(gramps_client_mod, "get_client", lambda: FAKE_CLIENT)
@@ -141,7 +150,8 @@ def test_lieux_merge_cmd_avertit_meme_sans_limit_si_la_fonction_le_dit(
 
 
 def test_lieux_merge_cmd_n_avertit_pas_si_la_fonction_dit_non_borne_malgre_limit(
-        monkeypatch, tmp_path, capsys):
+    monkeypatch, tmp_path, capsys
+):
     """--limit posé, mais la fonction dit qu'elle n'a PAS été bornée (cas construit,
     contredisant volontairement `args.limit`) : aucun avertissement ne doit apparaître.
     Une CLI qui imprimerait dès `args.limit is not None`, sans regarder le retour de la
@@ -156,7 +166,8 @@ def test_lieux_merge_cmd_n_avertit_pas_si_la_fonction_dit_non_borne_malgre_limit
     monkeypatch.setattr(places_merge_mod, "run_places_detect", _spy)
 
     main_mod.lieux_merge_cmd(
-        _args(["merge", "places", "--scope", "all", "--limit", "5"]))
+        _args(["merge", "places", "--scope", "all", "--limit", "5"])
+    )
 
     out = capsys.readouterr().out
     assert "lot borné" not in out.lower()
@@ -170,6 +181,7 @@ def test_lieux_merge_cmd_n_avertit_pas_si_la_fonction_dit_non_borne_malgre_limit
 # de `dry_run=args.dry_run` laissait toute la suite verte — le scénario le plus coûteux
 # possible pour une commande qui fusionne irréversiblement des lieux.
 
+
 def test_lieux_merge_cmd_mode_yaml_transmet_dry_run_vrai(monkeypatch, tmp_path):
     captured = {}
     monkeypatch.setattr(gramps_client_mod, "get_client", lambda: FAKE_CLIENT)
@@ -182,7 +194,8 @@ def test_lieux_merge_cmd_mode_yaml_transmet_dry_run_vrai(monkeypatch, tmp_path):
     monkeypatch.setattr(places_merge_mod, "run_places_merge", _spy)
 
     main_mod.lieux_merge_cmd(
-        _args(["merge", "places", "--yaml", "fusions_relues.yaml", "--dry-run"]))
+        _args(["merge", "places", "--yaml", "fusions_relues.yaml", "--dry-run"])
+    )
 
     assert captured["dry_run"] is True
 
@@ -199,7 +212,8 @@ def test_lieux_merge_cmd_mode_yaml_transmet_dry_run_faux(monkeypatch, tmp_path):
     monkeypatch.setattr(places_merge_mod, "run_places_merge", _spy)
 
     main_mod.lieux_merge_cmd(
-        _args(["merge", "places", "--yaml", "fusions_relues.yaml"]))
+        _args(["merge", "places", "--yaml", "fusions_relues.yaml"])
+    )
 
     assert captured["dry_run"] is False
 
@@ -244,8 +258,10 @@ def test_lieux_merge_cmd_mode_detection_transmet_dry_run_faux(monkeypatch, tmp_p
 # pour `--limit`, la décision appartient à `run_places_detect` et la CLI se contente de
 # l'afficher — les deux tests de contradiction ci-dessous le verrouillent.
 
+
 def test_lieux_merge_cmd_avertit_quand_le_scope_ne_vise_qu_un_lieu(
-        monkeypatch, tmp_path, capsys):
+    monkeypatch, tmp_path, capsys
+):
     monkeypatch.setattr(gramps_client_mod, "get_client", lambda: FAKE_CLIENT)
     monkeypatch.setenv("GENECREW_OUTPUT_DIR", str(tmp_path))
 
@@ -254,8 +270,7 @@ def test_lieux_merge_cmd_avertit_quand_le_scope_ne_vise_qu_un_lieu(
 
     monkeypatch.setattr(places_merge_mod, "run_places_detect", _spy)
 
-    main_mod.lieux_merge_cmd(
-        _args(["merge", "places", "--scope", "place:P0080"]))
+    main_mod.lieux_merge_cmd(_args(["merge", "places", "--scope", "place:P0080"]))
 
     out = capsys.readouterr().out
     assert "place:" in out
@@ -263,7 +278,8 @@ def test_lieux_merge_cmd_avertit_quand_le_scope_ne_vise_qu_un_lieu(
 
 
 def test_lieux_merge_cmd_ne_dit_rien_du_scope_quand_il_est_complet(
-        monkeypatch, tmp_path, capsys):
+    monkeypatch, tmp_path, capsys
+):
     """`--scope all` : aucune garde de périmètre, donc aucun avertissement."""
     monkeypatch.setattr(gramps_client_mod, "get_client", lambda: FAKE_CLIENT)
     monkeypatch.setenv("GENECREW_OUTPUT_DIR", str(tmp_path))
@@ -279,7 +295,8 @@ def test_lieux_merge_cmd_ne_dit_rien_du_scope_quand_il_est_complet(
 
 
 def test_lieux_merge_cmd_avertit_sur_le_scope_meme_si_args_dit_all(
-        monkeypatch, tmp_path, capsys):
+    monkeypatch, tmp_path, capsys
+):
     """Contradiction volontaire : `--scope all` mais la fonction dit « un seul lieu ».
     Une CLI qui redériverait la décision depuis `args.scope` resterait muette."""
     monkeypatch.setattr(gramps_client_mod, "get_client", lambda: FAKE_CLIENT)
@@ -296,7 +313,8 @@ def test_lieux_merge_cmd_avertit_sur_le_scope_meme_si_args_dit_all(
 
 
 def test_lieux_merge_cmd_ne_dit_rien_si_la_fonction_dit_scope_complet_malgre_place(
-        monkeypatch, tmp_path, capsys):
+    monkeypatch, tmp_path, capsys
+):
     """Contradiction inverse : `--scope place:ID` mais la fonction dit qu'elle a pu
     décider. Une CLI qui imprimerait dès `args.scope` afficherait « simulation forcée »
     pendant qu'une fusion irréversible aurait réellement lieu."""
@@ -325,7 +343,8 @@ def test_deces_apply_cmd_passes_yaml_flag_to_engine(monkeypatch, tmp_path):
     monkeypatch.setattr(deces_apply_mod, "run_deces_apply", _spy)
 
     main_mod.deces_apply_cmd(
-        _args(["apply", "citations", "--yaml", "propositions_relues.yaml"]))
+        _args(["apply", "citations", "--yaml", "propositions_relues.yaml"])
+    )
 
     assert captured["propositions_yaml"] == Path("propositions_relues.yaml")
 

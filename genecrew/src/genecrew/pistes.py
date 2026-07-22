@@ -24,8 +24,11 @@ _LONGUEUR_CLE = 8
 
 def _normaliser(valeur: str) -> str:
     """Casse, accents et espaces retirés — la même fiche doit donner la même clé."""
-    sans_accent = "".join(c for c in unicodedata.normalize("NFD", valeur)
-                          if unicodedata.category(c) != "Mn")
+    sans_accent = "".join(
+        c
+        for c in unicodedata.normalize("NFD", valeur)
+        if unicodedata.category(c) != "Mn"
+    )
     return " ".join(sans_accent.split()).upper()
 
 
@@ -63,8 +66,12 @@ def marqueurs_existants(client, gramps_id: str) -> set[str]:
     complètes arrivent en UN appel, pour UNE personne. Vérifié en direct contre
     l'API — `extended.notes[i]["text"]["string"]` porte le corps de la note.
     """
-    gens = client.get_json("/people/",
-                           params={"gramps_id": gramps_id, "extend": "note_list"}) or []
+    gens = (
+        client.get_json(
+            "/people/", params={"gramps_id": gramps_id, "extend": "note_list"}
+        )
+        or []
+    )
     if not gens:
         return set()
     notes = (gens[0].get("extended") or {}).get("notes") or []
@@ -72,27 +79,33 @@ def marqueurs_existants(client, gramps_id: str) -> set[str]:
     for note in notes:
         corps = (note.get("text") or {}).get("string", "")
         if corps.startswith("[genecrew:piste:") and "]" in corps:
-            marqueurs.add(corps[:corps.index("]") + 1])
+            marqueurs.add(corps[: corps.index("]") + 1])
     return marqueurs
 
 
 def corps_note(piste: Piste) -> str:
     """Rend le corps de la note. Rapporte, ne conclut jamais."""
-    lignes = [marqueur(piste.source, piste.identite, piste.identite_derivee),
-              f"Piste — {piste.source}",
-              "",
-              f"Correspondance : {piste.force.upper()}",
-              f"  concordent : {', '.join(piste.concordances) or '—'}",
-              f"  divergent  : {', '.join(piste.divergences) or '—'}",
-              ""]
+    lignes = [
+        marqueur(piste.source, piste.identite, piste.identite_derivee),
+        f"Piste — {piste.source}",
+        "",
+        f"Correspondance : {piste.force.upper()}",
+        f"  concordent : {', '.join(piste.concordances) or '—'}",
+        f"  divergent  : {', '.join(piste.divergences) or '—'}",
+        "",
+    ]
     if piste.url:
         lignes.append(f"URL : {piste.url}")
     else:
-        lignes += ["Permalien ABSENT de la source.",
-                   "Pour retrouver la fiche : recherche manuelle par nom + date."]
-    lignes += [f"Requête rejouable : {piste.requete}",
-               "",
-               "Une piste n'est pas un fait : à vérifier avant toute citation."]
+        lignes += [
+            "Permalien ABSENT de la source.",
+            "Pour retrouver la fiche : recherche manuelle par nom + date.",
+        ]
+    lignes += [
+        f"Requête rejouable : {piste.requete}",
+        "",
+        "Une piste n'est pas un fait : à vérifier avant toute citation.",
+    ]
     return "\n".join(lignes)
 
 
@@ -103,28 +116,41 @@ def consigner(client, piste: Piste, *, dry_run: bool = False) -> dict:
     """
     if piste.force != "forte":
         return {"ecrite": False, "raison": "faible"}
-    if marqueur(piste.source, piste.identite, piste.identite_derivee) in marqueurs_existants(
-            client, piste.gramps_id):
+    if marqueur(
+        piste.source, piste.identite, piste.identite_derivee
+    ) in marqueurs_existants(client, piste.gramps_id):
         return {"ecrite": False, "raison": "déjà consignée"}
     if effective_dry_run(dry_run):
         return {"ecrite": False, "raison": "simulation"}
 
-    note = json.loads(GrampsCreateNoteTool()._run(text=corps_note(piste), note_type="Research"))
+    note = json.loads(
+        GrampsCreateNoteTool()._run(text=corps_note(piste), note_type="Research")
+    )
     if not note["success"]:
         return {"ecrite": False, "raison": f"note refusée : {note['error']}"}
     tag = json.loads(GrampsEnsureTagTool()._run(name=TAG_PISTE))
     if not tag["success"]:
         return {"ecrite": False, "raison": f"tag refusé : {tag['error']}"}
-    attache = json.loads(GrampsAttachTool()._run(
-        handle=piste.handle, note_handle=note["data"]["handle"],
-        tag_handle=tag["data"]["handle"]))
+    attache = json.loads(
+        GrampsAttachTool()._run(
+            handle=piste.handle,
+            note_handle=note["data"]["handle"],
+            tag_handle=tag["data"]["handle"],
+        )
+    )
     if not attache["success"]:
         return {"ecrite": False, "raison": f"rattachement refusé : {attache['error']}"}
     return {"ecrite": True, "raison": "consignée"}
 
 
-def render_rapport_pistes(pistes: list[Piste], date: str, *, dry_run: bool = False,
-                          ecriture: bool = True, echecs: int = 0) -> str:
+def render_rapport_pistes(
+    pistes: list[Piste],
+    date: str,
+    *,
+    dry_run: bool = False,
+    ecriture: bool = True,
+    echecs: int = 0,
+) -> str:
     """Rapport Markdown. Les faibles n'existent QUE là — les perdre les perdrait.
 
     `ecriture` distingue deux appelants possibles de ce rendu partagé :
@@ -148,19 +174,29 @@ def render_rapport_pistes(pistes: list[Piste], date: str, *, dry_run: bool = Fal
     """
     if ecriture:
         dry_run = effective_dry_run(dry_run)
-        mode = "simulation (dry-run, aucune écriture)" if dry_run else "écritures appliquées"
+        mode = (
+            "simulation (dry-run, aucune écriture)"
+            if dry_run
+            else "écritures appliquées"
+        )
         libelle_fortes = "Pistes fortes (écrites dans l'arbre)"
     else:
         mode = "lecture seule (cette commande n'écrit rien)"
-        libelle_fortes = "Pistes fortes (au moins deux facteurs concordants, aucune divergence)"
+        libelle_fortes = (
+            "Pistes fortes (au moins deux facteurs concordants, aucune divergence)"
+        )
     fortes = [p for p in pistes if p.force == "forte"]
     faibles = [p for p in pistes if p.force == "faible"]
-    lignes = [f"# Pistes de recherche — {date}", "",
-              f"Mode : {mode}.", "",
-              f"- {libelle_fortes} : {len(fortes)}",
-              f"- Pistes faibles (ce rapport seulement) : {len(faibles)}",
-              f"- Échecs de la source (personne non interrogée, ex. erreur réseau) : {echecs}",
-              ""]
+    lignes = [
+        f"# Pistes de recherche — {date}",
+        "",
+        f"Mode : {mode}.",
+        "",
+        f"- {libelle_fortes} : {len(fortes)}",
+        f"- Pistes faibles (ce rapport seulement) : {len(faibles)}",
+        f"- Échecs de la source (personne non interrogée, ex. erreur réseau) : {echecs}",
+        "",
+    ]
     if not pistes:
         lignes += ["Aucune piste.", ""]
         return "\n".join(lignes)
@@ -169,13 +205,17 @@ def render_rapport_pistes(pistes: list[Piste], date: str, *, dry_run: bool = Fal
         if not lot:
             lignes += ["Aucune.", ""]
             continue
-        lignes += ["| Personne | Source | Identité | Concordances | Divergences | URL |",
-                   "|---|---|---|---|---|---|"]
+        lignes += [
+            "| Personne | Source | Identité | Concordances | Divergences | URL |",
+            "|---|---|---|---|---|---|",
+        ]
         for p in lot:
             url = p.url or "— (permalien absent de la source)"
-            lignes.append(f"| {p.gramps_id} | {p.source} | {p.identite} | "
-                          f"{', '.join(p.concordances) or '—'} | "
-                          f"{', '.join(p.divergences) or '—'} | {url} |")
+            lignes.append(
+                f"| {p.gramps_id} | {p.source} | {p.identite} | "
+                f"{', '.join(p.concordances) or '—'} | "
+                f"{', '.join(p.divergences) or '—'} | {url} |"
+            )
         lignes.append("")
     lignes += ["> Une piste n'est pas un fait : aucune citation n'a été créée.", ""]
     return "\n".join(lignes)

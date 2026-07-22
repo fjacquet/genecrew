@@ -8,14 +8,20 @@ from crewai_custom_tools.tools.genealogy.gramps.facts import FactsFetcher
 from genecrew.scope import parse_scope, resolve_handles
 
 
-def iter_people_batches(client: GrampsClient, fetcher: FactsFetcher,
-                        scope: str, batch_size: int, limit: int | None):
+def iter_people_batches(
+    client: GrampsClient,
+    fetcher: FactsFetcher,
+    scope: str,
+    batch_size: int,
+    limit: int | None,
+):
     """Yield successive batches of PersonFacts for `scope`."""
     kind, _gid = parse_scope(scope)
     if kind != "all":
         handles = resolve_handles(client, scope)
-        people = [p for h, _ in handles
-                  if (p := fetcher.get_person_facts(h)) is not None]
+        people = [
+            p for h, _ in handles if (p := fetcher.get_person_facts(h)) is not None
+        ]
         if people:
             yield people
         return
@@ -45,12 +51,15 @@ def iter_places(client: GrampsClient, scope: str, batch_size: int, limit: int | 
     if kind != "all":
         raise NotImplementedError(
             f"scope {scope!r} non supporté pour les lieux ; "
-            "utilisez --scope all ou --scope place:<ID>")
+            "utilisez --scope all ou --scope place:<ID>"
+        )
     fetched = 0
     page = 1
     while True:
-        places = client.get_json("/places/", params={"page": page, "pagesize": batch_size,
-                                                      "sort": "gramps_id"})
+        places = client.get_json(
+            "/places/",
+            params={"page": page, "pagesize": batch_size, "sort": "gramps_id"},
+        )
         if not places:
             break
         if limit is not None and fetched + len(places) > limit:

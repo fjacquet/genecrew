@@ -13,7 +13,9 @@ from pathlib import Path
 import yaml
 from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient
 from crewai_custom_tools.tools.genealogy.gramps.write_tools import (
-    GrampsCreatePlaceTool, GrampsUpdatePlaceTool, effective_dry_run,
+    GrampsCreatePlaceTool,
+    GrampsUpdatePlaceTool,
+    effective_dry_run,
 )
 from crewai_custom_tools.tools.genealogy.models.domain import PlaceMergeProposition
 
@@ -42,7 +44,7 @@ def _seed_parent_index(client: GrampsClient) -> dict[str, str]:
             seen.add(cur["handle"])
             name = (cur.get("name") or {}).get("value", "")
             if not name:
-                names = []                      # unreliable chain -> don't index this path
+                names = []  # unreliable chain -> don't index this path
                 break
             names.append(name)
             refs = cur.get("placeref_list") or []
@@ -68,9 +70,15 @@ def _ensure_parents(chain, index, creator, dry_run) -> str | None:
     for level in chain.levels:
         path = f"{path}>{level.name}" if path else level.name
         if path not in index:
-            payload = json.loads(creator._run(
-                name=level.name, place_type=level.place_type, parent_handle=parent,
-                code=level.code, dry_run=dry_run))
+            payload = json.loads(
+                creator._run(
+                    name=level.name,
+                    place_type=level.place_type,
+                    parent_handle=parent,
+                    code=level.code,
+                    dry_run=dry_run,
+                )
+            )
             if not payload["success"]:
                 raise RuntimeError(f"create '{path}': {payload['error']}")
             index[path] = payload["data"]["handle"]
@@ -78,17 +86,34 @@ def _ensure_parents(chain, index, creator, dry_run) -> str | None:
     return parent
 
 
-def render_apply_report(scope, date, applied, skipped, proposals, merges, errors, dry_run,
-                        base_url="http://localhost") -> str:
-    mode = "simulation (dry-run, aucune écriture)" if dry_run else "écritures appliquées"
-    lines = [f"# Application des lieux — {scope} — {date}", "",
-             f"Mode : {mode}.", "",
-             f"- Lieux écrits : {len(applied)}",
-             f"- Déjà structurés (ignorés) : {skipped}",
-             f"- Propositions (non écrites) : {len(proposals)}",
-             f"- Fusions proposées (jamais auto) : {len(merges)}",
-             f"- Erreurs : {len(errors)}", "",
-             "## Lieux écrits", ""]
+def render_apply_report(
+    scope,
+    date,
+    applied,
+    skipped,
+    proposals,
+    merges,
+    errors,
+    dry_run,
+    base_url="http://localhost",
+) -> str:
+    mode = (
+        "simulation (dry-run, aucune écriture)" if dry_run else "écritures appliquées"
+    )
+    lines = [
+        f"# Application des lieux — {scope} — {date}",
+        "",
+        f"Mode : {mode}.",
+        "",
+        f"- Lieux écrits : {len(applied)}",
+        f"- Déjà structurés (ignorés) : {skipped}",
+        f"- Propositions (non écrites) : {len(proposals)}",
+        f"- Fusions proposées (jamais auto) : {len(merges)}",
+        f"- Erreurs : {len(errors)}",
+        "",
+        "## Lieux écrits",
+        "",
+    ]
     if applied:
         lines += ["| Lieu | Nom | Type | GPS |", "|---|---|---|---|"]
         for gid, name, ptype, lat, lon in applied:
@@ -99,20 +124,34 @@ def render_apply_report(scope, date, applied, skipped, proposals, merges, errors
     if merges:
         lines += ["| Garder | Fusionner | Canonique | Raison |", "|---|---|---|---|"]
         for m in merges:
-            lines.append(f"| {_link(m.gramps_id_keep, base_url)} | {_link(m.gramps_id_merge, base_url)} "
-                         f"| {m.canonical} | {m.reason} |")
+            lines.append(
+                f"| {_link(m.gramps_id_keep, base_url)} | {_link(m.gramps_id_merge, base_url)} "
+                f"| {m.canonical} | {m.reason} |"
+            )
     else:
         lines.append("Aucune.")
     lines += ["", "## Erreurs", ""]
-    lines += (["| Lieu | Erreur |", "|---|---|"] + [f"| {_link(g, base_url)} | {e} |" for g, e in errors]
-              if errors else ["Aucune erreur."])
+    lines += (
+        ["| Lieu | Erreur |", "|---|---|"]
+        + [f"| {_link(g, base_url)} | {e} |" for g, e in errors]
+        if errors
+        else ["Aucune erreur."]
+    )
     lines.append("")
     return "\n".join(lines)
 
 
-def run_places_apply(client: GrampsClient, scope: str, output_dir, *, date: str,
-                     min_score: float = 0.90, batch_size: int = 25,
-                     limit: int | None = None, dry_run: bool = False) -> Path:
+def run_places_apply(
+    client: GrampsClient,
+    scope: str,
+    output_dir,
+    *,
+    date: str,
+    min_score: float = 0.90,
+    batch_size: int = 25,
+    limit: int | None = None,
+    dry_run: bool = False,
+) -> Path:
     """Enrich leaves + build hierarchy for action=='ecrire'; propose leaf merges. Idempotent."""
     output_dir = Path(output_dir)
     creator = GrampsCreatePlaceTool()
@@ -127,14 +166,18 @@ def run_places_apply(client: GrampsClient, scope: str, output_dir, *, date: str,
     for batch in iter_places(client, scope, batch_size, limit):
         for place in batch:
             if (place.get("place_type") or "Unknown") != "Unknown":
-                skipped += 1                # déjà structuré (parent créé ou feuille enrichie) : idempotent
+                skipped += (
+                    1  # déjà structuré (parent créé ou feuille enrichie) : idempotent
+                )
                 continue
             prop = build_proposition(place, min_score)
             if prop.action != "ecrire":
                 proposals.append(prop)
                 continue
             rp = prop.resolution
-            canonical = ">".join([lvl.name for c in rp.chains for lvl in c.levels] + [rp.name])
+            canonical = ">".join(
+                [lvl.name for c in rp.chains for lvl in c.levels] + [rp.name]
+            )
             by_canonical[canonical].append((prop.gramps_id, prop.handle))
             try:
                 placeref_list = []
@@ -144,13 +187,24 @@ def run_places_apply(client: GrampsClient, scope: str, output_dir, *, date: str,
                     if chain.date_qualifier:
                         ref["_date_qualifier"] = chain.date_qualifier
                     placeref_list.append(ref)
-                payload = json.loads(updater._run(
-                    handle=prop.handle, name=rp.name, place_type=rp.place_type,
-                    lat=rp.lat, long=rp.long, code=rp.code, placeref_list=placeref_list,
-                    alt_names=[a.model_dump() for a in rp.alt_names],
-                    provenance=prop.preuve, dry_run=dry_run))
+                payload = json.loads(
+                    updater._run(
+                        handle=prop.handle,
+                        name=rp.name,
+                        place_type=rp.place_type,
+                        lat=rp.lat,
+                        long=rp.long,
+                        code=rp.code,
+                        placeref_list=placeref_list,
+                        alt_names=[a.model_dump() for a in rp.alt_names],
+                        provenance=prop.preuve,
+                        dry_run=dry_run,
+                    )
+                )
                 if payload["success"]:
-                    applied.append((prop.gramps_id, rp.name, rp.place_type, rp.lat, rp.long))
+                    applied.append(
+                        (prop.gramps_id, rp.name, rp.place_type, rp.lat, rp.long)
+                    )
                 else:
                     errors.append((prop.gramps_id, payload["error"]))
             except RuntimeError as exc:
@@ -158,21 +212,43 @@ def run_places_apply(client: GrampsClient, scope: str, output_dir, *, date: str,
                 # toute autre exception (bug de programmation) doit remonter, pas être avalée ici.
                 errors.append((prop.gramps_id, str(exc)))
 
-    merges = [PlaceMergeProposition(
-        gramps_id_keep=ids[0][0], handle_keep=ids[0][1],
-        gramps_id_merge=g, handle_merge=h, canonical=canon,
-        reason="même lieu canonique résolu")
-        for canon, ids in by_canonical.items() if len(ids) > 1 for g, h in ids[1:]]
+    merges = [
+        PlaceMergeProposition(
+            gramps_id_keep=ids[0][0],
+            handle_keep=ids[0][1],
+            gramps_id_merge=g,
+            handle_merge=h,
+            canonical=canon,
+            reason="même lieu canonique résolu",
+        )
+        for canon, ids in by_canonical.items()
+        if len(ids) > 1
+        for g, h in ids[1:]
+    ]
 
     out = output_dir / "lieux"
     out.mkdir(parents=True, exist_ok=True)
     scope_slug = scope.replace(":", "_")
     path = out / f"{date}_lieux_appliques_{scope_slug}.md"
-    path.write_text(render_apply_report(scope, date, applied, skipped, proposals, merges, errors,
-                                        effective_dry_run(dry_run)), encoding="utf-8")
+    path.write_text(
+        render_apply_report(
+            scope,
+            date,
+            applied,
+            skipped,
+            proposals,
+            merges,
+            errors,
+            effective_dry_run(dry_run),
+        ),
+        encoding="utf-8",
+    )
 
     merges_path = out / f"{date}_fusions_lieux_{scope_slug}.yaml"
     merges_path.write_text(
-        yaml.safe_dump([m.model_dump() for m in merges], allow_unicode=True, sort_keys=False),
-        encoding="utf-8")
+        yaml.safe_dump(
+            [m.model_dump() for m in merges], allow_unicode=True, sort_keys=False
+        ),
+        encoding="utf-8",
+    )
     return path

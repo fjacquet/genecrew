@@ -12,7 +12,12 @@ CONFIG = GrampsConfig(api_url="http://g.test/api", username="u", password="p")
 
 
 def test_deux_facteurs_independants_font_une_piste_forte():
-    assert Piste(**_base_piste(concordances=["nom", "date complète"], divergences=[])).force == "forte"
+    assert (
+        Piste(
+            **_base_piste(concordances=["nom", "date complète"], divergences=[])
+        ).force
+        == "forte"
+    )
 
 
 def test_un_seul_facteur_ne_suffit_pas():
@@ -23,9 +28,15 @@ def test_un_seul_facteur_ne_suffit_pas():
 def test_une_divergence_dure_degrade_malgre_les_concordances():
     # Règle du projet : une contradiction irréductible l'emporte sur n'importe
     # quel nombre de concordances.
-    assert Piste(**_base_piste(
-        concordances=["nom", "prénom", "lieu"],
-        divergences=["départements incompatibles"])).force == "faible"
+    assert (
+        Piste(
+            **_base_piste(
+                concordances=["nom", "prénom", "lieu"],
+                divergences=["départements incompatibles"],
+            )
+        ).force
+        == "faible"
+    )
 
 
 def test_vocabulaire_ferme_refuse_une_concordance_inventee():
@@ -44,29 +55,44 @@ def test_cle_derivee_est_stable_entre_appels():
 def test_cle_derivee_normalise_casse_accents_et_espaces():
     # La même fiche rendue différemment doit produire la MÊME clé, sinon
     # l'idempotence saute au premier changement de formatage de la source.
-    assert cle_derivee("mdh", ["SOULAT", "Hoche"]) == cle_derivee("mdh", ["  soulat ", "HOCHÉ".replace("É", "e")])
+    assert cle_derivee("mdh", ["SOULAT", "Hoche"]) == cle_derivee(
+        "mdh", ["  soulat ", "HOCHÉ".replace("É", "e")]
+    )
 
 
 def test_cle_derivee_distingue_des_fiches_differentes():
-    assert cle_derivee("mdh", ["SOULAT", "Hoche"]) != cle_derivee("mdh", ["SOULAT", "Kléber"])
+    assert cle_derivee("mdh", ["SOULAT", "Hoche"]) != cle_derivee(
+        "mdh", ["SOULAT", "Kléber"]
+    )
 
 
 def test_marqueur_natif_et_derive():
     assert marqueur("matchid", "a1b2c3d4") == "[genecrew:piste:matchid:a1b2c3d4]"
     # Le préfixe k= signale une identité dérivée, lisible d'un coup d'œil dans Gramps.
-    assert marqueur("mdh", "6f2a91c4", derivee=True) == "[genecrew:piste:mdh:k=6f2a91c4]"
+    assert (
+        marqueur("mdh", "6f2a91c4", derivee=True) == "[genecrew:piste:mdh:k=6f2a91c4]"
+    )
 
 
 def test_cle_derivee_ne_depend_pas_du_salage_du_processus():
     # hash() est salé à chaque exécution : une clé qui en dépendrait casserait
     # l'idempotence entre deux lancements. On verrouille la valeur attendue.
-    assert cle_derivee("mdh", ["SOULAT", "Hoche"]) == cle_derivee("mdh", ["SOULAT", "Hoche"])
+    assert cle_derivee("mdh", ["SOULAT", "Hoche"]) == cle_derivee(
+        "mdh", ["SOULAT", "Hoche"]
+    )
     import subprocess
     import sys
+
     autre = subprocess.run(
-        [sys.executable, "-c",
-         "from genecrew.pistes import cle_derivee; print(cle_derivee('mdh', ['SOULAT','Hoche']))"],
-        capture_output=True, text=True, check=True).stdout.strip()
+        [
+            sys.executable,
+            "-c",
+            "from genecrew.pistes import cle_derivee; print(cle_derivee('mdh', ['SOULAT','Hoche']))",
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
     assert autre == cle_derivee("mdh", ["SOULAT", "Hoche"])
 
 
@@ -77,27 +103,48 @@ def _ecriture_reelle(monkeypatch):
 
 def _client(records, notes=()):
     """Client Gramps mocké. `notes` = corps des notes déjà rattachées à la personne."""
+
     def handler(request):
         if request.url.path == "/api/token/":
             return httpx.Response(200, json={"access_token": "t"})
         if request.url.path == "/api/people/" and request.method == "GET":
-            return httpx.Response(200, json=[{
-                "handle": "h1", "gramps_id": "I1123",
-                "note_list": [], "tag_list": [],
-                "extended": {"notes": [{"text": {"string": n}} for n in notes]},
-            }])
-        records.append((request.method, str(request.url.path),
-                        json.loads(request.content) if request.content else None))
+            return httpx.Response(
+                200,
+                json=[
+                    {
+                        "handle": "h1",
+                        "gramps_id": "I1123",
+                        "note_list": [],
+                        "tag_list": [],
+                        "extended": {"notes": [{"text": {"string": n}} for n in notes]},
+                    }
+                ],
+            )
+        records.append(
+            (
+                request.method,
+                str(request.url.path),
+                json.loads(request.content) if request.content else None,
+            )
+        )
         if request.method == "POST":
             return httpx.Response(201, json=[{"new": [{"handle": "nouveau"}]}])
         return httpx.Response(200, json={})
+
     return GrampsClient(CONFIG, transport=httpx.MockTransport(handler))
 
 
 def _base_piste(**kw):
-    base = dict(gramps_id="I1123", handle="h1", source="matchid", identite="a1b2c3d4",
-                requete="nom=SOULAT&prenom=Kleber", url="https://deces.matchid.io/id/a1b2c3d4",
-                concordances=["nom", "date complète"], divergences=[])
+    base = dict(
+        gramps_id="I1123",
+        handle="h1",
+        source="matchid",
+        identite="a1b2c3d4",
+        requete="nom=SOULAT&prenom=Kleber",
+        url="https://deces.matchid.io/id/a1b2c3d4",
+        concordances=["nom", "date complète"],
+        divergences=[],
+    )
     base.update(kw)
     return base
 
@@ -109,8 +156,13 @@ def _piste(**kw):
 
 
 def test_marqueurs_existants_lit_les_notes_de_la_personne():
-    client = _client([], notes=["[genecrew:piste:matchid:a1b2c3d4] Piste de décès…",
-                                "Note humaine sans marqueur"])
+    client = _client(
+        [],
+        notes=[
+            "[genecrew:piste:matchid:a1b2c3d4] Piste de décès…",
+            "Note humaine sans marqueur",
+        ],
+    )
     assert marqueurs_existants(client, "I1123") == {"[genecrew:piste:matchid:a1b2c3d4]"}
 
 
@@ -130,13 +182,17 @@ def test_une_piste_faible_ne_touche_jamais_l_arbre(mocker):
     mocker.patch.object(write_tools, "get_client", return_value=client)
     out = consigner(client, _piste(concordances=["nom"]))
     assert out["ecrite"] is False and out["raison"] == "faible"
-    assert not [r for r in records if r[0] in ("POST", "PUT")], "une faible a écrit dans l'arbre"
+    assert not [r for r in records if r[0] in ("POST", "PUT")], (
+        "une faible a écrit dans l'arbre"
+    )
 
 
 def test_second_passage_n_ecrit_rien(mocker):
     # LE test qui justifie tout le mécanisme de marqueur.
     records = []
-    client = _client(records, notes=["[genecrew:piste:matchid:a1b2c3d4] déjà consignée"])
+    client = _client(
+        records, notes=["[genecrew:piste:matchid:a1b2c3d4] déjà consignée"]
+    )
     mocker.patch.object(write_tools, "get_client", return_value=client)
     out = consigner(client, _piste())
     assert out["ecrite"] is False and out["raison"] == "déjà consignée"
@@ -156,11 +212,17 @@ def test_le_corps_de_la_note_dit_l_absence_de_permalien(mocker):
     records = []
     client = _client(records)
     mocker.patch.object(write_tools, "get_client", return_value=client)
-    consigner(client, _piste(url=None, identite="6f2a91c4", identite_derivee=True, source="mdh"))
-    corps = next(r[2]["text"]["string"] for r in records
-                 if r[0] == "POST" and "/notes/" in r[1])
+    consigner(
+        client,
+        _piste(url=None, identite="6f2a91c4", identite_derivee=True, source="mdh"),
+    )
+    corps = next(
+        r[2]["text"]["string"] for r in records if r[0] == "POST" and "/notes/" in r[1]
+    )
     assert "ABSENT" in corps
-    assert "http" not in corps, "aucune URL ne doit apparaître quand la source n'en donne pas"
+    assert "http" not in corps, (
+        "aucune URL ne doit apparaître quand la source n'en donne pas"
+    )
     assert corps.startswith("[genecrew:piste:mdh:k=6f2a91c4]")
 
 
@@ -169,21 +231,27 @@ def test_le_corps_ne_conclut_pas(mocker):
     client = _client(records)
     mocker.patch.object(write_tools, "get_client", return_value=client)
     consigner(client, _piste())
-    corps = next(r[2]["text"]["string"] for r in records
-                 if r[0] == "POST" and "/notes/" in r[1])
+    corps = next(
+        r[2]["text"]["string"] for r in records if r[0] == "POST" and "/notes/" in r[1]
+    )
     assert "Une piste n'est pas un fait" in corps
 
 
 def test_rapport_separe_fortes_et_faibles():
     from genecrew.pistes import render_rapport_pistes
-    md = render_rapport_pistes([_piste(), _piste(concordances=["nom"], identite="zzz")],
-                               "2026-07-20", dry_run=False)
+
+    md = render_rapport_pistes(
+        [_piste(), _piste(concordances=["nom"], identite="zzz")],
+        "2026-07-20",
+        dry_run=False,
+    )
     assert "Pistes fortes" in md and "Pistes faibles" in md
     assert "écritures appliquées" in md
 
 
 def test_rapport_dit_le_mode_simulation():
     from genecrew.pistes import render_rapport_pistes
+
     md = render_rapport_pistes([_piste()], "2026-07-20", dry_run=True)
     assert "simulation" in md
 
@@ -191,13 +259,16 @@ def test_rapport_dit_le_mode_simulation():
 def test_rapport_contient_les_faibles_absentes_de_l_arbre():
     # Les faibles n'existent QUE là : si le rapport les perd, elles sont perdues.
     from genecrew.pistes import render_rapport_pistes
-    md = render_rapport_pistes([_piste(identite="zzz",
-                                       concordances=["nom"])], "2026-07-20", dry_run=False)
+
+    md = render_rapport_pistes(
+        [_piste(identite="zzz", concordances=["nom"])], "2026-07-20", dry_run=False
+    )
     assert "zzz" in md
 
 
 def test_rapport_sans_piste_le_dit():
     from genecrew.pistes import render_rapport_pistes
+
     md = render_rapport_pistes([], "2026-07-20", dry_run=False)
     assert "Aucune piste" in md
 

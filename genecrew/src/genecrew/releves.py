@@ -16,8 +16,13 @@ from pydantic import BaseModel, Field
 from genecrew.pistes import _normaliser
 
 FacteurReleve = Literal[
-    "parent nommé", "deux parents nommés", "date complète", "lieu",
-    "patronyme rare", "prénom", "année approximative",
+    "parent nommé",
+    "deux parents nommés",
+    "date complète",
+    "lieu",
+    "patronyme rare",
+    "prénom",
+    "année approximative",
 ]
 """Vocabulaire fermé des facteurs qu'un appariement peut invoquer.
 
@@ -46,8 +51,8 @@ POIDS: dict[str, int] = {
 }
 
 FACTEURS_FORTS: frozenset[str] = frozenset(
-    {"parent nommé", "deux parents nommés", "date complète", "lieu",
-     "patronyme rare"})
+    {"parent nommé", "deux parents nommés", "date complète", "lieu", "patronyme rare"}
+)
 
 SEUIL_NET = 8
 """Poids minimal d'un verdict `net`.
@@ -116,8 +121,8 @@ class ReleveIndexe(BaseModel):
     sujet_nom: str
     sujet_prenom: str
     evenement_type: str = Field(description="Death | Birth | Marriage")
-    evenement_date: str = ""            # ISO "1894-12-10", "" si absente
-    evenement_lieu: str = ""            # commune NUE (sert de CLÉ dans lieux_resolus)
+    evenement_date: str = ""  # ISO "1894-12-10", "" si absente
+    evenement_lieu: str = ""  # commune NUE (sert de CLÉ dans lieux_resolus)
     # Le PAYS de l'événement, extrait par le LLM quand le relevé l'indique ou
     # l'implique clairement (un département français implique la France, un canton
     # suisse la Suisse). Vide si vraiment inconnu — JAMAIS un défaut « France » :
@@ -165,8 +170,9 @@ def rarete_patronymes(people: list[PersonFacts]) -> dict[str, float]:
     return {nom: n / total for nom, n in Counter(noms).items()}
 
 
-def est_rare(surname: str, rarete: dict[str, float],
-             seuil: float = SEUIL_RARETE) -> bool:
+def est_rare(
+    surname: str, rarete: dict[str, float], seuil: float = SEUIL_RARETE
+) -> bool:
     """Un patronyme absent de l'arbre n'est PAS déclaré rare.
 
     Absent veut dire non mesuré, pas exceptionnel. Lui accorder un facteur fort
@@ -194,8 +200,9 @@ def _cle_blocage(surname: str) -> str:
     return VARIANTES.get(norme, norme)
 
 
-def candidats_blocage(releve: ReleveIndexe,
-                       people: list[PersonFacts]) -> list[PersonFacts]:
+def candidats_blocage(
+    releve: ReleveIndexe, people: list[PersonFacts]
+) -> list[PersonFacts]:
     """Les personnes qui méritent une comparaison fine.
 
     Sans cette étape, N relevés × 2 119 personnes explose. Le blocage est
@@ -300,8 +307,9 @@ def _commune(ev: EventFact | None) -> str:
     return ev.place.split(",")[0].strip()
 
 
-def _identifiant_resolu(lieux_resolus: dict[str, str],
-                        lieu_normalise: str) -> str | None:
+def _identifiant_resolu(
+    lieux_resolus: dict[str, str], lieu_normalise: str
+) -> str | None:
     """Lit `lieux_resolus`, en imposant le contrat de préfixe pays.
 
     Une valeur SANS préfixe pays (pas de `:`, par exemple un code INSEE nu comme
@@ -352,8 +360,9 @@ def _identifiant_resolu(lieux_resolus: dict[str, str],
     return f"{pays.upper()}:{numero}"
 
 
-def _comparer_lieux(lieu_releve: str, commune_arbre: str,
-                    lieux_resolus: dict[str, str]) -> tuple[bool, str]:
+def _comparer_lieux(
+    lieu_releve: str, commune_arbre: str, lieux_resolus: dict[str, str]
+) -> tuple[bool, str]:
     """Concordance des lieux : `(facteur, divergence)`.
 
     Règle à TROIS branches, dans cet ordre :
@@ -393,13 +402,17 @@ def _comparer_lieux(lieu_releve: str, commune_arbre: str,
     if code_releve and code_arbre:
         if code_releve == code_arbre:
             return True, ""
-        return False, (f"lieu {commune_arbre} ({code_arbre}) "
-                       f"≠ relevé {lieu_releve} ({code_releve})")
+        return False, (
+            f"lieu {commune_arbre} ({code_arbre}) "
+            f"≠ relevé {lieu_releve} ({code_releve})"
+        )
     return _normaliser(commune_arbre) == _normaliser(lieu_releve), ""
 
 
 def facteurs_et_divergences(
-    releve: ReleveIndexe, person: PersonFacts, rarete: dict[str, float],
+    releve: ReleveIndexe,
+    person: PersonFacts,
+    rarete: dict[str, float],
     parents_par_handle: dict[str, list[str]],
     lieux_resolus: dict[str, str] | None = None,
 ) -> tuple[list[FacteurReleve], list[str]]:
@@ -434,7 +447,8 @@ def facteurs_et_divergences(
     # préfixe pays) ; lieu non résolu d'un côté ou de l'autre → repli sur la
     # chaîne, sans jamais de veto sur une non-mesure.
     facteur_lieu, divergence_lieu = _comparer_lieux(
-        releve.evenement_lieu, _commune(ev), lieux_resolus)
+        releve.evenement_lieu, _commune(ev), lieux_resolus
+    )
     if facteur_lieu:
         facteurs.append("lieu")
     if divergence_lieu:
@@ -466,13 +480,19 @@ def facteurs_et_divergences(
     naissance = person.birth
     if naissance is not None and naissance.modifier in (0, 3):
         annee_arbre = naissance.year
-        if (releve.naissance_estimee and annee_arbre
-                and abs(annee_arbre - releve.naissance_estimee) <= FENETRE_ANNEE_APPROX):
+        if (
+            releve.naissance_estimee
+            and annee_arbre
+            and abs(annee_arbre - releve.naissance_estimee) <= FENETRE_ANNEE_APPROX
+        ):
             facteurs.append("année approximative")
 
     parents_arbre = {_normaliser(n) for n in parents_par_handle.get(person.handle, [])}
-    parents_releve = {_normaliser(pl.nom) for pl in releve.personnes_liees
-                      if pl.role in ("père", "mère")}
+    parents_releve = {
+        _normaliser(pl.nom)
+        for pl in releve.personnes_liees
+        if pl.role in ("père", "mère")
+    }
     concordants = parents_arbre & parents_releve
     # Un seul parent qui concorde (un homonyme, une coïncidence sur un
     # patronyme courant) n'est pas la même preuve qu'un couple qui concorde
@@ -486,8 +506,9 @@ def facteurs_et_divergences(
     return facteurs, divergences
 
 
-def _verdict_candidat(facteurs: list[FacteurReleve],
-                      divergences: list[str]) -> tuple[str, int]:
+def _verdict_candidat(
+    facteurs: list[FacteurReleve], divergences: list[str]
+) -> tuple[str, int]:
     """Poids et éligibilité d'UN candidat. La divergence est un veto.
 
     `facteurs` est typé `FacteurReleve` et non `str`, par cohérence avec
@@ -500,7 +521,7 @@ def _verdict_candidat(facteurs: list[FacteurReleve],
         return "aucun", 0
     poids = sum(POIDS[f] for f in facteurs)
     if not (set(facteurs) & FACTEURS_FORTS):
-        return "aucun", poids       # un faible ne suffit jamais, même à plusieurs
+        return "aucun", poids  # un faible ne suffit jamais, même à plusieurs
     return ("net" if poids >= SEUIL_NET else "gris"), poids
 
 
@@ -519,10 +540,13 @@ class _Evalue(NamedTuple):
     divergences: list[str]
 
 
-def apparier(releve: ReleveIndexe, people: list[PersonFacts],
-             rarete: dict[str, float],
-             parents_par_handle: dict[str, list[str]],
-             lieux_resolus: dict[str, str] | None = None) -> Appariement:
+def apparier(
+    releve: ReleveIndexe,
+    people: list[PersonFacts],
+    rarete: dict[str, float],
+    parents_par_handle: dict[str, list[str]],
+    lieux_resolus: dict[str, str] | None = None,
+) -> Appariement:
     """Le verdict, motivé.
 
     `lieux_resolus` (lieu brut normalisé → identifiant canonique de commune,
@@ -544,7 +568,8 @@ def apparier(releve: ReleveIndexe, people: list[PersonFacts],
     evalues: list[_Evalue] = []
     for p in candidats_blocage(releve, people):
         facteurs, divergences = facteurs_et_divergences(
-            releve, p, rarete, parents_par_handle, lieux_resolus)
+            releve, p, rarete, parents_par_handle, lieux_resolus
+        )
         verdict, poids = _verdict_candidat(facteurs, divergences)
         evalues.append(_Evalue(verdict, poids, p, facteurs, divergences))
 
@@ -559,9 +584,13 @@ def apparier(releve: ReleveIndexe, people: list[PersonFacts],
             # on remonte son identité et ce qui concordait chez lui — le
             # relecteur n'a pas à refaire l'analyse pour comprendre le rejet.
             seul = evalues[0]
-            return Appariement(verdict="aucun", gramps_id=seul.person.gramps_id,
-                               handle=seul.person.handle, facteurs=seul.facteurs,
-                               divergences=div)
+            return Appariement(
+                verdict="aucun",
+                gramps_id=seul.person.gramps_id,
+                handle=seul.person.handle,
+                facteurs=seul.facteurs,
+                divergences=div,
+            )
         return Appariement(verdict="aucun", divergences=div)
 
     retenus.sort(key=lambda e: e.poids, reverse=True)
@@ -573,11 +602,19 @@ def apparier(releve: ReleveIndexe, people: list[PersonFacts],
     ex_aequo = [e for e in retenus if meilleur.poids - e.poids <= MARGE_EX_AEQUO]
 
     if len(ex_aequo) > 1:
-        return Appariement(verdict="gris", poids=meilleur.poids,
-                           facteurs=meilleur.facteurs,
-                           candidats=[e.person.gramps_id for e in ex_aequo])
+        return Appariement(
+            verdict="gris",
+            poids=meilleur.poids,
+            facteurs=meilleur.facteurs,
+            candidats=[e.person.gramps_id for e in ex_aequo],
+        )
 
     verdict, poids, person, facteurs, _ = meilleur
-    return Appariement(verdict=verdict, gramps_id=person.gramps_id,
-                       handle=person.handle, facteurs=facteurs, poids=poids,
-                       candidats=[person.gramps_id])
+    return Appariement(
+        verdict=verdict,
+        gramps_id=person.gramps_id,
+        handle=person.handle,
+        facteurs=facteurs,
+        poids=poids,
+        candidats=[person.gramps_id],
+    )
