@@ -1673,7 +1673,11 @@ uv run genecrew merge places --scope all --dry-run
 
 À vérifier dans le rapport avant d'écrire pour de vrai :
 
-- **Paris est en arbitrage, pas en fusion.** C'est le contrôle qui compte le plus.
+- **Paris ne produit aucune proposition — ni fusion, ni arbitrage.** C'est le contrôle qui compte
+  le plus. Le plan disait initialement « en arbitrage » ; l'implémentation a durci au-delà : deux
+  lieux dont les codes officiels diffèrent sont retirés du lot, parce que proposer leur fusion à un
+  humain reviendrait à lui suggérer un rapprochement que l'algorithme sait faux. Si Paris apparaît
+  dans le rapport, sous quelque forme que ce soit, le veto est tombé — c'est le signal d'alarme.
 - Annaba, Sétif et Souk Ahras sont en arbitrage.
 - Les groupes de communes attendus apparaissent en fusion prouvée.
 - Pour chaque fusion, le survivant est bien le lieu le plus renseigné, et la colonne « perte
