@@ -148,6 +148,15 @@ def build_parser() -> argparse.ArgumentParser:
     _add_dry_run(p)
     _add_date(p)
 
+    p = apply_sub.add_parser(
+        "deaths",
+        help="Crée les décès ABSENTS de l'arbre depuis un YAML relu (type: date, "
+        "confiance 2) — écrit une donnée cœur, ADR 0014",
+    )
+    _add_yaml(p)
+    _add_dry_run(p)
+    _add_date(p)
+
     p = apply_sub.add_parser("all", help="Casse, puis genre, puis lieux, en un passage")
     _add_scope(p)
     p.add_argument(

@@ -317,6 +317,36 @@ uv run genecrew apply all --scope all             # écrire (si GENECREW_DRY_RUN
 Affiche les six chemins de rapport produits (casse, noms à vérifier, genres, lieux, décès,
 propositions décès) dans `output/`.
 
+## Créer les décès absents de l'arbre
+
+`propose deaths` produit deux familles de propositions : `source` (le décès est dans
+l'arbre, il lui manque une source) et `date` (le décès est absent). Après relecture du
+YAML :
+
+```bash
+uv run genecrew apply citations --yaml <relu.yaml>   # les `source`
+uv run genecrew apply deaths --yaml <relu.yaml>      # les `date`
+```
+
+Les deux commandes lisent le même fichier et y prennent des propositions disjointes ;
+l'ordre n'a pas d'importance. `apply deaths` simule par défaut — poser
+`GENECREW_DRY_RUN=false` dans `.env` pour écrire réellement.
+
+Le rapport tombe dans `output/deces/` et son nom porte le mode :
+`<date>_apply_deaths_<yaml>_simulation.md` en simulation,
+`…_ecritures.md` en écriture réelle. L'aperçu survit donc au passage qu'il a
+autorisé, et reste là pour être confronté au résultat.
+
+Le lieu du décès n'est posé que si l'arbre contient **une seule commune** de ce nom
+(type `Municipality` ou `City`). Un homonyme, un contenant administratif — un
+département porte parfois le nom d'une commune — ou un lieu que `apply places` n'a
+pas encore standardisé fait créer l'événement **sans lieu**, et la commune est listée
+dans la section « Lieux non résolus » du rapport. Aucun lieu n'est créé ici : c'est le
+métier de `apply places`.
+
+Un décès créé porte le tag `genecrew:deces` sur la personne : c'est le filtre à utiliser
+dans Gramps Web pour relire ou annuler un lot.
+
 ---
 
 ## Standardisation des lieux

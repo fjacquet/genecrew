@@ -54,6 +54,8 @@ def build_militaire_proposition(
             + f" — {base}, avec la fiche Mémoire des hommes en citation.",
             preuve_url=row.get("lien_ark", ""),
             preuve_detail=detail,
+            date_iso=insee_iso,
+            lieu_nom=lieu,
             priorite="moyenne",
             confiance=confiance,
         )

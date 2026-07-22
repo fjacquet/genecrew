@@ -46,6 +46,36 @@ def _event(kind, year, day=0, month=0, cited=False):
     )
 
 
+def test_proposition_date_militaire_porte_la_donnee_machine():
+    """Mémoire des hommes hérite du même contrat que l'INSEE : date et commune typées."""
+    from crewai_custom_tools.tools.genealogy.models.domain import PersonFacts
+
+    from genecrew.militaires import build_militaire_proposition
+
+    person = PersonFacts(
+        gramps_id="I0500",
+        handle="H500",
+        name="Jean Dupont",
+        surname="Dupont",
+        given="Jean",
+        sex="M",
+    )
+    row = {
+        "deces_date": "1916-05-12",
+        "deces_lieu": "Verdun",
+        "base": "Morts pour la France 1914-1918",
+        "unite": "42e RI",
+        "reference": "1916/123",
+        "lien_ark": "https://ark.example/x",
+    }
+
+    prop = build_militaire_proposition(person, row, 1.0, exact_birth=True)
+
+    assert prop.type == "date"
+    assert prop.date_iso == "1916-05-12"
+    assert prop.lieu_nom == "Verdun"
+
+
 def test_run_militaires_full_birth_match_proposes_with_ark(tmp_path, monkeypatch):
     sylvain = _person(
         "I0500", "Sylvain", "Villaudy", birth=_event("Birth", 1895, 11, 11)

@@ -1,0 +1,481 @@
+"""`apply deaths` — création d'événements décès sourcés depuis un YAML relu.
+
+La v2 de l'ADR 0011 : là où `apply citations` pose une citation sur un décès qui
+existe déjà (`type: source`), cette commande écrit le décès ABSENT de l'arbre
+(`type: date`). Elle crée donc une donnée cœur, ce que l'ADR 0011 s'interdisait —
+voir l'ADR 0014 pour ce que ça relâche et ce qui l'encadre.
+
+L'écriture elle-même est déléguée à `evenements.creer_evenement_source` ; ce module
+tient le filtre, la résolution de lieu, l'orchestration et le rapport.
+"""
+
+from __future__ import annotations
+
+import json
+import re
+import unicodedata
+from pathlib import Path
+
+import yaml
+from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient
+from crewai_custom_tools.tools.genealogy.gramps.write_tools import (
+    GrampsAttachTool,
+    GrampsCreateCitationTool,
+    GrampsCreateNoteTool,
+    GrampsEnsureSourceTool,
+    GrampsEnsureTagTool,
+    effective_dry_run,
+)
+
+from genecrew.deces_apply import citation_page, source_title_for
+from genecrew.evenements import creer_evenement_source, dateval_iso
+from genecrew.propositions import PropositionsLot
+
+TAG_DECES = "genecrew:deces"
+
+
+_LIGATURES = str.maketrans(
+    {
+        "œ": "oe",
+        "Œ": "OE",
+        "æ": "ae",
+        "Æ": "AE",
+    }
+)
+
+
+def normaliser_lieu(nom: str) -> str:
+    """Nom de commune → clé de comparaison : sans accents, minuscule, séparateurs unifiés.
+
+    « Nohant-en-Goût », « nohant en gout » et « NOHANT-EN-GOUT » désignent la même
+    commune ; l'INSEE et l'arbre ne les écrivent pas pareil. Les ligatures (« Vœuil » /
+    « Voeuil ») et l'apostrophe typographique « ’ » (U+2019, courante en copier-coller,
+    contre l'apostrophe ASCII « ' ») sont deux autres variantes de la même commune :
+    NFD décompose les accents mais ne déplie pas les ligatures, d'où le passage explicite
+    avant décomposition ; l'apostrophe courbe entre dans la classe des séparateurs.
+    """
+    depliee = (nom or "").translate(_LIGATURES)
+    sans_accents = "".join(
+        c
+        for c in unicodedata.normalize("NFD", depliee)
+        if unicodedata.category(c) != "Mn"
+    )
+    return re.sub(r"[\s\-'’]+", " ", sans_accents).strip().lower()
+
+
+# Types de lieu qu'un décès peut désigner. Les résolveurs `geo/` de
+# `crewai_custom_tools` nomment la FEUILLE — la localité habitée — `Municipality`
+# (`france.py`, `france_ex_communes.py`, `suisse.py`, `allemagne.py`, `nominatim.py`)
+# ou `City` (`usa.py`) ; tout le reste de leur vocabulaire (`Country`, `Region`,
+# `Department`, `State`, `County`, `Canton`) est un CONTENANT. `Unknown` est le type
+# d'un lieu que `apply places` n'a pas encore standardisé — c'est même son propre
+# test d'idempotence (`places_apply.py:129`) — donc un lieu dont on ne sait pas s'il
+# est une commune, un département ou une adresse.
+#
+# Liste d'INCLUSION, et non d'exclusion, parce que les deux ensembles ne vieillissent
+# pas pareil. Celui des contenants s'allonge à chaque pays ajouté (`Canton` est arrivé
+# avec la Suisse, `State` avec l'Allemagne puis les États-Unis) : un contenant oublié
+# dans une liste d'exclusion rattacherait un décès à un département EN SILENCE, la
+# faute même que ce filtre existe pour empêcher. L'ensemble des feuilles, lui, est
+# fermé par le contrat des résolveurs. Un type imprévu tombe donc du côté sûr : non
+# indexé, donc listé en « Lieux non résolus » — une lacune visible, que `apply places`
+# corrige, plutôt qu'un rattachement hasardeux et définitif.
+#
+# L'élargir est un geste délibéré : n'ajouter un type ici que le jour où un résolveur
+# le pose sur une feuille.
+TYPES_LIEU_DECES = frozenset({"Municipality", "City"})
+
+
+def index_lieux(client: GrampsClient) -> dict[str, str | None]:
+    """Index `{nom normalisé -> handle}` des lieux de l'arbre ; `None` si homonymes.
+
+    Seuls les lieux dont le `place_type` est dans `TYPES_LIEU_DECES` entrent dans
+    l'index : un département, une région ou un pays homonyme d'une commune ne doit
+    jamais pouvoir devenir un lieu de décès.
+
+    Le `None` est porteur d'information : il distingue l'AMBIGU (clé présente, valeur
+    None) de l'INCONNU (clé absente). Les deux mènent au même geste — un événement sans
+    lieu — mais pas au même diagnostic dans le rapport.
+    """
+    index: dict[str, str | None] = {}
+    page = 1
+    while True:
+        batch = client.get_json("/places/", params={"page": page, "pagesize": 200})
+        if not batch:
+            break
+        for place in batch:
+            if not isinstance(place, dict):
+                continue
+            # Filtrer AVANT l'index, pas après : un département écarté ici laisse la
+            # commune homonyme résoluble. L'écarter après en aurait fait un homonyme,
+            # donc un lieu perdu — le filtre désambiguïse autant qu'il refuse.
+            if (place.get("place_type") or "Unknown") not in TYPES_LIEU_DECES:
+                continue
+            cle = normaliser_lieu((place.get("name") or {}).get("value", ""))
+            if not cle:
+                continue
+            # Deuxième occurrence (ou plus) du même nom : on écrase par None. Choisir
+            # au hasard rattacherait un décès à la mauvaise commune, en silence.
+            index[cle] = None if cle in index else place.get("handle")
+        page += 1
+    return index
+
+
+def resoudre_lieu(index: dict[str, str | None], nom: str) -> str | None:
+    """Handle du lieu nommé, ou None s'il est inconnu ou ambigu. Pur."""
+    return index.get(normaliser_lieu(nom))
+
+
+def trier_propositions(propositions: list) -> tuple[list, dict[str, int]]:
+    """Sépare les propositions applicables du reste. Pur.
+
+    Trois des quatre conditions de l'ADR 0014 se jugent sur la proposition seule :
+    `type: date`, `confiance == 2`, et une date ISO complète. La quatrième — « la
+    personne n'a toujours pas de décès » — exige de lire l'arbre au moment de
+    l'écriture, et vit dans `run_deces_event`.
+
+    Les deux motifs de rejet sont comptés SÉPARÉMENT : « hors périmètre » est un
+    non-sujet (c'est le travail d'`apply citations`), « sans donnée » est un signal
+    — un YAML trop ancien, à régénérer. Les confondre ferait lire un lot périmé
+    comme un lot vide.
+    """
+    retenues, motifs = [], {"hors_perimetre": 0, "sans_donnee": 0}
+    for prop in propositions:
+        if prop.type != "date" or prop.confiance != 2:
+            motifs["hors_perimetre"] += 1
+            continue
+        if dateval_iso(prop.date_iso) is None:
+            motifs["sans_donnee"] += 1
+            continue
+        retenues.append(prop)
+    return retenues, motifs
+
+
+def _aplatir_message(msg: str) -> str:
+    """Réduit toute suite d'espaces et de sauts de ligne à une espace simple. Pur.
+
+    Les erreurs sont rendues en item de liste Markdown (`- {gid} : {msg}`) et
+    `str()` d'une erreur HTTP contient un saut de ligne (« For more information
+    check: … »). Une continuation paresseuse passe encore, mais une ligne vide,
+    un `#`, un `|` ou un `- ` en tête de ligne casserait la structure du rapport
+    — la seule trace qu'un humain lira après une écriture irréversible.
+    """
+    return re.sub(r"\s+", " ", str(msg)).strip()
+
+
+def render_deaths_report(
+    date: str,
+    crees: list,
+    refuses: list,
+    lieux_non_resolus: list,
+    motifs: dict,
+    errors: list,
+    dry_run: bool,
+) -> str:
+    """Rapport Markdown d'un passage de `apply deaths`. Pur.
+
+    `Mode:` reflète tel quel le booléen `dry_run` reçu ; c'est à l'appelant de lui
+    passer le dry-run déjà résolu (variable d'environnement comprise) — cette
+    fonction ne lit aucune variable d'environnement elle-même.
+
+    Ce même booléen conjugue les libellés : en simulation, rien n'a été écrit, donc
+    rien ne s'annonce au présent. « Décès créés : 1 » quatre lignes sous une
+    bannière « aucune écriture » est une contradiction que le prochain lecteur
+    tranchera au hasard.
+    """
+    mode = (
+        "simulation (dry-run, aucune écriture)" if dry_run else "écritures appliquées"
+    )
+    libelle_crees = "Décès à créer" if dry_run else "Décès créés"
+    libelle_sans_lieu = (
+        "Événement à créer sans lieu" if dry_run else "Événement créé sans lieu"
+    )
+    lines = [
+        f"# Création d'événements décès sourcés — {date}",
+        "",
+        f"Mode : {mode}.",
+        "",
+        f"- {libelle_crees} : {len(crees)}",
+        f"- Refusés (décès déjà présent dans l'arbre) : {len(refuses)}",
+        f"- Sans donnée machine exploitable (YAML antérieur) : {motifs['sans_donnee']}",
+        f"- Hors périmètre (type ≠ date ou confiance < 2) : {motifs['hors_perimetre']}",
+        f"- Erreurs : {len(errors)}",
+        "",
+    ]
+    if crees:
+        lines += ["| Personne | Événement | Lieu |", "|---|---|---|"]
+        lines += [
+            f"| {gid} {nom} | {ev} | {lieu or '—'} |" for gid, nom, ev, lieu in crees
+        ]
+        lines.append("")
+    if lieux_non_resolus:
+        lines += [
+            "## Lieux non résolus",
+            "",
+            f"{libelle_sans_lieu} : la commune est inconnue de l'arbre, "
+            "plusieurs lieux portent ce nom, ou le seul qui le porte n'est pas "
+            "une commune (contenant administratif, ou lieu que `apply places` "
+            "n'a pas encore standardisé). À traiter avec `apply places`.",
+            "",
+        ]
+        lines += [f"- {gid} : {nom}" for gid, nom in lieux_non_resolus]
+        lines.append("")
+    if refuses:
+        lines += ["## Refusés", ""]
+        lines += [f"- {gid} : {motif}" for gid, motif in refuses]
+        lines.append("")
+    if errors:
+        lines += ["## Erreurs", ""]
+        lines += [f"- {gid} : {_aplatir_message(msg)}" for gid, msg in errors]
+        lines.append("")
+    return "\n".join(lines)
+
+
+def _a_un_deces(person: dict) -> bool:
+    """La personne porte-t-elle déjà un décès ? (garde d'invariant d'`apply deaths`)
+
+    `GrampsCreateEventTool` refuse d'ÉCRASER un `death_ref_index` existant, mais il
+    créerait quand même un second événement Death et l'ajouterait à la liste —
+    invisible dans les vues qui suivent l'index, bien présent dans la base. La garde
+    doit donc être ici, en plus.
+
+    Le schéma Gramps type `death_ref_index` `int | None` : un pointeur nul est un
+    « pas de décès », pas une erreur. Comparer `None` à un entier lèverait un
+    `TypeError` qui avorterait le lot entier, sans rapport — le module frère
+    (`deces_apply._death_event_handle`) s'en protège déjà de la même façon.
+    """
+    idx = person.get("death_ref_index", -1)
+    return idx is not None and idx >= 0
+
+
+def _orpheline(raison: str, handle: str, objet: str = "note") -> str:
+    """Complète une raison d'échec par le handle de l'objet resté orphelin. Pur.
+
+    Un objet créé que rien ne rattache ensuite est bel et bien dans la base, et
+    invisible : aucune personne, aucun événement n'y mène. Le handle est la seule
+    prise qu'un humain aura pour le retrouver et le supprimer — nommer le seul
+    handle de l'événement laisserait l'objet introuvable. Même registre, pour la
+    même raison, que `releves_import._orpheline`.
+
+    `objet` nomme ce qui est resté : « note » (le cas d'origine) ou « citation »,
+    créée AVANT l'événement et donc seule dans l'arbre quand celui-ci échoue. Les
+    deux mots sont féminins, la phrase se conjugue sans autre paramètre.
+    """
+    return (
+        f"{raison} — {objet} orpheline laissée dans l'arbre "
+        f"(handle {handle}), à supprimer à la main"
+    )
+
+
+def _est_factice(handle: str) -> bool:
+    """Le handle désigne-t-il un placeholder de simulation plutôt qu'un objet réel ?
+
+    `GrampsCreateNoteTool` rend `DRYRUN:note` et `GrampsCreateCitationTool`
+    `DRYRUN:citation` sans rien écrire quand la simulation est active — même idiome
+    que `GrampsAttachTool` et `GrampsCreateEventTool`
+    (voir `evenements.creer_evenement_source`). `GrampsEnsureTagTool`, lui, fait un
+    vrai `GET /tags/` même en simulation (`write_tools.py`) : un 503 passager sur
+    ce GET peut donc faire échouer le tag PENDANT une simulation où la note a
+    « réussi » avec ce handle factice. Annoncer cette note comme orpheline
+    enverrait alors le relecteur supprimer un objet qui n'a jamais existé.
+    """
+    return str(handle).startswith("DRYRUN:")
+
+
+def _citation_restee(raison: str, citation_handle: str) -> str:
+    """Nomme la citation restée dans l'arbre quand la création du décès a échoué. Pur.
+
+    La citation est le seul objet créé AVANT le point de non-retour : dès que
+    l'événement échoue, elle est dans la base et plus rien n'y mène. Même quand
+    l'événement a été créé mais NON rattaché — il la porte, lui — le nettoyage à la
+    main passe par la suppression de cet orphelin, qui ne supprime pas la citation ;
+    les deux handles doivent donc figurer.
+
+    Un handle factice (« DRYRUN:citation ») n'a jamais été écrit : rien n'est
+    orphelin, et annoncer un objet à supprimer serait un faux — même garde que pour
+    la note.
+    """
+    if _est_factice(citation_handle):
+        return raison
+    return _orpheline(raison, citation_handle, "citation")
+
+
+def run_deces_event(
+    client: GrampsClient,
+    propositions_yaml,
+    output_dir,
+    *,
+    date: str,
+    dry_run: bool = False,
+) -> Path:
+    """Applique les propositions `type: date` d'un YAML relu : crée les décès absents."""
+    dry_run = effective_dry_run(dry_run)
+    data = yaml.safe_load(Path(propositions_yaml).read_text(encoding="utf-8")) or {}
+    lot = PropositionsLot(**data)  # validation stricte du YAML relu
+    retenues, motifs = trier_propositions(lot.propositions)
+
+    index = index_lieux(client) if retenues else {}
+    source_handles: dict[str, str] = {}  # titre -> handle (une source/registre)
+
+    def _ensure_source(title: str, author: str) -> str:
+        if title not in source_handles:
+            payload = json.loads(
+                GrampsEnsureSourceTool()._run(
+                    title=title, author=author, dry_run=dry_run
+                )
+            )
+            if not payload["success"]:
+                raise RuntimeError(f"source '{title}' : {payload['error']}")
+            source_handles[title] = payload["data"]["handle"]
+        return source_handles[title]
+
+    crees, refuses, lieux_non_resolus, errors = [], [], [], []
+    for prop in retenues:
+        try:
+            person = client.get_object("people", prop.handle)
+        except Exception as exc:
+            # « personne introuvable » sur un 503 ou un timeout dirait au relecteur
+            # « ce lot est périmé, abandonne cette proposition » là où il faut lire
+            # « réessaie » — et un décès parfaitement créable serait abandonné en
+            # silence. Seule la cause réelle distingue les deux.
+            errors.append(
+                (
+                    prop.gramps_id,
+                    f"lecture de la personne {prop.handle} impossible "
+                    f"({type(exc).__name__} : {exc})",
+                )
+            )
+            continue
+        if _a_un_deces(person):
+            refuses.append(
+                (prop.gramps_id, "un décès existe déjà dans l'arbre (lot périmé ?)")
+            )
+            continue
+
+        # Registre non reconnu (`ValueError`) et source non créée (`RuntimeError`)
+        # sont des échecs DE CETTE proposition, pas du lot. Les laisser remonter
+        # avorterait la boucle APRÈS d'éventuelles créations irréversibles, et le
+        # rapport — seule trace qu'un humain lira — ne serait même pas écrit.
+        try:
+            title, author = source_title_for(prop.preuve_detail)
+            source_handle = _ensure_source(title, author)
+        except (ValueError, RuntimeError) as exc:
+            errors.append((prop.gramps_id, f"source : {exc}"))
+            continue
+
+        citation = json.loads(
+            GrampsCreateCitationTool()._run(
+                source_handle=source_handle,
+                page=citation_page(prop.preuve_detail, prop.preuve_url),
+                dry_run=dry_run,
+            )
+        )
+        if not citation["success"]:
+            errors.append((prop.gramps_id, f"citation : {citation['error']}"))
+            continue
+
+        citation_handle = citation["data"]["handle"]
+        lieu_handle = resoudre_lieu(index, prop.lieu_nom) if prop.lieu_nom else None
+
+        evt = creer_evenement_source(
+            prop.handle,
+            event_type="Death",
+            dateval=dateval_iso(prop.date_iso),
+            place_handle=lieu_handle,
+            citation_handle=citation_handle,
+            dry_run=dry_run,
+        )
+        if not evt["posee"]:
+            errors.append(
+                (prop.gramps_id, _citation_restee(evt["raison"], citation_handle))
+            )
+            continue
+        if not evt["attache"]:
+            # L'événement EXISTE : on le dit en erreur (avec le handle de l'orphelin)
+            # et NON en créé, pour ne pas annoncer un décès que l'arbre ne montre pas.
+            errors.append(
+                (prop.gramps_id, _citation_restee(evt["raison"], citation_handle))
+            )
+            continue
+
+        # L'événement est posé et rattaché : seulement MAINTENANT une commune non
+        # résolue est bien « événement créé sans lieu », ce qu'annonce l'en-tête de
+        # la section. L'inscrire plus haut ferait cohabiter « Décès créés : 0 » et
+        # une liste de lieux d'événements qui n'existent pas.
+        if prop.lieu_nom and lieu_handle is None:
+            lieux_non_resolus.append((prop.gramps_id, prop.lieu_nom))
+
+        # L'écriture irréversible est faite. Note et tag sont des annotations : leur
+        # échec ne remet pas l'événement en cause, il se rapporte.
+        note = json.loads(
+            GrampsCreateNoteTool()._run(
+                text=f"[genecrew:deces:{date}] {prop.action} — {prop.preuve_url}",
+                note_type="Research",
+                dry_run=dry_run,
+            )
+        )
+        tag = json.loads(GrampsEnsureTagTool()._run(name=TAG_DECES, dry_run=dry_run))
+        # « créé » ne se dit qu'à l'écriture réelle : en simulation, rien n'a été
+        # posé et l'événement lui-même porte encore son handle « à créer ».
+        verbe_deces = "à créer" if dry_run else "créé"
+        if note["success"] and tag["success"]:
+            attache = json.loads(
+                GrampsAttachTool()._run(
+                    handle=prop.handle,
+                    note_handle=note["data"]["handle"],
+                    tag_handle=tag["data"]["handle"],
+                    dry_run=dry_run,
+                )
+            )
+            if not attache["success"]:
+                raison = (
+                    f"décès {evt['event_handle']} {verbe_deces}, "
+                    f"annotation refusée : {attache['error']}"
+                )
+                note_handle = note["data"]["handle"]
+                # Un handle factice (« DRYRUN:note ») n'a jamais été écrit : rien
+                # n'est orphelin, quel que soit le sort du rattachement.
+                if not _est_factice(note_handle):
+                    raison = _orpheline(raison, note_handle)
+                errors.append((prop.gramps_id, raison))
+        else:
+            refus = note.get("error") or tag.get("error")
+            raison = (
+                f"décès {evt['event_handle']} {verbe_deces}, note/tag refusé : {refus}"
+            )
+            # Note créée puis tag refusé : la note EXISTE et plus rien ne la
+            # rattachera. Ne nommer que le handle de l'événement la rendrait
+            # introuvable. Si c'est la note elle-même qui a été refusée, ou que
+            # son handle est factice (rien écrit, malgré un `success` en
+            # simulation), rien n'est orphelin — annoncer une note à supprimer
+            # serait un faux.
+            if note["success"] and not _est_factice(note["data"]["handle"]):
+                raison = _orpheline(raison, note["data"]["handle"])
+            errors.append((prop.gramps_id, raison))
+
+        crees.append(
+            (
+                prop.gramps_id,
+                prop.personne,
+                evt["event_handle"],
+                prop.lieu_nom if lieu_handle else "",
+            )
+        )
+
+    report = render_deaths_report(
+        date, crees, refuses, lieux_non_resolus, motifs, errors, dry_run
+    )
+    out = Path(output_dir) / "deces"
+    out.mkdir(parents=True, exist_ok=True)
+    # Le nom porte le MODE, sur le dry-run EFFECTIF (variable d'environnement comprise).
+    # Sans lui, la séquence que recommande le guide — simuler, relire, puis écrire —
+    # détruisait l'aperçu par l'écriture qu'il venait d'autoriser : deux passages du
+    # même jour sur le même YAML tombaient sur le même chemin. L'ADR 0014 fait pourtant
+    # de cet aperçu le seul garde-fou avant une écriture irréversible, et c'est aussi
+    # la seule chose à quoi confronter le rapport d'écriture ensuite.
+    suffixe = "simulation" if dry_run else "ecritures"
+    report_path = (
+        out / f"{date}_apply_deaths_{Path(propositions_yaml).stem}_{suffixe}.md"
+    )
+    report_path.write_text(report, encoding="utf-8")
+    return report_path

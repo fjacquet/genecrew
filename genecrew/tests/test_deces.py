@@ -99,6 +99,38 @@ def test_candidate_selection():
 # --- les trois issues (pur) ---
 
 
+def test_proposition_date_porte_la_donnee_machine():
+    """La date et la commune sortent en champs typés, pas seulement dans la phrase."""
+    from crewai_custom_tools.tools.genealogy.models.domain import PersonFacts
+
+    from genecrew.deces import build_deces_proposition
+
+    person = PersonFacts(
+        gramps_id="I0174",
+        handle="H174",
+        name="Alain Rolland",
+        surname="Rolland",
+        given="Alain",
+        sex="M",
+    )
+    match = {
+        "id": "0gGveHZwLxLg",
+        "death": {
+            "date": "20211223",
+            "certificateId": "12",
+            "location": {"city": "Saint-Palais"},
+        },
+        "source": "2021",
+        "sourceLine": "610579",
+    }
+
+    prop = build_deces_proposition(person, match, 1.0, exact_birth=True)
+
+    assert prop.type == "date"
+    assert prop.date_iso == "2021-12-23"
+    assert prop.lieu_nom == "Saint-Palais"
+
+
 def test_missing_death_proposes_completion():
     p = _person(
         "I0300", "h300", "Odette", "Rippert", birth=_event("Birth", 1922, 29, 9)
