@@ -28,19 +28,27 @@ def _link(gramps_id: str, base_url: str) -> str:
     return f"[{gramps_id}]({base_url}/person/{gramps_id})"
 
 
-def render_names_report(scope, date, results, incomplete, dry_run,
-                        base_url="http://localhost") -> str:
+def render_names_report(
+    scope, date, results, incomplete, dry_run, base_url="http://localhost"
+) -> str:
     """Pure Markdown report of casing changes (applied or simulated)."""
     mode = "aperçu (dry-run, aucune écriture)" if dry_run else "écritures appliquées"
     rows = []
     for r in results:
         for c in r.get("changes", []):
-            rows.append(f"| {_link(r['gramps_id'], base_url)} | {c['kind']} "
-                        f"| {c['old']} | {c['new']} |")
-    lines = [f"# Standardisation des noms — {scope} — {date}", "",
-             f"Mode : {mode}.", "",
-             f"- Personnes avec correction de casse : {len({r['gramps_id'] for r in results if r.get('changes')})}",
-             f"- Corrections de casse : {len(rows)}", ""]
+            rows.append(
+                f"| {_link(r['gramps_id'], base_url)} | {c['kind']} "
+                f"| {c['old']} | {c['new']} |"
+            )
+    lines = [
+        f"# Standardisation des noms — {scope} — {date}",
+        "",
+        f"Mode : {mode}.",
+        "",
+        f"- Personnes avec correction de casse : {len({r['gramps_id'] for r in results if r.get('changes')})}",
+        f"- Corrections de casse : {len(rows)}",
+        "",
+    ]
     lines.append("## Corrections de casse")
     lines.append("")
     if rows:
@@ -70,10 +78,16 @@ def render_names_report(scope, date, results, incomplete, dry_run,
     return "\n".join(lines)
 
 
-def render_incomplete_report(scope, date, incomplete, base_url="http://localhost") -> str:
+def render_incomplete_report(
+    scope, date, incomplete, base_url="http://localhost"
+) -> str:
     """Pure Markdown list of incomplete names ('?'/digits) — human research."""
-    lines = [f"# Noms à vérifier (incomplets) — {scope} — {date}", "",
-             f"- Noms « ? » ou à chiffres : {len(incomplete)}", ""]
+    lines = [
+        f"# Noms à vérifier (incomplets) — {scope} — {date}",
+        "",
+        f"- Noms « ? » ou à chiffres : {len(incomplete)}",
+        "",
+    ]
     if incomplete:
         lines += ["| Personne | Type | Valeur |", "|---|---|---|"]
         for gid, field, value in incomplete:
@@ -84,9 +98,16 @@ def render_incomplete_report(scope, date, incomplete, base_url="http://localhost
     return "\n".join(lines)
 
 
-def run_names(client: GrampsClient, scope: str, output_dir: Path, *,
-              date: str, batch_size: int = 25, limit: int | None = None,
-              dry_run: bool = False) -> tuple[Path, Path]:
+def run_names(
+    client: GrampsClient,
+    scope: str,
+    output_dir: Path,
+    *,
+    date: str,
+    batch_size: int = 25,
+    limit: int | None = None,
+    dry_run: bool = False,
+) -> tuple[Path, Path]:
     """Re-case names over `scope`; write a changes report + an incomplete-names list."""
     output_dir = Path(output_dir)
     fetcher = FactsFetcher(client)
@@ -105,17 +126,27 @@ def run_names(client: GrampsClient, scope: str, output_dir: Path, *,
                 if payload["success"]:
                     results.append(payload["data"])
                 else:
-                    results.append({"gramps_id": person.gramps_id, "changes": [],
-                                    "error": payload["error"], "dry_run": dry_run})
+                    results.append(
+                        {
+                            "gramps_id": person.gramps_id,
+                            "changes": [],
+                            "error": payload["error"],
+                            "dry_run": dry_run,
+                        }
+                    )
 
     out = output_dir / "standardize"
     out.mkdir(parents=True, exist_ok=True)
     scope_slug = scope.replace(":", "_")
     report_path = out / f"{date}_noms_{scope_slug}.md"
     report_path.write_text(
-        render_names_report(scope, date, results, incomplete, effective_dry_run(dry_run)),
-        encoding="utf-8")
+        render_names_report(
+            scope, date, results, incomplete, effective_dry_run(dry_run)
+        ),
+        encoding="utf-8",
+    )
     incomplete_path = out / f"{date}_noms_a_verifier_{scope_slug}.md"
-    incomplete_path.write_text(render_incomplete_report(scope, date, incomplete),
-                               encoding="utf-8")
+    incomplete_path.write_text(
+        render_incomplete_report(scope, date, incomplete), encoding="utf-8"
+    )
     return report_path, incomplete_path

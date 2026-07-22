@@ -8,7 +8,9 @@ import httpx
 import yaml
 
 from crewai_custom_tools.tools.genealogy.geo.registry import (
-    confiance_of, decide_action, resolve_place,
+    confiance_of,
+    decide_action,
+    resolve_place,
 )
 from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient
 from crewai_custom_tools.tools.genealogy.models.domain import PlaceProposition
@@ -46,40 +48,67 @@ def build_proposition(place: dict, min_score: float) -> PlaceProposition:
         priorite = "basse"
     return PlaceProposition(
         type="lieu_resolu" if resolved is not None else "lieu_indecidable",
-        gramps_id=place.get("gramps_id", ""), handle=place.get("handle", ""),
-        original=original, country=parsed.country, resolution=resolved,
-        action=action, confiance=confiance_of(resolved), priorite=priorite, preuve=preuve)
+        gramps_id=place.get("gramps_id", ""),
+        handle=place.get("handle", ""),
+        original=original,
+        country=parsed.country,
+        resolution=resolved,
+        action=action,
+        confiance=confiance_of(resolved),
+        priorite=priorite,
+        preuve=preuve,
+    )
 
 
 def render_places_report(scope, date, props, base_url="http://localhost") -> str:
     """Pure Markdown report grouped by action, priority-sorted."""
     props = sorted(props, key=lambda p: _PRIORITE.get(p.priorite, 9))
-    n = {a: sum(1 for p in props if p.action == a) for a in ("ecrire", "proposition", "indecidable")}
-    lines = [f"# Standardisation des lieux — {scope} — {date}", "",
-             "## Synthèse", "",
-             f"- Lieux analysés : {len(props)}",
-             f"- À écrire (score ≥ seuil) : {n['ecrire']}",
-             f"- Propositions (revue) : {n['proposition']}",
-             f"- Indécidables : {n['indecidable']}", "",
-             "## Détail", "",
-             "| Lieu | Pays | Action | Nom proposé | Score | Confiance | Preuve |",
-             "|---|---|---|---|---|---|---|"]
+    n = {
+        a: sum(1 for p in props if p.action == a)
+        for a in ("ecrire", "proposition", "indecidable")
+    }
+    lines = [
+        f"# Standardisation des lieux — {scope} — {date}",
+        "",
+        "## Synthèse",
+        "",
+        f"- Lieux analysés : {len(props)}",
+        f"- À écrire (score ≥ seuil) : {n['ecrire']}",
+        f"- Propositions (revue) : {n['proposition']}",
+        f"- Indécidables : {n['indecidable']}",
+        "",
+        "## Détail",
+        "",
+        "| Lieu | Pays | Action | Nom proposé | Score | Confiance | Preuve |",
+        "|---|---|---|---|---|---|---|",
+    ]
     for p in props:
         nom = p.resolution.name if p.resolution else "—"
         score = f"{p.resolution.score:.3f}" if p.resolution else "—"
-        lines.append(f"| {_link(p.gramps_id, base_url)} | {p.country or '?'} | {p.action} "
-                     f"| {nom} | {score} | {p.confiance} | {p.preuve} |")
+        lines.append(
+            f"| {_link(p.gramps_id, base_url)} | {p.country or '?'} | {p.action} "
+            f"| {nom} | {score} | {p.confiance} | {p.preuve} |"
+        )
     lines.append("")
     return "\n".join(lines)
 
 
 def render_propositions_yaml(props: list[PlaceProposition]) -> str:
-    return yaml.safe_dump([p.model_dump() for p in props], allow_unicode=True, sort_keys=False)
+    return yaml.safe_dump(
+        [p.model_dump() for p in props], allow_unicode=True, sort_keys=False
+    )
 
 
-def run_places(client: GrampsClient, scope: str, output_dir, *, date: str,
-               batch_size: int = 25, limit: int | None = None,
-               min_score: float = 0.90) -> tuple[Path, Path]:
+def run_places(
+    client: GrampsClient,
+    scope: str,
+    output_dir,
+    *,
+    date: str,
+    batch_size: int = 25,
+    limit: int | None = None,
+    min_score: float = 0.90,
+) -> tuple[Path, Path]:
     """Resolve places over `scope`; write a Markdown report + YAML proposals. Read-only."""
     output_dir = Path(output_dir)
     props: list[PlaceProposition] = []

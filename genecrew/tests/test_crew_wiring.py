@@ -12,8 +12,11 @@ WRITE_TOOL_NAMES = {"gramps_create_note", "gramps_ensure_tag", "gramps_attach"}
 READ_TOOL_NAMES = {"gramps_get_object", "gramps_person_timeline", "gramps_search"}
 WIKIPEDIA_TOOL_NAMES = {"Wikipedia Search", "Wikipedia Article Fetcher"}
 HISTORIEN_API_NAMES = {"insee_deces_search", "gallica_search", "wikidata_sparql"}
-ANALYSIS_TOOL_NAMES = {"genealogy_check_person", "genealogy_find_duplicates",
-                       "genealogy_resolve_place"}
+ANALYSIS_TOOL_NAMES = {
+    "genealogy_check_person",
+    "genealogy_find_duplicates",
+    "genealogy_resolve_place",
+}
 
 
 def _tool_names(agent):
@@ -83,8 +86,9 @@ def test_build_llm_pins_openrouter_provider(monkeypatch):
     monkeypatch.setenv("MODEL", "openrouter/z-ai/glm-5.2")
     monkeypatch.setenv("OPENROUTER_PROVIDER_ORDER", "Z.AI, Novita")
     llm = build_llm()
-    assert llm.kwargs["extra_body"] == {"provider": {
-        "order": ["Z.AI", "Novita"], "allow_fallbacks": False}}
+    assert llm.kwargs["extra_body"] == {
+        "provider": {"order": ["Z.AI", "Novita"], "allow_fallbacks": False}
+    }
     # modèle non-openrouter -> pas d'épinglage
     monkeypatch.setenv("MODEL", "gpt-4o-mini")
     assert "extra_body" not in build_llm().kwargs

@@ -25,7 +25,6 @@ from crewai_custom_tools.tools.genealogy.gramps.write_tools import (
     GrampsAttachCitationTool,
     GrampsAttachTool,
     GrampsCreateCitationTool,
-    GrampsCreateEventTool,
     GrampsCreateNoteTool,
     GrampsCreatePersonTool,
     GrampsEnsureSourceTool,
@@ -40,6 +39,7 @@ from crewai_custom_tools.tools.genealogy.standardize.places import parse_pname
 from genecrew.batching import iter_people_batches
 from genecrew.crew import build_llm
 from genecrew.deces_apply import source_title_for
+from genecrew.evenements import creer_evenement_source, dateval_iso
 from genecrew.lieu_import import run_lieu_import
 from genecrew.pistes import _normaliser
 from genecrew.releves import (
@@ -191,8 +191,11 @@ def code_fonds(fonds: str) -> str:
     les lettres accentuées ou les trémas (branches suisses/allemandes de
     l'arbre) en les traitant comme de la ponctuation à jeter.
     """
-    sans_accent = "".join(c for c in unicodedata.normalize("NFD", fonds)
-                          if unicodedata.category(c) != "Mn")
+    sans_accent = "".join(
+        c
+        for c in unicodedata.normalize("NFD", fonds)
+        if unicodedata.category(c) != "Mn"
+    )
     # Ponctuation parasite (apostrophes, points, virgules, ':', ']', …) :
     # supprimée purement, elle ne délimite jamais un mot.
     sans_ponctuation = re.sub(r"[^\w\s-]", "", sans_accent, flags=re.UNICODE)
@@ -211,8 +214,9 @@ def marqueur_releve(fonds: str, reference: str) -> str:
     return f"[genecrew:releve:{code_fonds(fonds)}:{reference}]"
 
 
-def corps_note_releve(releve: ReleveIndexe, appariement: Appariement, *,
-                      sujet_cree: bool = False) -> str:
+def corps_note_releve(
+    releve: ReleveIndexe, appariement: Appariement, *, sujet_cree: bool = False
+) -> str:
     """Le corps de la note posée sur la personne.
 
     Deux exigences priment sur la mise en forme :
@@ -250,11 +254,13 @@ def corps_note_releve(releve: ReleveIndexe, appariement: Appariement, *,
         lignes.append(
             "  Sujet CRÉÉ par l'import : aucun candidat ne correspondait dans "
             "l'arbre. Fiche à compléter et à relire ; ses parents ne sont PAS "
-            "créés (voir le texte relevé).")
+            "créés (voir le texte relevé)."
+        )
     elif appariement.verdict == "net" and not appariement.facteurs:
         lignes.append(
             "  Rattachement forcé par l'opérateur (option --person) : ce lien "
-            "n'est pas le produit d'un appariement mesuré.")
+            "n'est pas le produit d'un appariement mesuré."
+        )
     lignes += [
         "",
         "Source dérivée : un relevé est un dépouillement, pas l'acte original.",
@@ -271,18 +277,25 @@ def deja_importe(client: GrampsClient, gramps_id: str, marqueur: str) -> bool:
     Un seul appel, pour une personne : filtre serveur sur `gramps_id` et
     `extend=note_list` (même lecture que `pistes.marqueurs_existants`).
     """
-    gens = client.get_json("/people/", params={"gramps_id": gramps_id,
-                                               "extend": "note_list"}) or []
+    gens = (
+        client.get_json(
+            "/people/", params={"gramps_id": gramps_id, "extend": "note_list"}
+        )
+        or []
+    )
     if not gens:
         return False
     notes = (gens[0].get("extended") or {}).get("notes") or []
-    return any((n.get("text") or {}).get("string", "").startswith(marqueur)
-               for n in notes)
+    return any(
+        (n.get("text") or {}).get("string", "").startswith(marqueur) for n in notes
+    )
 
 
-def _parents_par_handle(fetcher: FactsFetcher, people: list[PersonFacts],
-                        sujets: list[PersonFacts] | None = None,
-                        ) -> dict[str, list[str]]:
+def _parents_par_handle(
+    fetcher: FactsFetcher,
+    people: list[PersonFacts],
+    sujets: list[PersonFacts] | None = None,
+) -> dict[str, list[str]]:
     """handle → noms complets des parents, pour le facteur « parent nommé ».
 
     Passe par `get_family_facts` : c'est la FAMILLE qui porte `father_handle` et
@@ -325,7 +338,7 @@ def _parents_par_handle(fetcher: FactsFetcher, people: list[PersonFacts],
     """
     par_handle = {p.handle: p for p in people}
     index: dict[str, list[str]] = {}
-    for p in (people if sujets is None else sujets):
+    for p in people if sujets is None else sujets:
         noms: list[str] = []
         for fam_handle in p.parent_family_handles:
             famille = fetcher.get_family_facts(fam_handle)
@@ -345,8 +358,10 @@ def _orpheline(raison: str, note_handle: str) -> str:
     Le handle est indispensable : c'est la seule prise qu'un humain aura pour
     retrouver la note dans Gramps et la supprimer.
     """
-    return (f"{raison} — note orpheline laissée dans l'arbre "
-            f"(handle {note_handle}), à supprimer à la main")
+    return (
+        f"{raison} — note orpheline laissée dans l'arbre "
+        f"(handle {note_handle}), à supprimer à la main"
+    )
 
 
 def handle_evenement(client: GrampsClient, gramps_id: str, type_: str) -> str | None:
@@ -361,8 +376,12 @@ def handle_evenement(client: GrampsClient, gramps_id: str, type_: str) -> str | 
     `ecrire_citation`, qu'aucun événement de ce type n'est dans l'arbre. La
     citation ne pose jamais un événement manquant — elle le rapporte.
     """
-    gens = client.get_json("/people/", params={"gramps_id": gramps_id,
-                                               "extend": "event_ref_list"}) or []
+    gens = (
+        client.get_json(
+            "/people/", params={"gramps_id": gramps_id, "extend": "event_ref_list"}
+        )
+        or []
+    )
     if not gens:
         return None
     for ev in (gens[0].get("extended") or {}).get("events") or []:
@@ -371,8 +390,9 @@ def handle_evenement(client: GrampsClient, gramps_id: str, type_: str) -> str | 
     return None
 
 
-def _creer_citation_releve(client: GrampsClient, releve: ReleveIndexe, *,
-                           dry_run: bool = False) -> tuple[str | None, str]:
+def _creer_citation_releve(
+    client: GrampsClient, releve: ReleveIndexe, *, dry_run: bool = False
+) -> tuple[str | None, str]:
     """Garantit la source du relevé et crée sa citation. Rend (handle, raison).
 
     Handle None si une étape échoue (la raison nomme laquelle). Réutilisé par les
@@ -386,22 +406,31 @@ def _creer_citation_releve(client: GrampsClient, releve: ReleveIndexe, *,
     plafonne d'ailleurs à 2.
     """
     titre, auteur = source_title_for(f"Relevé — {releve.fonds}")
-    source = json.loads(GrampsEnsureSourceTool()._run(
-        title=titre, author=auteur, dry_run=dry_run))
+    source = json.loads(
+        GrampsEnsureSourceTool()._run(title=titre, author=auteur, dry_run=dry_run)
+    )
     if not source["success"]:
         return None, f"source refusée : {source['error']}"
-    citation = json.loads(GrampsCreateCitationTool()._run(
-        source_handle=source["data"]["handle"],
-        page=f"Relevé n° {releve.reference}",
-        confidence=2,
-        dry_run=dry_run))
+    citation = json.loads(
+        GrampsCreateCitationTool()._run(
+            source_handle=source["data"]["handle"],
+            page=f"Relevé n° {releve.reference}",
+            confidence=2,
+            dry_run=dry_run,
+        )
+    )
     if not citation["success"]:
         return None, f"citation refusée : {citation['error']}"
     return citation["data"]["handle"], "citation créée"
 
 
-def ecrire_citation(client: GrampsClient, releve: ReleveIndexe,
-                    appariement: Appariement, *, dry_run: bool = False) -> dict:
+def ecrire_citation(
+    client: GrampsClient,
+    releve: ReleveIndexe,
+    appariement: Appariement,
+    *,
+    dry_run: bool = False,
+) -> dict:
     """CONFIRME un événement DÉJÀ présent en y posant la citation du relevé.
 
     Ne crée jamais l'événement : quand il manque, le dict rendu le dit
@@ -417,8 +446,10 @@ def ecrire_citation(client: GrampsClient, releve: ReleveIndexe,
     dry_run = effective_dry_run(dry_run)
     cible = handle_evenement(client, appariement.gramps_id, releve.evenement_type)
     if not cible:
-        return {"posee": False,
-                "raison": f"événement {releve.evenement_type} absent de l'arbre"}
+        return {
+            "posee": False,
+            "raison": f"événement {releve.evenement_type} absent de l'arbre",
+        }
 
     citation_handle, raison = _creer_citation_releve(client, releve, dry_run=dry_run)
     if citation_handle is None:
@@ -427,34 +458,26 @@ def ecrire_citation(client: GrampsClient, releve: ReleveIndexe,
     # `object_type="events"` au PLURIEL : l'outil fait `GET/PUT /{object_type}/…`
     # et l'endpoint réel de Gramps Web est `/api/events/<handle>`. Un singulier
     # « event » viserait `/event/<handle>` (404) — écriture inopérante.
-    attache = json.loads(GrampsAttachCitationTool()._run(
-        object_type="events", handle=cible,
-        citation_handle=citation_handle, dry_run=dry_run))
+    attache = json.loads(
+        GrampsAttachCitationTool()._run(
+            object_type="events",
+            handle=cible,
+            citation_handle=citation_handle,
+            dry_run=dry_run,
+        )
+    )
     if not attache["success"]:
         return {"posee": False, "raison": f"rattachement refusé : {attache['error']}"}
     return {"posee": True, "raison": "citation posée"}
 
 
-def _dateval_iso(iso: str) -> list[int] | None:
-    """« AAAA-MM-JJ » → [jour, mois, année] pour un `dateval` Gramps ; None sinon.
-
-    On ne crée un événement DATÉ que sur une date pleine (le relevé de décès en
-    fournit une). Une chaîne vide ou mal formée rend None : l'événement est alors
-    créé sans date plutôt qu'avec une date inventée.
-    """
-    parts = (iso or "").split("-")
-    if len(parts) != 3:
-        return None
-    try:
-        annee, mois, jour = (int(p) for p in parts)
-    except ValueError:
-        return None
-    return [jour, mois, annee]
-
-
-def completer_evenement_principal(client: GrampsClient, releve: ReleveIndexe,
-                                  appariement: Appariement, *,
-                                  dry_run: bool = False) -> dict:
+def completer_evenement_principal(
+    client: GrampsClient,
+    releve: ReleveIndexe,
+    appariement: Appariement,
+    *,
+    dry_run: bool = False,
+) -> dict:
     """Sur un `net`, garantit l'événement du relevé : citation si présent, CRÉATION si absent.
 
     Deux issues, une seule intention — que la preuve du relevé se retrouve dans
@@ -472,15 +495,28 @@ def completer_evenement_principal(client: GrampsClient, releve: ReleveIndexe,
     dry_run = effective_dry_run(dry_run)
     cible = handle_evenement(client, appariement.gramps_id, releve.evenement_type)
     if cible:
-        return {"cree": False, **ecrire_citation(client, releve, appariement, dry_run=dry_run)}
-    return {"cree": True, **_creer_evenement(
-        client, releve, appariement.handle, dry_run=dry_run)}
+        return {
+            "cree": False,
+            **ecrire_citation(client, releve, appariement, dry_run=dry_run),
+        }
+    return {
+        "cree": True,
+        **_creer_evenement(client, releve, appariement.handle, dry_run=dry_run),
+    }
 
 
-def _creer_evenement(client: GrampsClient, releve: ReleveIndexe, person_handle: str, *,
-                     event_type: str | None = None, dateval: list[int] | None = None,
-                     modifier: int = 0, quality: int = 0, avec_lieu: bool = True,
-                     dry_run: bool = False) -> dict:
+def _creer_evenement(
+    client: GrampsClient,
+    releve: ReleveIndexe,
+    person_handle: str,
+    *,
+    event_type: str | None = None,
+    dateval: list[int] | None = None,
+    modifier: int = 0,
+    quality: int = 0,
+    avec_lieu: bool = True,
+    dry_run: bool = False,
+) -> dict:
     """Crée un événement sur une personne : lieu résolu (option), citation, rattachement.
 
     Brique partagée des surfaces qui CRÉENT un événement — un décès absent d'un
@@ -491,34 +527,52 @@ def _creer_evenement(client: GrampsClient, releve: ReleveIndexe, person_handle: 
     poser l'événement SANS lieu — jamais un lieu faux.
     """
     etype = event_type or releve.evenement_type
-    lieu_handle = resoudre_ou_creer_lieu(client, releve, dry_run=dry_run) if avec_lieu else None
-    dv = dateval if dateval is not None else _dateval_iso(releve.evenement_date)
-    citation_handle, raison_cit = _creer_citation_releve(client, releve, dry_run=dry_run)
-    evt = json.loads(GrampsCreateEventTool()._run(
-        person_handle=person_handle, event_type=etype, dateval=dv,
-        modifier=modifier, quality=quality,
-        place_handle=lieu_handle, citation_handle=citation_handle, dry_run=dry_run))
-    if not evt["success"]:
-        return {"posee": False, "raison": f"création {etype} refusée : {evt['error']}"}
-    data = evt["data"]
+    lieu_handle = (
+        resoudre_ou_creer_lieu(client, releve, dry_run=dry_run) if avec_lieu else None
+    )
+    dv = dateval if dateval is not None else dateval_iso(releve.evenement_date)
+    citation_handle, raison_cit = _creer_citation_releve(
+        client, releve, dry_run=dry_run
+    )
+    res = creer_evenement_source(
+        person_handle,
+        event_type=etype,
+        dateval=dv,
+        place_handle=lieu_handle,
+        citation_handle=citation_handle,
+        modifier=modifier,
+        quality=quality,
+        dry_run=dry_run,
+    )
+    if not res["posee"]:
+        return {"posee": False, "raison": res["raison"]}
+    # `posee` a ici un sens PROPRE à l'import de relevés : « la citation est posée »,
+    # pas « l'événement existe ». On ne l'aligne pas sur la brique partagée, sous peine
+    # de changer le rapport de `import releve` que ses tests verrouillent.
     posee = citation_handle is not None
-    attache = data.get("attached", True)
-    event_handle = data["handle"]
-    if not attache:
-        # L'événement EXISTE mais n'a pas pu être rattaché (orphelin). On le DIT, avec
-        # son handle — pas un « créé » trompeur — pour qu'un humain le retrouve.
-        raison = (f"{etype} créé mais NON rattaché (orphelin {event_handle}) : "
-                  f"{data.get('attach_error', '')}")
-    else:
-        raison = f"{etype} créé" + ("" if posee else f" (sans citation : {raison_cit})")
-    return {"posee": posee, "event_handle": event_handle, "lieu": lieu_handle,
-            "attache": attache, "raison": raison}
+    raison = (
+        res["raison"]
+        if not res["attache"]
+        else (f"{etype} créé" + ("" if posee else f" (sans citation : {raison_cit})"))
+    )
+    return {
+        "posee": posee,
+        "event_handle": res["event_handle"],
+        "lieu": lieu_handle,
+        "attache": res["attache"],
+        "raison": raison,
+    }
 
 
-def completer_naissance_estimee(client: GrampsClient, releve: ReleveIndexe,
-                                person_handle: str, *, gramps_id: str | None = None,
-                                verifier_existant: bool = True,
-                                dry_run: bool = False) -> dict | None:
+def completer_naissance_estimee(
+    client: GrampsClient,
+    releve: ReleveIndexe,
+    person_handle: str,
+    *,
+    gramps_id: str | None = None,
+    verifier_existant: bool = True,
+    dry_run: bool = False,
+) -> dict | None:
     """Surface B : écrit la naissance ESTIMÉE (`about AAAA`) si l'arbre n'a rien.
 
     Ne s'applique qu'à un relevé qui PORTE une année approximative (« âge 73 » →
@@ -532,9 +586,17 @@ def completer_naissance_estimee(client: GrampsClient, releve: ReleveIndexe,
         return None
     if verifier_existant and handle_evenement(client, gramps_id, "Birth"):
         return None
-    return _creer_evenement(client, releve, person_handle, event_type="Birth",
-                            dateval=[0, 0, releve.naissance_estimee], modifier=3,
-                            quality=1, avec_lieu=False, dry_run=dry_run)
+    return _creer_evenement(
+        client,
+        releve,
+        person_handle,
+        event_type="Birth",
+        dateval=[0, 0, releve.naissance_estimee],
+        modifier=3,
+        quality=1,
+        avec_lieu=False,
+        dry_run=dry_run,
+    )
 
 
 def handle_personne(client: GrampsClient, gramps_id: str) -> str | None:
@@ -585,8 +647,11 @@ def _raw_lieu(releve: ReleveIndexe) -> str:
     commune = (releve.evenement_lieu or "").strip()
     if not commune:
         return ""
-    echelons = [commune, (releve.evenement_departement or "").strip(),
-                (releve.evenement_pays or "").strip()]
+    echelons = [
+        commune,
+        (releve.evenement_departement or "").strip(),
+        (releve.evenement_pays or "").strip(),
+    ]
     return ", ".join(e for e in echelons if e)
 
 
@@ -622,8 +687,9 @@ def genre_infere(prenom: str) -> int:
     return 2
 
 
-def resoudre_ou_creer_lieu(client: GrampsClient, releve: ReleveIndexe, *,
-                           dry_run: bool = False) -> str | None:
+def resoudre_ou_creer_lieu(
+    client: GrampsClient, releve: ReleveIndexe, *, dry_run: bool = False
+) -> str | None:
     """Handle du lieu de l'événement, créé en cascade si absent ; None si non résolu.
 
     Délègue à `run_lieu_import` (mêmes résolveurs que `propose places`) sur la chaîne
@@ -645,7 +711,9 @@ def resoudre_ou_creer_lieu(client: GrampsClient, releve: ReleveIndexe, *,
     try:
         out = run_lieu_import(client, raw, dry_run=dry_run)
     except (RuntimeError, httpx.HTTPError) as exc:
-        _LOG.warning("Cascade de lieu « %s » échouée, événement sans lieu : %s", raw, exc)
+        _LOG.warning(
+            "Cascade de lieu « %s » échouée, événement sans lieu : %s", raw, exc
+        )
         return None
     return out.get("handle")
 
@@ -742,8 +810,9 @@ def construire_lieux_resolus(
     return resultat
 
 
-def creer_sujet(client: GrampsClient, releve: ReleveIndexe, out: dict, *,
-                dry_run: bool = False) -> dict:
+def creer_sujet(
+    client: GrampsClient, releve: ReleveIndexe, out: dict, *, dry_run: bool = False
+) -> dict:
     """Sur `aucun` candidat : CRÉE le sujet, puis son événement + note/tag/citation.
 
     L'asymétrie du spec, tenue par le code : on crée le SUJET (fiche orpheline
@@ -760,9 +829,14 @@ def creer_sujet(client: GrampsClient, releve: ReleveIndexe, out: dict, *,
     donc aucun handle synthétique `DRYRUN:` n'atteint les outils de rattachement.
     """
     genre = genre_infere(releve.sujet_prenom)
-    personne = json.loads(GrampsCreatePersonTool()._run(
-        first_name=normalize_case(releve.sujet_prenom),
-        surname=normalize_case(releve.sujet_nom), gender=genre, dry_run=dry_run))
+    personne = json.loads(
+        GrampsCreatePersonTool()._run(
+            first_name=normalize_case(releve.sujet_prenom),
+            surname=normalize_case(releve.sujet_nom),
+            gender=genre,
+            dry_run=dry_run,
+        )
+    )
     if not personne["success"]:
         out["raison"] = f"création du sujet refusée : {personne['error']}"
         return out
@@ -776,9 +850,13 @@ def creer_sujet(client: GrampsClient, releve: ReleveIndexe, out: dict, *,
     # Appariement synthétique : verdict `aucun`, handle du sujet créé. La note dira
     # « sujet créé » (sujet_cree=True), pas « rattachement forcé ».
     app = Appariement(verdict="aucun", handle=handle, facteurs=[])
-    note = json.loads(GrampsCreateNoteTool()._run(
-        text=corps_note_releve(releve, app, sujet_cree=True),
-        note_type="Research", dry_run=dry_run))
+    note = json.loads(
+        GrampsCreateNoteTool()._run(
+            text=corps_note_releve(releve, app, sujet_cree=True),
+            note_type="Research",
+            dry_run=dry_run,
+        )
+    )
     if not note["success"]:
         out["raison"] = f"sujet {handle} créé mais note refusée : {note['error']}"
         return out
@@ -786,33 +864,48 @@ def creer_sujet(client: GrampsClient, releve: ReleveIndexe, out: dict, *,
     tag = json.loads(GrampsEnsureTagTool()._run(name=TAG_RELEVE, dry_run=dry_run))
     if not tag["success"]:
         out["raison"] = _orpheline(
-            f"sujet {handle} créé, tag refusé : {tag['error']}", note_handle)
+            f"sujet {handle} créé, tag refusé : {tag['error']}", note_handle
+        )
         return out
-    attache = json.loads(GrampsAttachTool()._run(
-        handle=handle, note_handle=note_handle,
-        tag_handle=tag["data"]["handle"], dry_run=dry_run))
+    attache = json.loads(
+        GrampsAttachTool()._run(
+            handle=handle,
+            note_handle=note_handle,
+            tag_handle=tag["data"]["handle"],
+            dry_run=dry_run,
+        )
+    )
     if not attache["success"]:
         out["raison"] = _orpheline(
-            f"sujet {handle} créé, rattachement refusé : {attache['error']}", note_handle)
+            f"sujet {handle} créé, rattachement refusé : {attache['error']}",
+            note_handle,
+        )
         return out
 
     evt = _creer_evenement(client, releve, handle, dry_run=dry_run)
     out["evenement"] = evt
     # Naissance estimée du relevé : la fiche est vierge, aucune date à préserver.
-    nais = completer_naissance_estimee(client, releve, handle,
-                                       verifier_existant=False, dry_run=dry_run)
+    nais = completer_naissance_estimee(
+        client, releve, handle, verifier_existant=False, dry_run=dry_run
+    )
     if nais is not None:
         out["naissance"] = nais
     out["ecrit"] = True
-    out["raison"] = (f"sujet créé (genre {genre}) — {evt['raison']}"
-                     + (" + naissance estimée" if nais is not None else ""))
+    out["raison"] = f"sujet créé (genre {genre}) — {evt['raison']}" + (
+        " + naissance estimée" if nais is not None else ""
+    )
     return out
 
 
-def run_import_releve(client: GrampsClient, texte: str, *, llm=None,
-                      dry_run: bool = False, person: str | None = None,
-                      resolveur_lieux: Callable[[str], ResolvedPlace | None] | None = None,
-                      ) -> dict:
+def run_import_releve(
+    client: GrampsClient,
+    texte: str,
+    *,
+    llm=None,
+    dry_run: bool = False,
+    person: str | None = None,
+    resolveur_lieux: Callable[[str], ResolvedPlace | None] | None = None,
+) -> dict:
     """Interprète, apparie, écrit si le verdict est net. Rend le verdict ET sa raison.
 
     `person` (un gramps_id) est le forçage manuel de `--person` : le propriétaire
@@ -869,21 +962,30 @@ def run_import_releve(client: GrampsClient, texte: str, *, llm=None,
         # forcer QUI n'autorise pas à écrire dans le vide (voir handle_personne).
         handle = handle_personne(client, person)
         if not handle:
-            return {"releve": releve, "appariement": None, "ecrit": False,
-                    "raison": f"personne {person} introuvable", "dry_run": dry_run}
+            return {
+                "releve": releve,
+                "appariement": None,
+                "ecrit": False,
+                "raison": f"personne {person} introuvable",
+                "dry_run": dry_run,
+            }
         # On REMPLACE le résultat de l'appariement par un `net` ciblé, puis on
         # rejoint le chemin d'écriture commun. `facteurs` reste vide : ce net ne
         # vient d'aucun facteur mesuré mais d'une décision humaine — la note le
         # dira honnêtement (« poids 0 », facteurs « — »).
-        appariement = Appariement(verdict="net", gramps_id=person, handle=handle,
-                                  facteurs=[])
+        appariement = Appariement(
+            verdict="net", gramps_id=person, handle=handle, facteurs=[]
+        )
     else:
         fetcher = FactsFetcher(client)
         # `iter_people_batches` pagine réellement : on aplatit, l'appariement a
         # besoin de l'arbre ENTIER (la rareté des patronymes est mesurée dessus,
         # et un candidat manquant ferait conclure « absent de l'arbre »).
-        people = [p for lot in iter_people_batches(client, fetcher, "all", TAILLE_LOT, None)
-                  for p in lot]
+        people = [
+            p
+            for lot in iter_people_batches(client, fetcher, "all", TAILLE_LOT, None)
+            for p in lot
+        ]
         # L'index parental ne se construit que pour les CANDIDATS du blocage : c'est
         # la seule chose que `apparier` en consultera, et chaque personne indexée
         # coûte une requête `/families/` par famille parentale. Sur l'arbre entier
@@ -916,19 +1018,29 @@ def run_import_releve(client: GrampsClient, texte: str, *, llm=None,
         pays = releve.evenement_pays.strip()
         if releve.evenement_lieu and releve.evenement_lieu.strip():
             lieux[releve.evenement_lieu] = (
-                f"{releve.evenement_lieu}, {pays}" if pays else releve.evenement_lieu)
+                f"{releve.evenement_lieu}, {pays}" if pays else releve.evenement_lieu
+            )
         for c in candidats:
             ev = _evenement_compare(c, releve.evenement_type)
             commune = _commune(ev)
             if commune and commune.strip():
                 lieux[commune] = ev.place if (ev and ev.place) else commune
         lieux_resolus = construire_lieux_resolus(lieux, resolveur_lieux)
-        appariement = apparier(releve, people, rarete_patronymes(people),
-                               _parents_par_handle(fetcher, people, candidats),
-                               lieux_resolus=lieux_resolus)
+        appariement = apparier(
+            releve,
+            people,
+            rarete_patronymes(people),
+            _parents_par_handle(fetcher, people, candidats),
+            lieux_resolus=lieux_resolus,
+        )
 
-    out = {"releve": releve, "appariement": appariement, "ecrit": False,
-           "raison": "", "dry_run": dry_run}
+    out = {
+        "releve": releve,
+        "appariement": appariement,
+        "ecrit": False,
+        "raison": "",
+        "dry_run": dry_run,
+    }
 
     # Garde de type, AVANT tout le reste et POUR LES DEUX CHEMINS (apparié comme
     # forcé) : sur un type que le moteur ne compare pas (tout sauf Death/Birth —
@@ -942,7 +1054,8 @@ def run_import_releve(client: GrampsClient, texte: str, *, llm=None,
     if releve.evenement_type not in TYPES_EVENEMENT_GERES:
         out["raison"] = (
             f"type d'événement non géré : {releve.evenement_type} "
-            f"(seuls {', '.join(TYPES_EVENEMENT_GERES)} sont comparés)")
+            f"(seuls {', '.join(TYPES_EVENEMENT_GERES)} sont comparés)"
+        )
         return out
 
     if appariement.verdict == "gris":
@@ -966,8 +1079,10 @@ def run_import_releve(client: GrampsClient, texte: str, *, llm=None,
         marqueur = marqueur_releve(releve.fonds, releve.reference)
         for cand in candidats:
             if cand.gramps_id and deja_importe(client, cand.gramps_id, marqueur):
-                out["raison"] = ("déjà importée — sujet créé lors d'un passage "
-                                 f"précédent ({cand.gramps_id})")
+                out["raison"] = (
+                    "déjà importée — sujet créé lors d'un passage "
+                    f"précédent ({cand.gramps_id})"
+                )
                 return out
         return creer_sujet(client, releve, out, dry_run=dry_run)
 
@@ -984,9 +1099,13 @@ def run_import_releve(client: GrampsClient, texte: str, *, llm=None,
     # outil ne consulterait que `GENECREW_DRY_RUN` et un appel
     # `run_import_releve(dry_run=True)` sous `GENECREW_DRY_RUN=false` écrirait
     # pour de bon si la garde venait à bouger. L'invariant reste local.
-    note = json.loads(GrampsCreateNoteTool()._run(
-        text=corps_note_releve(releve, appariement), note_type="Research",
-        dry_run=dry_run))
+    note = json.loads(
+        GrampsCreateNoteTool()._run(
+            text=corps_note_releve(releve, appariement),
+            note_type="Research",
+            dry_run=dry_run,
+        )
+    )
     if not note["success"]:
         out["raison"] = f"note refusée : {note['error']}"
         return out
@@ -998,12 +1117,18 @@ def run_import_releve(client: GrampsClient, texte: str, *, llm=None,
     if not tag["success"]:
         out["raison"] = _orpheline(f"tag refusé : {tag['error']}", note_handle)
         return out
-    attache = json.loads(GrampsAttachTool()._run(
-        handle=appariement.handle, note_handle=note_handle,
-        tag_handle=tag["data"]["handle"], dry_run=dry_run))
+    attache = json.loads(
+        GrampsAttachTool()._run(
+            handle=appariement.handle,
+            note_handle=note_handle,
+            tag_handle=tag["data"]["handle"],
+            dry_run=dry_run,
+        )
+    )
     if not attache["success"]:
         out["raison"] = _orpheline(
-            f"rattachement refusé : {attache['error']}", note_handle)
+            f"rattachement refusé : {attache['error']}", note_handle
+        )
         return out
 
     # L'événement du relevé vient APRÈS le rattachement de la note/tag : c'est un
@@ -1017,8 +1142,12 @@ def run_import_releve(client: GrampsClient, texte: str, *, llm=None,
     # Surface B : la naissance estimée du relevé, posée seulement si l'arbre n'en a
     # aucune (ne remplace jamais une date connue).
     nais = completer_naissance_estimee(
-        client, releve, appariement.handle, gramps_id=appariement.gramps_id,
-        dry_run=dry_run)
+        client,
+        releve,
+        appariement.handle,
+        gramps_id=appariement.gramps_id,
+        dry_run=dry_run,
+    )
     if nais is not None:
         out["naissance"] = nais
 
@@ -1026,8 +1155,9 @@ def run_import_releve(client: GrampsClient, texte: str, *, llm=None,
     if evt.get("cree"):
         out["raison"] = f"importée — {evt['raison']}"
     else:
-        out["raison"] = ("importée" if evt["posee"]
-                         else f"importée sans citation ({evt['raison']})")
+        out["raison"] = (
+            "importée" if evt["posee"] else f"importée sans citation ({evt['raison']})"
+        )
     if nais is not None:
         out["raison"] += " + naissance estimée"
     return out
@@ -1052,16 +1182,21 @@ def format_import_releve(resultat: dict) -> str:
     """
     if resultat["appariement"] is None:
         releve = resultat["releve"]
-        return "\n".join([
-            f"Relevé {releve.reference} — {releve.fonds}",
-            f"Sujet : {releve.sujet_prenom} {releve.sujet_nom} "
-            f"({releve.evenement_type} {releve.evenement_date or 'sans date'})",
-            "",
-            f"Résultat : non écrit ({resultat['raison']})",
-        ])
+        return "\n".join(
+            [
+                f"Relevé {releve.reference} — {releve.fonds}",
+                f"Sujet : {releve.sujet_prenom} {releve.sujet_nom} "
+                f"({releve.evenement_type} {releve.evenement_date or 'sans date'})",
+                "",
+                f"Résultat : non écrit ({resultat['raison']})",
+            ]
+        )
     releve, app = resultat["releve"], resultat["appariement"]
-    mode = ("simulation (dry-run, aucune écriture)" if resultat["dry_run"]
-            else "écritures appliquées")
+    mode = (
+        "simulation (dry-run, aucune écriture)"
+        if resultat["dry_run"]
+        else "écritures appliquées"
+    )
     lignes = [
         f"Relevé {releve.reference} — {releve.fonds}",
         f"Sujet : {releve.sujet_prenom} {releve.sujet_nom} "
@@ -1083,11 +1218,18 @@ def format_import_releve(resultat: dict) -> str:
         lignes.append(f"  Sujet CRÉÉ : handle {sc['handle']} (genre {sc['genre']})")
     evt = resultat.get("evenement") or {}
     if evt.get("event_handle"):
-        lignes.append(f"  {releve.evenement_type} créé : {evt['event_handle']} "
-                      f"(lieu {evt.get('lieu') or 'aucun'})")
+        lignes.append(
+            f"  {releve.evenement_type} créé : {evt['event_handle']} "
+            f"(lieu {evt.get('lieu') or 'aucun'})"
+        )
     if (resultat.get("naissance") or {}).get("event_handle"):
-        lignes.append(f"  Naissance estimée créée : {resultat['naissance']['event_handle']}")
+        lignes.append(
+            f"  Naissance estimée créée : {resultat['naissance']['event_handle']}"
+        )
     if app.verdict == "gris":
-        lignes += ["", "Relis les candidats, puis relance en désignant le bon :",
-                   "  genecrew import releve --file <fichier> --person <ID>"]
+        lignes += [
+            "",
+            "Relis les candidats, puis relance en désignant le bon :",
+            "  genecrew import releve --file <fichier> --person <ID>",
+        ]
     return "\n".join(lignes)

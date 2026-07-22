@@ -32,7 +32,7 @@ def test_configure_writes_captured_namespaces_to_dated_file(tmp_path):
 
         content = log_path.read_text(encoding="utf-8")
         assert "commande audit lancée" in content
-        assert "API 404 sur un handle" in content              # cct namespace captured
+        assert "API 404 sur un handle" in content  # cct namespace captured
     finally:
         _detach_all()
 
@@ -42,9 +42,12 @@ def test_configure_is_idempotent(tmp_path):
     try:
         configure_logging(tmp_path, date="2026-07-19")
         configure_logging(tmp_path, date="2026-07-19")
-        tagged = [h for h in logging.getLogger("genecrew").handlers
-                  if hasattr(h, "_genecrew_log_tag")]
-        assert len(tagged) == 1                                # no duplicate handler
+        tagged = [
+            h
+            for h in logging.getLogger("genecrew").handlers
+            if hasattr(h, "_genecrew_log_tag")
+        ]
+        assert len(tagged) == 1  # no duplicate handler
     finally:
         _detach_all()
 

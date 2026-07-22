@@ -20,6 +20,7 @@ ROUTES = [
     (["apply", "gender"], "gender_apply_cmd"),
     (["apply", "places"], "lieux_apply_cmd"),
     (["apply", "citations", "--yaml", "relu.yaml"], "deces_apply_cmd"),
+    (["apply", "deaths", "--yaml", "relu.yaml"], "deces_event_cmd"),
     (["apply", "all"], "apply_all_cmd"),
     (["apply", "referentiel", "--yaml", "relu.yaml"], "referentiel_apply_cmd"),
     (["merge", "places", "--yaml", "f.yaml"], "lieux_merge_cmd"),
@@ -59,6 +60,7 @@ def test_stats_routes_without_a_target(monkeypatch, tmp_path):
 
 def test_merge_people_est_route():
     from genecrew.cli import build_parser
+
     args = build_parser().parse_args(["merge", "people"])
     assert (args.command, args.target) == ("merge", "people")
 

@@ -5,6 +5,7 @@ dans la bibliothèque (crewai_custom_tools.tools.genealogy.pistes).
 
 Voir docs/superpowers/specs/2026-07-20-sources-archives-pistes-design.md.
 """
+
 from __future__ import annotations
 
 import logging
@@ -41,13 +42,24 @@ def collecter_pistes(source: str, person: PersonFacts) -> list[Piste]:
     """Interroge la source pour UNE personne et rend ses pistes. Réseau ici."""
     if source in ("wikidata", "dhs"):
         rows = sparql_rows(requete_wikidata(person))
-        return pistes_wikidata(person, rows) if source == "wikidata" else pistes_dhs(person, rows)
+        return (
+            pistes_wikidata(person, rows)
+            if source == "wikidata"
+            else pistes_dhs(person, rows)
+        )
     raise ValueError(f"source inconnue : {source}")
 
 
-def run_archives(client: GrampsClient, source: str, scope: str, output_dir: Path, *,
-                 date: str | None = None, batch_size: int = 25,
-                 limit: int | None = None) -> Path:
+def run_archives(
+    client: GrampsClient,
+    source: str,
+    scope: str,
+    output_dir: Path,
+    *,
+    date: str | None = None,
+    batch_size: int = 25,
+    limit: int | None = None,
+) -> Path:
     """Parcourt `scope`, interroge `source`, rend le rapport. Lecture seule.
 
     `propose` n'écrit jamais (docs/adr/0012-cli-grammaire-verbes.md) : ce module
@@ -69,7 +81,7 @@ def run_archives(client: GrampsClient, source: str, scope: str, output_dir: Path
                 if THROTTLE_S:
                     time.sleep(THROTTLE_S)
                 pistes = collecter_pistes(source, person)
-            except Exception as exc:                       # noqa: BLE001
+            except Exception as exc:  # noqa: BLE001
                 echecs += 1
                 logger.warning("%s : %s a échoué (%s)", person.gramps_id, source, exc)
                 continue
@@ -77,7 +89,9 @@ def run_archives(client: GrampsClient, source: str, scope: str, output_dir: Path
 
     output_dir.mkdir(parents=True, exist_ok=True)
     chemin = output_dir / f"{date}_pistes_{source}_{scope.replace(':', '-')}.md"
-    chemin.write_text(render_rapport_pistes(toutes, date, ecriture=False, echecs=echecs),
-                      encoding="utf-8")
+    chemin.write_text(
+        render_rapport_pistes(toutes, date, ecriture=False, echecs=echecs),
+        encoding="utf-8",
+    )
     logger.info("%s pistes depuis %s (%s échecs)", len(toutes), source, echecs)
     return chemin

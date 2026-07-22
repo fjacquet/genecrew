@@ -56,8 +56,7 @@ def source_title_for(preuve_detail: str) -> tuple[str, str]:
     if m:
         return f"Mémoire des hommes — {m.group(1).strip()}", "Ministère des Armées"
     if "gallica" in detail.lower():
-        return ("Gallica (BnF) — presse numérisée",
-                "Bibliothèque nationale de France")
+        return ("Gallica (BnF) — presse numérisée", "Bibliothèque nationale de France")
     if _INSEE_RE.search(detail):
         return SOURCE_TITLE, "INSEE"
     m = _RELEVE_RE.match(detail)
@@ -103,19 +102,29 @@ def _already_cited(client: GrampsClient, event: dict, source_handle: str) -> boo
     return False
 
 
-def render_apply_report(date: str, applied: list, skipped: list, errors: list,
-                        ignored: int, dry_run: bool) -> str:
+def render_apply_report(
+    date: str, applied: list, skipped: list, errors: list, ignored: int, dry_run: bool
+) -> str:
     """Markdown report. Pure."""
-    mode = "simulation (dry-run, aucune écriture)" if dry_run else "écritures appliquées"
-    lines = [f"# Application des propositions décès (citations de registres) — {date}", "",
-             f"Mode : {mode}.", "",
-             f"- Citations posées : {len(applied)}",
-             f"- Déjà citées (ignorées, idempotent) : {len(skipped)}",
-             f"- Hors périmètre v1 (type ≠ source ou confiance < 2) : {ignored}",
-             f"- Erreurs : {len(errors)}", ""]
+    mode = (
+        "simulation (dry-run, aucune écriture)" if dry_run else "écritures appliquées"
+    )
+    lines = [
+        f"# Application des propositions décès (citations de registres) — {date}",
+        "",
+        f"Mode : {mode}.",
+        "",
+        f"- Citations posées : {len(applied)}",
+        f"- Déjà citées (ignorées, idempotent) : {len(skipped)}",
+        f"- Hors périmètre v1 (type ≠ source ou confiance < 2) : {ignored}",
+        f"- Erreurs : {len(errors)}",
+        "",
+    ]
     if applied:
         lines += ["| Personne | Événement | Citation |", "|---|---|---|"]
-        lines += [f"| {gid} {name} | {ev} | {page[:80]} |" for gid, name, ev, page in applied]
+        lines += [
+            f"| {gid} {name} | {ev} | {page[:80]} |" for gid, name, ev, page in applied
+        ]
     if errors:
         lines += ["", "## Erreurs", ""]
         lines += [f"- {gid} : {msg}" for gid, msg in errors]
@@ -123,22 +132,31 @@ def render_apply_report(date: str, applied: list, skipped: list, errors: list,
     return "\n".join(lines)
 
 
-def run_deces_apply(client: GrampsClient, propositions_yaml: Path, output_dir, *,
-                    date: str, dry_run: bool = False) -> Path:
+def run_deces_apply(
+    client: GrampsClient,
+    propositions_yaml: Path,
+    output_dir,
+    *,
+    date: str,
+    dry_run: bool = False,
+) -> Path:
     """Apply reviewed death propositions: INSEE citations on existing death events."""
     dry_run = effective_dry_run(dry_run)
     data = yaml.safe_load(Path(propositions_yaml).read_text(encoding="utf-8")) or {}
-    lot = PropositionsLot(**data)                   # validation stricte du YAML relu
+    lot = PropositionsLot(**data)  # validation stricte du YAML relu
 
     todo = [p for p in lot.propositions if p.type == "source" and p.confiance == 2]
     ignored = len(lot.propositions) - len(todo)
 
-    source_handles: dict[str, str] = {}             # titre -> handle (une source/registre)
+    source_handles: dict[str, str] = {}  # titre -> handle (une source/registre)
 
     def _ensure_source(title: str, author: str) -> str:
         if title not in source_handles:
-            payload = json.loads(GrampsEnsureSourceTool()._run(
-                title=title, author=author, dry_run=dry_run))
+            payload = json.loads(
+                GrampsEnsureSourceTool()._run(
+                    title=title, author=author, dry_run=dry_run
+                )
+            )
             if not payload["success"]:
                 raise RuntimeError(f"source '{title}' : {payload['error']}")
             source_handles[title] = payload["data"]["handle"]
@@ -163,19 +181,26 @@ def run_deces_apply(client: GrampsClient, propositions_yaml: Path, output_dir, *
             skipped.append(prop.gramps_id)
             continue
         page = citation_page(prop.preuve_detail, prop.preuve_url)
-        citation = json.loads(creator._run(source_handle=source_handle, page=page,
-                                           dry_run=dry_run))
+        citation = json.loads(
+            creator._run(source_handle=source_handle, page=page, dry_run=dry_run)
+        )
         if not citation["success"]:
             errors.append((prop.gramps_id, f"citation : {citation['error']}"))
             continue
-        attach = json.loads(attacher._run(object_type="events", handle=event_handle,
-                                          citation_handle=citation["data"]["handle"],
-                                          dry_run=dry_run))
+        attach = json.loads(
+            attacher._run(
+                object_type="events",
+                handle=event_handle,
+                citation_handle=citation["data"]["handle"],
+                dry_run=dry_run,
+            )
+        )
         if not attach["success"]:
             errors.append((prop.gramps_id, f"rattachement : {attach['error']}"))
             continue
-        applied.append((prop.gramps_id, prop.personne,
-                        event.get("gramps_id", event_handle), page))
+        applied.append(
+            (prop.gramps_id, prop.personne, event.get("gramps_id", event_handle), page)
+        )
 
     report = render_apply_report(date, applied, skipped, errors, ignored, dry_run)
     out = Path(output_dir) / "deces"

@@ -17,6 +17,7 @@ warnings.filterwarnings("ignore", category=SyntaxWarning, module="pysbd")
 # Replace with inputs you want to test with, it will automatically
 # interpolate any tasks and agents information
 
+
 def _placeholder_inputs() -> dict:
     """Minimal inputs so train/test interpolate without real findings."""
     return {
@@ -44,8 +45,13 @@ def run():
     output_dir = Path(os.environ.get("GENECREW_OUTPUT_DIR", "output"))
     try:
         report = run_crew_audit(
-            get_client(), "all", output_dir,
-            date=datetime.now().date().isoformat(), limit=limit, dry_run=True)
+            get_client(),
+            "all",
+            output_dir,
+            date=datetime.now().date().isoformat(),
+            limit=limit,
+            dry_run=True,
+        )
         print(f"Rapport : {report}")
     except Exception as e:
         raise Exception(f"An error occurred while running the crew: {e}")
@@ -59,10 +65,14 @@ def train():
 
     try:
         Genecrew().crew().train(
-            n_iterations=int(sys.argv[1]), filename=sys.argv[2], inputs=_placeholder_inputs())
+            n_iterations=int(sys.argv[1]),
+            filename=sys.argv[2],
+            inputs=_placeholder_inputs(),
+        )
 
     except Exception as e:
         raise Exception(f"An error occurred while training the crew: {e}")
+
 
 def replay():
     """
@@ -76,6 +86,7 @@ def replay():
     except Exception as e:
         raise Exception(f"An error occurred while replaying the crew: {e}")
 
+
 def test():
     """
     Test the crew execution and returns the results.
@@ -84,7 +95,10 @@ def test():
 
     try:
         Genecrew().crew().test(
-            n_iterations=int(sys.argv[1]), eval_llm=sys.argv[2], inputs=_placeholder_inputs())
+            n_iterations=int(sys.argv[1]),
+            eval_llm=sys.argv[2],
+            inputs=_placeholder_inputs(),
+        )
 
     except Exception as e:
         raise Exception(f"An error occurred while testing the crew: {e}")
@@ -119,8 +133,12 @@ def audit_cmd(args) -> None:
     output_dir = Path(os.environ.get("GENECREW_OUTPUT_DIR", "output"))
     date = args.date or __import__("datetime").date.today().isoformat()
     path = run_audit(
-        client, args.scope, output_dir, date=date,
-        batch_size=args.batch_size, limit=args.limit,
+        client,
+        args.scope,
+        output_dir,
+        date=date,
+        batch_size=args.batch_size,
+        limit=args.limit,
     )
     print(f"Rapport écrit : {path}")
 
@@ -140,8 +158,13 @@ def names_cmd(args) -> None:
     output_dir = Path(os.environ.get("GENECREW_OUTPUT_DIR", "output"))
     date = args.date or __import__("datetime").date.today().isoformat()
     report, incomplete = run_names(
-        client, args.scope, output_dir, date=date,
-        batch_size=args.batch_size, limit=args.limit, dry_run=args.dry_run,
+        client,
+        args.scope,
+        output_dir,
+        date=date,
+        batch_size=args.batch_size,
+        limit=args.limit,
+        dry_run=args.dry_run,
     )
     print(f"Rapport : {report}")
     print(f"Noms à vérifier : {incomplete}")
@@ -161,7 +184,9 @@ def gender_cmd(args) -> None:
     client = GrampsClient(GrampsConfig.from_env())
     output_dir = Path(os.environ.get("GENECREW_OUTPUT_DIR", "output"))
     date = args.date or __import__("datetime").date.today().isoformat()
-    report, proposals = run_gender(client, args.scope, output_dir, date=date, limit=args.limit)
+    report, proposals = run_gender(
+        client, args.scope, output_dir, date=date, limit=args.limit
+    )
     print(f"Rapport : {report}")
     print(f"Propositions : {proposals}")
 
@@ -180,8 +205,15 @@ def gender_apply_cmd(args) -> None:
     client = GrampsClient(GrampsConfig.from_env())
     output_dir = Path(os.environ.get("GENECREW_OUTPUT_DIR", "output"))
     date = args.date or __import__("datetime").date.today().isoformat()
-    report = run_gender_apply(client, args.scope, output_dir, date=date,
-                              min_ratio=args.min_ratio, limit=args.limit, dry_run=args.dry_run)
+    report = run_gender_apply(
+        client,
+        args.scope,
+        output_dir,
+        date=date,
+        min_ratio=args.min_ratio,
+        limit=args.limit,
+        dry_run=args.dry_run,
+    )
     print(f"Rapport : {report}")
 
 
@@ -196,8 +228,15 @@ def archives_cmd(args, source: str) -> None:
     client = get_client()
     output_dir = Path(os.environ.get("GENECREW_OUTPUT_DIR", "output"))
     date = args.date or __import__("datetime").date.today().isoformat()
-    chemin = run_archives(client, source, args.scope, output_dir, date=date,
-                          batch_size=args.batch_size, limit=args.limit)
+    chemin = run_archives(
+        client,
+        source,
+        args.scope,
+        output_dir,
+        date=date,
+        batch_size=args.batch_size,
+        limit=args.limit,
+    )
     print(f"Rapport : {chemin}")
 
 
@@ -255,10 +294,17 @@ def apply_all_cmd(args) -> None:
     client = get_client()
     output_dir = Path(os.environ.get("GENECREW_OUTPUT_DIR", "output"))
     date = args.date or __import__("datetime").date.today().isoformat()
-    paths = run_apply_all(client, args.scope, output_dir, date=date,
-                          min_ratio=args.min_ratio, min_score=args.min_score,
-                          batch_size=args.batch_size,
-                          limit=args.limit, dry_run=args.dry_run)
+    paths = run_apply_all(
+        client,
+        args.scope,
+        output_dir,
+        date=date,
+        min_ratio=args.min_ratio,
+        min_score=args.min_score,
+        batch_size=args.batch_size,
+        limit=args.limit,
+        dry_run=args.dry_run,
+    )
     print(f"Casse : {paths['names']}")
     print(f"Noms à vérifier : {paths['incomplete']}")
     print(f"Genres : {paths['gender']}")
@@ -278,9 +324,15 @@ def lieux_cmd(args) -> None:
     client = get_client()
     output_dir = Path(os.environ.get("GENECREW_OUTPUT_DIR", "output"))
     date = args.date or __import__("datetime").date.today().isoformat()
-    report, proposals = run_places(client, args.scope, output_dir, date=date,
-                                   batch_size=args.batch_size, limit=args.limit,
-                                   min_score=args.min_score)
+    report, proposals = run_places(
+        client,
+        args.scope,
+        output_dir,
+        date=date,
+        batch_size=args.batch_size,
+        limit=args.limit,
+        min_score=args.min_score,
+    )
     print(f"Rapport : {report}")
     print(f"Propositions : {proposals}")
 
@@ -296,9 +348,16 @@ def lieux_apply_cmd(args) -> None:
     client = get_client()
     output_dir = Path(os.environ.get("GENECREW_OUTPUT_DIR", "output"))
     date = args.date or __import__("datetime").date.today().isoformat()
-    report = run_places_apply(client, args.scope, output_dir, date=date,
-                              min_score=args.min_score, batch_size=args.batch_size,
-                              limit=args.limit, dry_run=args.dry_run)
+    report = run_places_apply(
+        client,
+        args.scope,
+        output_dir,
+        date=date,
+        min_score=args.min_score,
+        batch_size=args.batch_size,
+        limit=args.limit,
+        dry_run=args.dry_run,
+    )
     print(f"Rapport : {report}")
 
 
@@ -314,12 +373,18 @@ def lieux_merge_cmd(args) -> None:
     output_dir = Path(os.environ.get("GENECREW_OUTPUT_DIR", "output"))
     date = args.date or __import__("datetime").date.today().isoformat()
     if args.yaml:
-        report = run_places_merge(client, args.yaml, output_dir, date=date,
-                                  dry_run=args.dry_run)
+        report = run_places_merge(
+            client, args.yaml, output_dir, date=date, dry_run=args.dry_run
+        )
     else:
-        resultat = run_places_detect(client, output_dir, scope=args.scope,
-                                     date=date, limit=args.limit,
-                                     dry_run=args.dry_run)
+        resultat = run_places_detect(
+            client,
+            output_dir,
+            scope=args.scope,
+            date=date,
+            limit=args.limit,
+            dry_run=args.dry_run,
+        )
         report = resultat.chemin
         # Les deux gardes « une lecture tronquée ne fusionne jamais » vivent dans
         # run_places_detect ET N'Y SONT DÉCIDÉES QUE LÀ ; leur explication n'est sinon
@@ -330,14 +395,18 @@ def lieux_merge_cmd(args) -> None:
         # ne puisse plus dire « simulation forcée » pendant qu'une fusion irréversible a
         # réellement lieu.
         if resultat.lot_borne:
-            print("Lot borné (--limit) : simulation forcée, aucune fusion. Un groupe "
-                  "d'homonymes tronqué ne permet pas de décider d'une fusion "
-                  "irréversible — relancez sans --limit pour appliquer les fusions.")
+            print(
+                "Lot borné (--limit) : simulation forcée, aucune fusion. Un groupe "
+                "d'homonymes tronqué ne permet pas de décider d'une fusion "
+                "irréversible — relancez sans --limit pour appliquer les fusions."
+            )
         if resultat.scope_unitaire:
-            print("Périmètre à un seul lieu (--scope place:<ID>) : simulation forcée, "
-                  "aucune fusion. Un lieu isolé ne forme aucun groupe d'homonymes, donc "
-                  "aucun doublon ne peut être détecté — ce n'est pas la preuve qu'il "
-                  "n'y en a pas. Relancez avec --scope all pour chercher les doublons.")
+            print(
+                "Périmètre à un seul lieu (--scope place:<ID>) : simulation forcée, "
+                "aucune fusion. Un lieu isolé ne forme aucun groupe d'homonymes, donc "
+                "aucun doublon ne peut être détecté — ce n'est pas la preuve qu'il "
+                "n'y en a pas. Relancez avec --scope all pour chercher les doublons."
+            )
     print(f"Rapport : {report}")
 
 
@@ -353,12 +422,19 @@ def people_merge_cmd(args) -> None:
     output_dir = Path(os.environ.get("GENECREW_OUTPUT_DIR", "output"))
     date = args.date or __import__("datetime").date.today().isoformat()
     if args.yaml:
-        report = run_people_merge_yaml(client, args.yaml, output_dir, date=date,
-                                       dry_run=args.dry_run)
+        report = run_people_merge_yaml(
+            client, args.yaml, output_dir, date=date, dry_run=args.dry_run
+        )
     else:
-        report = run_people_merge(client, output_dir, scope=args.scope, date=date,
-                                  limit=args.limit, max_passes=args.max_passes,
-                                  dry_run=args.dry_run)
+        report = run_people_merge(
+            client,
+            output_dir,
+            scope=args.scope,
+            date=date,
+            limit=args.limit,
+            max_passes=args.max_passes,
+            dry_run=args.dry_run,
+        )
     print(f"Rapport : {report}")
 
 
@@ -373,9 +449,15 @@ def deces_cmd(args) -> None:
     client = get_client()
     output_dir = Path(os.environ.get("GENECREW_OUTPUT_DIR", "output"))
     date = args.date or __import__("datetime").date.today().isoformat()
-    report, proposals = run_deces(client, args.scope, output_dir, date=date,
-                                  min_score=args.min_score, batch_size=args.batch_size,
-                                  limit=args.limit)
+    report, proposals = run_deces(
+        client,
+        args.scope,
+        output_dir,
+        date=date,
+        min_score=args.min_score,
+        batch_size=args.batch_size,
+        limit=args.limit,
+    )
     print(f"Rapport : {report}")
     print(f"Propositions : {proposals}")
 
@@ -391,9 +473,15 @@ def militaires_cmd(args) -> None:
     client = get_client()
     output_dir = Path(os.environ.get("GENECREW_OUTPUT_DIR", "output"))
     date = args.date or __import__("datetime").date.today().isoformat()
-    report, proposals = run_militaires(client, args.scope, output_dir, date=date,
-                                       min_score=args.min_score,
-                                       batch_size=args.batch_size, limit=args.limit)
+    report, proposals = run_militaires(
+        client,
+        args.scope,
+        output_dir,
+        date=date,
+        min_score=args.min_score,
+        batch_size=args.batch_size,
+        limit=args.limit,
+    )
     print(f"Rapport : {report}")
     print(f"Propositions : {proposals}")
 
@@ -409,8 +497,14 @@ def lieux_wiki_cmd(args) -> None:
     client = get_client()
     output_dir = Path(os.environ.get("GENECREW_OUTPUT_DIR", "output"))
     date = args.date or __import__("datetime").date.today().isoformat()
-    report = run_lieux_wiki(client, output_dir, date=date, limit=args.limit,
-                            images=not args.no_images, dry_run=args.dry_run)
+    report = run_lieux_wiki(
+        client,
+        output_dir,
+        date=date,
+        limit=args.limit,
+        images=not args.no_images,
+        dry_run=args.dry_run,
+    )
     print(f"Rapport : {report}")
 
 
@@ -425,8 +519,26 @@ def deces_apply_cmd(args) -> None:
     client = get_client()
     output_dir = Path(os.environ.get("GENECREW_OUTPUT_DIR", "output"))
     date = args.date or __import__("datetime").date.today().isoformat()
-    report = run_deces_apply(client, Path(args.yaml), output_dir,
-                             date=date, dry_run=args.dry_run)
+    report = run_deces_apply(
+        client, Path(args.yaml), output_dir, date=date, dry_run=args.dry_run
+    )
+    print(f"Rapport : {report}")
+
+
+def deces_event_cmd(args) -> None:
+    """Create the missing death events from a reviewed YAML; print the report path."""
+    from pathlib import Path
+
+    from crewai_custom_tools.tools.genealogy.gramps.client import get_client
+
+    from genecrew.deces_event import run_deces_event
+
+    client = get_client()
+    output_dir = Path(os.environ.get("GENECREW_OUTPUT_DIR", "output"))
+    date = args.date or __import__("datetime").date.today().isoformat()
+    report = run_deces_event(
+        client, Path(args.yaml), output_dir, date=date, dry_run=args.dry_run
+    )
     print(f"Rapport : {report}")
 
 
@@ -436,8 +548,9 @@ def lieu_import_cmd(args) -> None:
 
     from genecrew.lieu_import import format_lieu_import, run_lieu_import
 
-    out = run_lieu_import(get_client(), args.place, min_score=args.min_score,
-                          dry_run=args.dry_run)
+    out = run_lieu_import(
+        get_client(), args.place, min_score=args.min_score, dry_run=args.dry_run
+    )
     print(format_lieu_import(out))
 
 
@@ -447,14 +560,17 @@ def releve_import_cmd(args) -> None:
 
     from genecrew.releves_import import format_import_releve, run_import_releve
 
-    texte = Path(args.file).read_text(encoding="utf-8") if args.file else sys.stdin.read()
+    texte = (
+        Path(args.file).read_text(encoding="utf-8") if args.file else sys.stdin.read()
+    )
     if not texte.strip():
         raise SystemExit("Rien à importer : le relevé est vide.")
     # `--person` (args.person, None par défaut) force QUI on rattache, jamais le
     # DROIT d'écrire : il tranche un `gris` en désignant la bonne personne, mais
     # l'import reste soumis à toutes les gardes de sûreté (voir run_import_releve).
-    resultat = run_import_releve(get_client(), texte, dry_run=args.dry_run,
-                                 person=args.person)
+    resultat = run_import_releve(
+        get_client(), texte, dry_run=args.dry_run, person=args.person
+    )
     print(format_import_releve(resultat))
 
 
@@ -469,9 +585,15 @@ def crew_audit_cmd(args) -> None:
     client = get_client()
     output_dir = Path(os.environ.get("GENECREW_OUTPUT_DIR", "output"))
     date = args.date or __import__("datetime").date.today().isoformat()
-    report = run_crew_audit(client, args.scope, output_dir, date=date,
-                            batch_size=args.batch_size, limit=args.limit,
-                            dry_run=args.dry_run)
+    report = run_crew_audit(
+        client,
+        args.scope,
+        output_dir,
+        date=date,
+        batch_size=args.batch_size,
+        limit=args.limit,
+        dry_run=args.dry_run,
+    )
     print(f"Rapport : {report}")
 
 
@@ -487,8 +609,12 @@ def main() -> None:
     date = getattr(args, "date", None) or datetime.now().date().isoformat()
     log_path = configure_logging(output_dir, date=date)
     log = get_logger()
-    log.info("START command=%s target=%s args=%s", args.command, target,
-             {k: v for k, v in vars(args).items() if k not in ("command", "target")})
+    log.info(
+        "START command=%s target=%s args=%s",
+        args.command,
+        target,
+        {k: v for k, v in vars(args).items() if k not in ("command", "target")},
+    )
 
     dispatch = {
         ("stats", None): lambda: stats(),
@@ -507,6 +633,10 @@ def main() -> None:
         # presse Gallica. La source Gramps est déduite de chaque proposition du YAML
         # (deces_apply.source_title_for), pas du nom de la commande — ADR 0011.
         ("apply", "citations"): lambda: deces_apply_cmd(args),
+        # `citations` pose une source sur un événement EXISTANT ; `deaths` CRÉE
+        # l'événement absent. Deux commandes, un même YAML, des propositions
+        # disjointes (`type: source` / `type: date`) — ADR 0014.
+        ("apply", "deaths"): lambda: deces_event_cmd(args),
         ("apply", "all"): lambda: apply_all_cmd(args),
         ("apply", "referentiel"): lambda: referentiel_apply_cmd(args),
         ("merge", "places"): lambda: lieux_merge_cmd(args),

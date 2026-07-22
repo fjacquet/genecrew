@@ -15,31 +15,72 @@ def _no_global_dry_run(monkeypatch):
     """Défaut réel = simuler ; on pose false pour que le test d'écriture e2e écrive."""
     monkeypatch.setenv("GENECREW_DRY_RUN", "false")
 
+
 # Personne A : prénom incomplet (chiffre) — NE DOIT JAMAIS être écrit.
 PERSON_A = {
-    "gramps_id": "I0001", "handle": "hA", "gender": 0, "citation_list": [],
-    "family_list": [], "parent_family_list": [], "birth_ref_index": -1, "death_ref_index": -1,
+    "gramps_id": "I0001",
+    "handle": "hA",
+    "gender": 0,
+    "citation_list": [],
+    "family_list": [],
+    "parent_family_list": [],
+    "birth_ref_index": -1,
+    "death_ref_index": -1,
     "primary_name": {"first_name": "MARIE2", "surname_list": [{"surname": "Dupont"}]},
-    "profile": {}, "event_ref_list": [], "extended": {"events": []},
+    "profile": {},
+    "event_ref_list": [],
+    "extended": {"events": []},
 }
 # Personne B : nom tout capitales propre — DOIT être recasé.
 PERSON_B = {
-    "gramps_id": "I0002", "handle": "hB", "gender": 1, "citation_list": [],
-    "family_list": [], "parent_family_list": [], "birth_ref_index": -1, "death_ref_index": -1,
+    "gramps_id": "I0002",
+    "handle": "hB",
+    "gender": 1,
+    "citation_list": [],
+    "family_list": [],
+    "parent_family_list": [],
+    "birth_ref_index": -1,
+    "death_ref_index": -1,
     "primary_name": {"first_name": "Jean", "surname_list": [{"surname": "JACQUET"}]},
-    "profile": {}, "event_ref_list": [], "extended": {"events": []},
+    "profile": {},
+    "event_ref_list": [],
+    "extended": {"events": []},
 }
 
 
 def _pf(gid, given, surname):
-    return PersonFacts(gramps_id=gid, handle=gid, name=f"{given} {surname}",
-                       surname=surname, given=given, sex="U", has_any_citation=True)
+    return PersonFacts(
+        gramps_id=gid,
+        handle=gid,
+        name=f"{given} {surname}",
+        surname=surname,
+        given=given,
+        sex="U",
+        has_any_citation=True,
+    )
 
 
 def test_report_separates_prenom_and_nom():
-    results = [{"gramps_id": "I0001", "dry_run": False, "changes": [
-        {"field": "first_name", "kind": "prénom", "old": "FREDERIC", "new": "Frederic"},
-        {"field": "surname[0]", "kind": "nom", "old": "JACQUET", "new": "Jacquet"}]}]
+    results = [
+        {
+            "gramps_id": "I0001",
+            "dry_run": False,
+            "changes": [
+                {
+                    "field": "first_name",
+                    "kind": "prénom",
+                    "old": "FREDERIC",
+                    "new": "Frederic",
+                },
+                {
+                    "field": "surname[0]",
+                    "kind": "nom",
+                    "old": "JACQUET",
+                    "new": "Jacquet",
+                },
+            ],
+        }
+    ]
     incomplete = [("I0009", "nom", "?, Suzanne")]
     out = render_names_report("all", "2026-07-18", results, incomplete, dry_run=False)
     # la distinction prénom / nom est visible dans le rapport
@@ -56,8 +97,14 @@ def test_report_dry_run_marked():
 
 
 def test_report_shows_write_errors():
-    results = [{"gramps_id": "I0007", "changes": [], "dry_run": False,
-                "error": "gramps_update_name_case: h7 first_name non purement de casse"}]
+    results = [
+        {
+            "gramps_id": "I0007",
+            "changes": [],
+            "dry_run": False,
+            "error": "gramps_update_name_case: h7 first_name non purement de casse",
+        }
+    ]
     out = render_names_report("all", "2026-07-18", results, [], dry_run=False)
     assert "Erreurs" in out
     assert "I0007" in out and "non purement de casse" in out
@@ -102,7 +149,8 @@ def test_run_names_lists_incomplete_but_never_writes_it(tmp_path, mocker):
     )
 
     report_path, incomplete_path = run_names(
-        client, "all", tmp_path, date="2026-07-18", dry_run=False)
+        client, "all", tmp_path, date="2026-07-18", dry_run=False
+    )
 
     # 1) l'incomplet est listé pour vérification humaine ...
     incomplete_text = incomplete_path.read_text(encoding="utf-8")

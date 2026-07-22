@@ -5,8 +5,16 @@ from __future__ import annotations
 from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient
 
 COUNTED_TYPES = (
-    "people", "families", "events", "places", "sources",
-    "citations", "repositories", "media", "notes", "tags",
+    "people",
+    "families",
+    "events",
+    "places",
+    "sources",
+    "citations",
+    "repositories",
+    "media",
+    "notes",
+    "tags",
 )
 
 
@@ -22,6 +30,7 @@ def format_stats(tree_name: str | None, counts: dict[str, int]) -> str:
     value_width = max(len(str(v)) for v in counts.values())
     lines = [f"Arbre : {tree_name or '(sans nom)'}", ""]
     lines += [
-        f"{k.ljust(name_width)}    {str(v).rjust(value_width)}" for k, v in counts.items()
+        f"{k.ljust(name_width)}    {str(v).rjust(value_width)}"
+        for k, v in counts.items()
     ]
     return "\n".join(lines)
