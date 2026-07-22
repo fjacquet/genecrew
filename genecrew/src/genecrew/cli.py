@@ -151,7 +151,10 @@ def build_parser() -> argparse.ArgumentParser:
     p = merge_sub.add_parser(
         "places", help="Détecte les doublons de lieux et fusionne les prouvés ; "
              "ou exécute un YAML relu (ADR 0015)")
-    _add_scope(p, "all | place:ID")
+    # `place:ID` ne lit qu'un lieu, qui ne forme jamais de groupe d'homonymes : le
+    # périmètre sert à inspecter, pas à détecter, et force la simulation comme --limit.
+    _add_scope(p, "all | place:ID (place:ID n'inspecte qu'un lieu : aucune détection "
+                  "possible, écritures désactivées)")
     p.add_argument("--yaml", default=None,
                    help="exécuter les fusions d'un YAML relu, au lieu de détecter")
     _add_dry_run(p)

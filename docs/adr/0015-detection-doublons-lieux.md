@@ -30,10 +30,18 @@ Les coordonnées ne prouvent **jamais** rien entre types différents. Paris exis
 réelles. Le chantier référentiel donnera des coordonnées aux départements, et un département
 géocodé reçoit le point de son chef-lieu — sans cette garde, le piège deviendrait atteignable.
 
-Le survivant est choisi par **richesse d'abord** (coordonnées, code, rattachement), puis
-rétroliens, puis identifiant le plus petit. La fusion Gramps unionne les listes mais conserve
-les champs simples du survivant : garder une coquille vide effacerait définitivement les
-coordonnées de l'autre. Le rapport nomme ce que l'ordre inverse aurait perdu.
+Le survivant est choisi par **richesse d'abord** (coordonnées, code), puis rétroliens, puis
+identifiant le plus petit. La fusion Gramps unionne les listes mais conserve les champs simples
+du survivant : garder une coquille vide effacerait définitivement les coordonnées de l'autre.
+Le rattachement ne compte **pas** dans la richesse — c'est une liste de références, unionnée
+donc jamais détruite, et le compter faisait trancher le choix par le seul attribut qui ne
+risque rien. Le rapport nomme ce que l'ordre inverse aurait perdu.
+
+Le **rattachement** sert ailleurs, et c'est décisif : deux homonymes sans code officiel,
+rattachés à deux contenants connus et différents, ne fusionnent jamais automatiquement. C'est
+le seul discriminant de deux « Saint-Michel » au même point géocodé mais dans deux
+départements. Un contenant inconnu — ou multiple, cas des communes fusionnées, qui portent deux
+`placeref_list` datées — ne refuse rien : l'ignorance n'est pas une différence.
 
 C'est la doctrine de l'ADR 0013 transposée : la ressemblance ne prouve jamais l'identité. Avec
 un avantage que les personnes n'ont pas — une commune possède un identifiant canonique.
@@ -41,14 +49,20 @@ un avantage que les personnes n'ont pas — une commune possède un identifiant 
 Trois points, imprévisibles avant l'implémentation, se sont révélés en cours de route et
 tiennent la forme du code livré :
 
-1. **Un `--limit` désactive les écritures.** Le veto de grappe (ci-dessous) raisonne sur le
-   groupe entier d'homonymes ; `--limit` tronque la lecture, donc tronque les groupes, et fait
-   tomber cette garde — le membre exclu par la troncature peut être justement celui qui portait
-   la preuve du mélange. `run_places_detect` force donc la simulation dès que `limit` est posé,
-   quel que soit `--dry-run`, et le rapport le dit explicitement (avertissement dédié). C'est
-   **surprenant** : le guide recommande par ailleurs de borner un premier essai avec `--limit`
-   (`merge people --scope all --limit 200`, `propose wikidata --limit 50`…), un réflexe qui pour
-   `merge places` produit silencieusement une simulation.
+1. **Une lecture tronquée désactive les écritures.** Le veto de grappe (ci-dessous) raisonne sur
+   le groupe entier d'homonymes ; `--limit` tronque la lecture, donc tronque les groupes, et
+   fait tomber cette garde — le membre exclu par la troncature peut être justement celui qui
+   portait la preuve du mélange. `run_places_detect` force donc la simulation dès que `limit`
+   est posé, quel que soit `--dry-run`, et le rapport le dit explicitement (avertissement
+   dédié). C'est **surprenant** : le guide recommande par ailleurs de borner un premier essai
+   avec `--limit` (`merge people --scope all --limit 200`, `propose wikidata --limit 50`…), un
+   réflexe qui pour `merge places` produit silencieusement une simulation.
+   **`--scope place:<ID>` reçoit exactement le même traitement**, et pour une raison plus forte
+   encore : un lieu isolé ne forme jamais de groupe d'homonymes, la commande ne peut donc rien
+   trouver. Sans cette garde elle annonçait « écritures appliquées » puis « aucun doublon
+   détecté » — une absence de regard présentée comme une absence de doublons. Les deux drapeaux
+   restent distincts dans le retour de la fonction (`ResultatDetection`) : les causes diffèrent,
+   et les remèdes aussi — relancer sans `--limit` d'un côté, avec `--scope all` de l'autre.
 2. **Une fusion automatique ne détruit jamais d'information.** Une preuve ne suffit pas à
    conclure « auto » : si l'absorbé porte un attribut simple que le survivant n'a pas —
    coordonnées, code, **type** — la proposition passe en arbitrage au lieu de s'exécuter. La
@@ -77,9 +91,17 @@ peut en révéler d'autres.
 Contrepartie assumée : le comptage des rétroliens coûte un appel API par lieu. C'est la seule
 mesure qui dise lequel de deux homonymes l'arbre utilise réellement.
 
-Un lot borné par `--limit` ne fusionne jamais — la simulation forcée est **intentionnelle**,
-pas une régression à corriger : documentée dans le rapport et dans le guide utilisateur pour
-qu'elle ne se lise pas comme une panne.
+Un lot borné par `--limit`, comme un périmètre `--scope place:<ID>`, ne fusionne jamais — la
+simulation forcée est **intentionnelle**, pas une régression à corriger : documentée dans le
+rapport, sur la console et dans le guide utilisateur pour qu'elle ne se lise pas comme une
+panne.
+
+La **porte humaine** est le fichier d'arbitrage, et elle doit se franchir sans ouvrir Gramps :
+chaque couple y porte, pour ses deux lieux, type, code, coordonnées, contenant et rétroliens,
+sous une clé `relecture` que `merge places --yaml` ignore — le fichier reste donc exécutable
+tel quel. Le tableau d'arbitrage du rapport montre les mêmes faits, plus la perte évitée. Ces
+faits ne rejoignent pas `PlaceMergeProposition` : ce modèle appartient à la bibliothèque et
+sert aussi à `apply places`, un document de relecture n'a pas à en être le miroir.
 
 Hors périmètre : créer ou compléter des lieux — c'est `apply places` et le chantier
 référentiel.

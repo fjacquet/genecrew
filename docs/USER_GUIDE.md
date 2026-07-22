@@ -386,11 +386,22 @@ Le rapport indique, pour chaque fusion, quel lieu survit et **ce qui aurait ét�
 l'ordre inverse : Gramps conserve les champs simples du survivant et efface ceux du lieu
 absorbé.
 
-**`--limit` désactive les écritures.** La garde qui refuse de fusionner une grappe d'homonymes
-mélangeant deux entités distinctes raisonne sur le groupe entier ; borner la lecture tronque
-les groupes et fait tomber cette garde. `merge places --scope ... --limit N` produit donc
-toujours une simulation, quel que soit `--dry-run` — le rapport l'indique explicitement.
-Relancez **sans `--limit`** pour appliquer les fusions.
+Le tableau d'arbitrage et le YAML donnent, **pour les deux lieux de chaque couple**, leur type,
+leur code officiel, leurs coordonnées, leur contenant et leur nombre de rétroliens — de quoi
+trancher sans ouvrir Gramps. Dans le YAML ces faits vivent sous une clé `relecture` que
+`merge places --yaml` ignore : le fichier reste exécutable **tel quel**, sans transformation.
+
+**Deux périmètres désactivent les écritures.** Un doublon est une propriété d'un *groupe*
+d'homonymes ; toute lecture tronquée interdit de conclure, et force la simulation quel que soit
+`--dry-run` (le rapport et la console le disent explicitement) :
+
+- **`--limit N`** — la garde qui refuse de fusionner une grappe mélangeant deux entités
+  distinctes raisonne sur le groupe entier ; borner la lecture tronque les groupes et fait
+  tomber cette garde. Relancez **sans `--limit`** pour appliquer les fusions.
+- **`--scope place:<ID>`** — ne lit qu'un seul lieu, qui ne forme jamais de groupe. La commande
+  ne trouvera jamais rien : « aucun doublon détecté » y serait une absence de regard, pas une
+  bonne nouvelle. Ce périmètre sert à inspecter ce que la collecte lit d'un lieu précis ; pour
+  chercher des doublons, utilisez **`--scope all`**.
 
 ---
 

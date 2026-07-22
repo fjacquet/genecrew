@@ -108,8 +108,10 @@ uv run genecrew apply all --dry-run               # casse, genre, lieux : écrit
 uv run genecrew propose places --scope all        # propositions de lieux (lecture seule)
 uv run genecrew apply places --dry-run            # écrit hiérarchie + GPS au-dessus du score
 uv run genecrew apply places --scope place:P0080 --dry-run  # cibler UN lieu avant d'élargir
-uv run genecrew merge places --yaml <fusions.yaml>  # exécute les fusions relues (jamais auto)
+uv run genecrew merge places --yaml <fusions.yaml>  # exécute les fusions relues (sans relire le verdict)
 uv run genecrew merge places --scope all --dry-run   # détecte les doublons de lieux (ADR 0015)
+# `merge places --scope all` FUSIONNE les doublons prouvés ; --limit et --scope place:<ID>
+# forcent la simulation (une lecture tronquée ne décide pas d'une fusion irréversible)
 pbpaste | uv run genecrew import releve            # relevé collé → smart match (stdin ; simule par défaut)
 uv run genecrew import releve --file acte.txt --person I0421  # trancher un gris : forcer la personne
 uv run genecrew merge people --scope all --limit 200 --dry-run  # fusionne les doublons prouvés, YAML pour le reste

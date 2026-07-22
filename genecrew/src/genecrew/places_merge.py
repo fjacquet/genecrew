@@ -1,10 +1,27 @@
-"""Execute human-reviewed place merges (never automatic). Reads a fusions YAML."""
+"""Doublons de lieux : détection, fusion des couples PROUVÉS, arbitrage pour le reste.
+
+Deux modes, un seul module :
+
+  - **détection** (`run_places_detect`, `merge places --scope`) — lit le périmètre,
+    groupe les homonymes, et **fusionne automatiquement** les couples que
+    `etager_lieux` juge prouvés (même code officiel, ou mêmes coordonnées à type et
+    contenant compatibles). Les autres partent en YAML d'arbitrage. C'est bien une
+    écriture automatique, sous les gardes énumérées dans `run_places_detect` ;
+  - **exécution** (`run_places_merge`, `merge places --yaml`) — rejoue un YAML
+    **relu par un humain**, sans regarder le verdict : toute ligne présente est
+    fusionnée.
+
+Une fusion de lieux est IRRÉVERSIBLE : l'absorbé disparaît et ses références migrent
+sans qu'on puisse ensuite dire d'où elles venaient. Tout ce qui suit — les gardes de
+simulation forcée, les faits portés au fichier d'arbitrage — existe pour ça.
+"""
 
 from __future__ import annotations
 
 import json
 import re
 from pathlib import Path
+from typing import NamedTuple
 
 import httpx
 import yaml
@@ -18,6 +35,7 @@ from crewai_custom_tools.tools.genealogy.models.domain import PlaceFacts
 
 from genecrew.batching import iter_places
 from genecrew.logging_setup import get_logger
+from genecrew.scope import parse_scope
 
 
 def _link(gramps_id: str, base_url: str) -> str:
@@ -43,6 +61,63 @@ def _cellule_sure(valeur) -> str:
     de colonne par un moteur Markdown.
     """
     return _ESPACES.sub(" ", str(valeur)).strip().replace("|", "｜")
+
+
+_ABSENT = "—"
+
+# Les faits qu'un relecteur doit avoir sous les yeux pour trancher une paire d'arbitrage.
+# La spécification du chantier les nomme : « types, codes, coordonnées et nombre de
+# rétroliens en clair, pour que la relecture soit possible sans ouvrir Gramps ». Le
+# CONTENANT s'y ajoute, et ce n'est pas du zèle : depuis qu'il discrimine les homonymes
+# sans code officiel, c'est lui — et lui seul — qui explique pourquoi deux lieux de même
+# type, même code absent et mêmes coordonnées atterrissent en arbitrage sous le motif
+# « aucune preuve ». Sans lui, ce motif serait proprement incompréhensible.
+#
+# Une seule table pour l'en-tête du tableau ET pour les cellules : une colonne ne peut
+# plus se décaler d'une ligne à l'autre.
+_FAITS_ARBITRAGE = (
+    ("Type", lambda p: p.place_type),
+    ("Code", lambda p: p.code),
+    ("Coordonnées", lambda p: f"{p.lat}, {p.long}" if p.lat and p.long else ""),
+    ("Rétroliens", lambda p: str(p.retroliens)),
+    ("Contenant", lambda p: p.parent_id),
+)
+
+
+def _valeur_de_fait(lieu, extraire) -> str:
+    """Un fait d'un lieu, prêt pour une cellule ; `—` s'il manque ou si le lieu manque.
+
+    Une cellule VIDE se lirait « je n'ai pas regardé » ; le tiret dit « non renseigné ».
+    La distinction compte : c'est souvent l'absence d'un code qui explique le renvoi en
+    arbitrage. Le lieu lui-même peut manquer quand le rapport est rendu sans les faits
+    collectés (appel direct de `render_detect_report`, un rapport rejoué) — le tableau
+    reste alors structurellement valide, seulement moins renseigné.
+    """
+    if lieu is None:
+        return _ABSENT
+    return _cellule_sure(extraire(lieu)) or _ABSENT
+
+
+def _cellule_paire(garde, absorbe, extraire) -> str:
+    """Le même fait pour les deux lieux d'une paire : « gardé / absorbé »."""
+    return (f"{_valeur_de_fait(garde, extraire)} / "
+            f"{_valeur_de_fait(absorbe, extraire)}")
+
+
+def bloc_relecture(lieu) -> dict:
+    """Les faits d'un lieu, en clair, tels qu'ils partent au fichier d'arbitrage. Pur.
+
+    Volontairement **pas** un `model_dump()` de `PlaceFacts` : le fichier d'arbitrage est
+    un document de relecture, pas un miroir du modèle partagé. Il n'a que faire du
+    `handle`, du `gramps_id` ni du nom, tous déjà portés par la proposition, et il ne
+    doit pas se mettre à suivre l'évolution d'un modèle qui appartient à la bibliothèque.
+    Les clés sont en français comme le reste du fichier.
+    """
+    if lieu is None:
+        return {}
+    return {"type": lieu.place_type, "code": lieu.code, "lat": lieu.lat,
+            "long": lieu.long, "contenant": lieu.parent_id,
+            "retroliens": lieu.retroliens}
 
 
 def render_merge_report(date, done, errors, dry_run, base_url="http://localhost") -> str:
@@ -77,25 +152,51 @@ _AVERTISSEMENT_LOT_BORNE = [
 ]
 
 
+_AVERTISSEMENT_SCOPE_UNITAIRE = [
+    "> **Aucune écriture : périmètre `place:` réduit à un seul lieu.**",
+    "> Un doublon est une propriété d'un GROUPE d'homonymes, jamais d'un lieu isolé :",
+    "> `--scope place:<ID>` ne lit qu'un lieu, qui ne peut donc former aucun groupe.",
+    "> La commande ne trouvera jamais rien, et une ligne « aucun doublon détecté » se",
+    "> lirait à tort comme une bonne nouvelle. Ce périmètre reste utile pour inspecter",
+    "> ce que la collecte lit d'un lieu précis ; pour chercher des doublons, relancez",
+    "> avec **`--scope all`**.",
+]
+
+
 def render_detect_report(date: str, fusions: list, arbitrage: list, errors: list,
                          total_lieux: int, dry_run: bool,
                          base_url: str = "http://localhost",
-                         lot_borne: bool = False) -> str:
+                         lot_borne: bool = False,
+                         scope_unitaire: bool = False,
+                         faits: dict | None = None) -> str:
     """Rapport Markdown du mode détection. Pur.
 
     Les libellés se conjuguent avec le mode : en simulation rien n'est écrit, et un
     rapport ne doit jamais annoncer au présent une fusion qui n'a pas eu lieu.
 
-    `lot_borne` dit qu'un `--limit` a tronqué la lecture. Il force les libellés au
-    conditionnel comme une simulation ordinaire, mais **dit en plus pourquoi** : la
-    documentation du projet recommande de borner les passages sur les lieux, si bien
-    qu'un utilisateur consciencieux se retrouverait sans écriture ni explication et
-    irait chercher une panne. La cause est nommée dans le rapport, pas seulement
-    devinable depuis la ligne « Lieux examinés ».
+    Deux drapeaux disent qu'une LECTURE TRONQUÉE a forcé la simulation, chacun avec sa
+    cause propre — et chacun avec son encadré, parce que les remèdes diffèrent :
+
+      - `lot_borne` : un `--limit` a tronqué la lecture. La documentation du projet
+        recommande de borner les passages sur les lieux, si bien qu'un utilisateur
+        consciencieux se retrouverait sans écriture ni explication et irait chercher
+        une panne. Remède : relancer sans `--limit` ;
+      - `scope_unitaire` : `--scope place:<ID>` ne lit qu'un lieu, qui ne forme jamais
+        de groupe d'homonymes. Sans cet encadré, le rapport annonçait « écritures
+        appliquées » puis « aucun doublon détecté » — une absence de doublons qui
+        n'était qu'une absence de regard. Remède : `--scope all`.
+
+    `faits` associe un handle de lieu à ses `PlaceFacts` collectés. Il alimente le
+    tableau d'arbitrage, seule table du rapport que la spécification veut lisible sans
+    ouvrir Gramps. Optionnel : sans lui, les colonnes de faits portent `—` et le tableau
+    reste structurellement valide.
     """
-    simule = dry_run or lot_borne
+    faits = faits or {}
+    simule = dry_run or lot_borne or scope_unitaire
     if lot_borne:
         mode = "simulation forcée (lot borné, aucune fusion)"
+    elif scope_unitaire:
+        mode = "simulation forcée (périmètre à un seul lieu, aucune fusion)"
     elif dry_run:
         mode = "simulation (dry-run, aucune fusion)"
     else:
@@ -105,6 +206,8 @@ def render_detect_report(date: str, fusions: list, arbitrage: list, errors: list
              f"Mode : {mode}.", ""]
     if lot_borne:
         lines += [*_AVERTISSEMENT_LOT_BORNE, ""]
+    if scope_unitaire:
+        lines += [*_AVERTISSEMENT_SCOPE_UNITAIRE, ""]
     lines += [f"- Lieux examinés : {total_lieux}",
               f"- {titre_fusions} : {len(fusions)}",
               f"- À relire : {len(arbitrage)}",
@@ -119,13 +222,28 @@ def render_detect_report(date: str, fusions: list, arbitrage: list, errors: list
                   f"| {_cellule_sure(p.perte_evitee) or '—'} |" for p in fusions]
         lines.append("")
     if arbitrage:
+        colonnes = ["Gardé", "Absorbé", "Nom",
+                    *(f"{titre} (G/A)" for titre, _ in _FAITS_ARBITRAGE),
+                    "Motif", "Perte évitée"]
         lines += ["## Arbitrage", "",
                   "Aucune preuve ne les départage : à relire, puis à exécuter avec "
                   "`merge places --yaml`.", "",
-                  "| Gardé | Absorbé | Nom | Motif |", "|---|---|---|---|"]
-        lines += [f"| {_link(p.gramps_id_keep, base_url)} "
-                  f"| {_link(p.gramps_id_merge, base_url)} | {_cellule_sure(p.canonical)} "
-                  f"| {_cellule_sure(p.reason)} |" for p in arbitrage]
+                  "Les faits sont donnés **pour les deux lieux** — `G` = gardé, "
+                  "`A` = absorbé — pour que la relecture n'oblige pas à ouvrir Gramps ; "
+                  f"« {_ABSENT} » = non renseigné. « Perte évitée » est ce que l'ordre "
+                  "inverse aurait effacé.", "",
+                  "| " + " | ".join(colonnes) + " |",
+                  "|" + "---|" * len(colonnes)]
+        for p in arbitrage:
+            garde, absorbe = faits.get(p.handle_keep), faits.get(p.handle_merge)
+            cellules = [_link(p.gramps_id_keep, base_url),
+                        _link(p.gramps_id_merge, base_url),
+                        _cellule_sure(p.canonical),
+                        *(_cellule_paire(garde, absorbe, extraire)
+                          for _titre, extraire in _FAITS_ARBITRAGE),
+                        _cellule_sure(p.reason),
+                        _cellule_sure(p.perte_evitee) or _ABSENT]
+            lines.append("| " + " | ".join(cellules) + " |")
         lines.append("")
     if errors:
         lines += ["## Erreurs", ""]
@@ -169,6 +287,40 @@ def _retroliens(client: GrampsClient, handle: str) -> int:
         return 0
 
 
+def _contenant_unique(placeref_list) -> str:
+    """Identifiant du contenant du lieu, ou `""` s'il n'est pas UNIQUE et CONNU. Pur.
+
+    C'est le contrat que `PlaceFacts.parent_id` impose à l'orchestration, et il est
+    la seule raison d'être de ce champ : `evaluer_preuve` s'en sert pour REFUSER une
+    preuve par coordonnées entre deux homonymes rattachés à deux contenants
+    différents — deux « Saint-Michel » au même point géocodé mais dans deux
+    départements sont deux communes. Alimenter ici un booléen « a un contenant »
+    laissait ce champ vide (pydantic ignore un champ inconnu **en silence**, la
+    construction réussit) et rendait la garde entièrement inerte.
+
+    Deux états rendent `""`, pour deux raisons distinctes :
+
+      - **aucun** contenant : l'ignorance n'est pas une différence. Un arbre réel
+        laisse le rattachement vide sur une bonne part de ses lieux ;
+      - **plusieurs** contenants différents : une commune fusionnée porte deux
+        `placeref_list` datées — le département avant la fusion, la commune
+        absorbante après (`geo/france_ex_communes.py`). En choisir un
+        arbitrairement — le premier de la liste, dont l'ordre n'est pas garanti —
+        fabriquerait une différence là où il n'y en a pas, donc un refus de fusion
+        sur un pur artefact de lecture, et pire : deux exécutions pourraient ne pas
+        trancher pareil.
+
+    L'unicité porte sur l'identifiant VISÉ, pas sur le nombre de lignes : deux
+    références datées vers le même contenant restent un contenant unique. Une `ref`
+    vide ou blanche n'est pas un contenant — elle ne vaut pas identifiant et ne rend
+    pas ambigu celui qui l'accompagne.
+    """
+    refs = {(ref.get("ref") or "").strip()
+            for ref in (placeref_list or []) if isinstance(ref, dict)}
+    refs.discard("")
+    return refs.pop() if len(refs) == 1 else ""
+
+
 def collecter_lieux(client: GrampsClient, scope: str, batch_size: int = 200,
                     limit: int | None = None) -> list[PlaceFacts]:
     """Lit les lieux du périmètre et les réduit aux faits utiles à la détection."""
@@ -186,7 +338,7 @@ def collecter_lieux(client: GrampsClient, scope: str, batch_size: int = 200,
                 code=place.get("code") or "",
                 lat=place.get("lat") or "",
                 long=place.get("long") or "",
-                a_parent=bool(place.get("placeref_list")),
+                parent_id=_contenant_unique(place.get("placeref_list")),
                 retroliens=_retroliens(client, handle)))
     return lieux
 
@@ -227,12 +379,35 @@ _ENTETE_ARBITRAGE = """\
 # Supprimez donc ici toute ligne que vous n'avez pas validée à la main.
 # Ces lignes-ci sont des commentaires YAML : elles sont ignorées à la lecture, le
 # fichier reste consommable tel quel.
+#
+# Le bloc `relecture` de chaque couple donne les faits des DEUX lieux — type, code,
+# coordonnées, contenant, rétroliens — pour trancher sans ouvrir Gramps. Il est ignoré
+# à l'exécution : `merge places --yaml` ne lit que les handles et les identifiants.
 """
+
+
+def _ligne_arbitrage(proposition, faits: dict) -> dict:
+    """Une proposition d'arbitrage augmentée des faits des deux lieux. Pur.
+
+    Les faits vivent sous une clé `relecture` À PART, jamais mêlés aux champs de la
+    proposition. Deux raisons, dans cet ordre :
+
+      - le contrat de `merge places --yaml` ne change pas — il lit les mêmes clés
+        qu'avant, à la même place, et ignore ce qu'il ne connaît pas. Le fichier reste
+        consommable **tel quel**, sans transformation ;
+      - `PlaceMergeProposition` appartient à la bibliothèque et sert aussi à
+        `apply places`. L'élargir pour les besoins d'un document de relecture ferait
+        porter à un modèle partagé la forme d'un fichier qui n'est pas le sien.
+    """
+    return {**proposition.model_dump(),
+            "relecture": {"garde": bloc_relecture(faits.get(proposition.handle_keep)),
+                          "absorbe": bloc_relecture(
+                              faits.get(proposition.handle_merge))}}
 
 
 def _ecrire_sorties(output_dir: Path, *, date: str, scope: str, fusions: list,
                     arbitrage: list, errors: list, total_lieux: int, dry_run: bool,
-                    lot_borne: bool) -> Path:
+                    lot_borne: bool, scope_unitaire: bool, faits: dict) -> Path:
     """Dépose le YAML d'arbitrage et le rapport ; rend le chemin du rapport.
 
     Extrait de `run_places_detect` pour être appelable depuis un `finally` : une
@@ -243,50 +418,81 @@ def _ecrire_sorties(output_dir: Path, *, date: str, scope: str, fusions: list,
     out.mkdir(parents=True, exist_ok=True)
     scope_slug = scope.replace(":", "_")
     (out / f"{date}_arbitrage_lieux_{scope_slug}.yaml").write_text(
-        _ENTETE_ARBITRAGE + yaml.safe_dump([p.model_dump() for p in arbitrage],
+        _ENTETE_ARBITRAGE + yaml.safe_dump([_ligne_arbitrage(p, faits)
+                                            for p in arbitrage],
                                            allow_unicode=True, sort_keys=False),
         encoding="utf-8")
     path = out / f"{date}_doublons_lieux_{scope_slug}.md"
     path.write_text(render_detect_report(date, fusions, arbitrage, errors, total_lieux,
-                                         dry_run, lot_borne=lot_borne),
+                                         dry_run, lot_borne=lot_borne,
+                                         scope_unitaire=scope_unitaire, faits=faits),
                     encoding="utf-8")
     return path
 
 
+class ResultatDetection(NamedTuple):
+    """Ce que `run_places_detect` rend, et la SEULE source de vérité de ses gardes.
+
+    Les deux drapeaux sont les booléens EXACTS qui ont servi à forcer la simulation,
+    pas des valeurs recalculées après coup. La couche ligne de commande
+    (`main.py::lieux_merge_cmd`) les consomme tels quels pour décider d'afficher ses
+    avertissements — jamais en réinspectant `args.limit` ou `args.scope` de son côté,
+    sous peine de pouvoir un jour annoncer « simulation forcée » pendant qu'une fusion
+    irréversible a réellement lieu.
+
+    Ils restent distincts plutôt que réunis en un « simulation forcée » : les causes
+    diffèrent, et les remèdes aussi — relancer sans `--limit` d'un côté, avec
+    `--scope all` de l'autre.
+    """
+
+    chemin: Path
+    lot_borne: bool
+    scope_unitaire: bool
+
+
 def run_places_detect(client: GrampsClient, output_dir, *, scope: str, date: str,
                       limit: int | None = None,
-                      dry_run: bool = False) -> tuple[Path, bool]:
+                      dry_run: bool = False) -> ResultatDetection:
     """Détecte les doublons de lieux, fusionne les prouvés, dépose le reste en YAML.
 
     Une seule passe : les candidats sont groupés par égalité de nom normalisé, une
     relation d'équivalence — les groupes sont complets dès la lecture, et fusionner
     deux lieux n'en renomme aucun autre.
 
-    **Un lot borné ne fusionne jamais.** `limit` tronque la lecture, donc tronque les
-    groupes d'homonymes ; or la garde qui disqualifie une grappe mélangeant deux
-    entités distinctes (codes officiels différents entre deux membres) est une
-    propriété du groupe entier. Le membre écarté par la troncature peut être
-    justement celui qui portait la preuve du mélange — et la fusion irréversible
-    partirait alors toute seule. Poser `--limit` force donc la simulation, quel que
-    soit `dry_run`, et le rapport le dit noir sur blanc.
+    **Une lecture tronquée ne fusionne jamais.** Un doublon est une propriété d'un
+    GROUPE d'homonymes ; tout ce qui empêche de lire un groupe entier interdit donc de
+    conclure. Deux périmètres tronquent, et forcent la simulation quel que soit
+    `dry_run` :
 
-    Rend `(chemin_du_rapport, lot_borne)`. `lot_borne` est la SEULE source de vérité
-    de cette garde : c'est le booléen exact qui a servi à forcer la simulation
-    ci-dessous, pas une valeur recalculée après coup. La couche ligne de commande
-    (`main.py::lieux_merge_cmd`) doit le consommer tel quel pour décider d'afficher son
-    avertissement — jamais réinspecter `args.limit` de son côté, sous peine de pouvoir
-    un jour afficher « simulation forcée » pendant qu'une fusion irréversible a
-    réellement lieu.
+      - `limit` tronque les groupes. Or la garde qui disqualifie une grappe mélangeant
+        deux entités distinctes (codes officiels différents entre deux membres) est une
+        propriété du groupe entier, et le membre écarté par la troncature peut être
+        justement celui qui portait la preuve du mélange — la fusion irréversible
+        partirait alors toute seule ;
+      - `scope` en `place:<ID>` ne lit qu'UN lieu, qui ne forme jamais de groupe. Rien
+        ne peut en sortir : la commande annonçait « écritures appliquées » puis « aucun
+        doublon détecté », c'est-à-dire une absence de regard présentée comme une
+        absence de doublons. Ce périmètre tronque plus fort que `--limit`, il méritait
+        au moins la même garde.
+
+    Le rapport dit les deux noir sur blanc, chacun avec son remède.
+
+    Rend un `ResultatDetection` — voir sa docstring pour le contrat avec la CLI.
     """
     lot_borne = limit is not None
-    eff = effective_dry_run(dry_run) or lot_borne
+    scope_unitaire = parse_scope(scope)[0] == "place"
+    eff = effective_dry_run(dry_run) or lot_borne or scope_unitaire
     lieux = collecter_lieux(client, scope, limit=limit)
+    faits = {lieu.handle: lieu for lieu in lieux}
     propositions = etager_lieux(lieux)
     arbitrage = [p for p in propositions if p.verdict != "auto"]
     log = get_logger()
     if lot_borne:
         log.info("lot borné (limit=%s) : simulation forcée, un groupe d'homonymes "
                  "tronqué ne permet pas de décider d'une fusion irréversible", limit)
+    if scope_unitaire:
+        log.info("périmètre à un seul lieu (scope=%s) : simulation forcée, un lieu "
+                 "isolé ne forme aucun groupe d'homonymes", scope)
 
     tool = GrampsMergePlacesTool()
     fusions: list = []
@@ -320,5 +526,6 @@ def run_places_detect(client: GrampsClient, output_dir, *, scope: str, date: str
         chemin = _ecrire_sorties(output_dir, date=date, scope=scope, fusions=fusions,
                                  arbitrage=arbitrage, errors=errors,
                                  total_lieux=len(lieux), dry_run=eff,
-                                 lot_borne=lot_borne)
-    return chemin, lot_borne
+                                 lot_borne=lot_borne, scope_unitaire=scope_unitaire,
+                                 faits=faits)
+    return ResultatDetection(chemin, lot_borne, scope_unitaire)
