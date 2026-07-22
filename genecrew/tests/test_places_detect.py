@@ -747,14 +747,22 @@ def test_le_tableau_d_arbitrage_montre_les_faits_et_la_perte_evitee(tmp_path,
 
 
 def test_le_tableau_d_arbitrage_ne_laisse_aucune_cellule_vide(tmp_path, monkeypatch):
-    """Une cellule vide se lit « je n'ai pas regardé » ; le tiret dit « non renseigné »."""
+    """Une cellule vide se lit « je n'ai pas regardé » ; le tiret dit « non renseigné ».
+
+    Deux « Fontenay » sans code, sans coordonnées, sans contenant : trois colonnes de
+    faits n'ont rien à montrer des deux côtés, et doivent porter `— / —` plutôt que du
+    blanc. On compte les cellules au lieu de chercher un tiret dans la ligne — le motif
+    contient lui-même un tiret cadratin (« homonymes — aucune preuve »), qui rendrait
+    l'assertion vraie quoi qu'il arrive.
+    """
     _stub_fusion(monkeypatch)
     resultat = run_places_detect(_arbre(HOMONYMES_SANS_PREUVE), tmp_path, scope="all",
-                                   date="2026-07-21")
+                                 date="2026-07-21")
     md = resultat.chemin.read_text(encoding="utf-8")
     ligne = next(row for row in md.splitlines() if "P0501" in row and "P0502" in row)
-    assert "||" not in ligne.replace(" ", "")
-    assert "—" in ligne
+    cellules = [c.strip() for c in ligne.strip().strip("|").split("|")]
+    assert all(cellules), f"cellule vide dans {cellules}"
+    assert cellules.count("— / —") == 3          # code, coordonnées, contenant
 
 
 def test_un_fait_de_lieu_bancal_n_ajoute_pas_de_colonne(tmp_path, monkeypatch):
