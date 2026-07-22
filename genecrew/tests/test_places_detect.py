@@ -332,3 +332,23 @@ def test_un_echec_de_fusion_est_rapporte(tmp_path, monkeypatch):
     md = chemin.read_text(encoding="utf-8")
     assert "Fusions appliquées : 0" in md
     assert "P0070" in md and "HTTP 500" in md
+
+
+def test_une_proposition_d_arbitrage_n_est_jamais_executee_comme_fusion(tmp_path, monkeypatch):
+    """Un couple 'arbitrage' ne doit JAMAIS transiter par l'outil de fusion, même
+    lorsqu'un autre couple prouvé du même lot, lui, s'exécute — sans quoi l'outil
+    fusionnerait irréversiblement une paire que la détection a explicitement
+    renvoyée à la relecture humaine faute de preuve."""
+    vus = _stub_fusion(monkeypatch)
+    chemin = run_places_detect(_arbre(DOUBLONS + HOMONYMES_SANS_PREUVE), tmp_path,
+                               scope="all", date="2026-07-21")
+    md = chemin.read_text(encoding="utf-8")
+    assert len(vus) == 1
+    assert vus[0]["keep_handle"] == "HA" and vus[0]["merge_handle"] == "HB"
+    assert {v["merge_handle"] for v in vus}.isdisjoint({"HE", "HF"})
+    assert "Fusions appliquées : 1" in md
+    assert "À relire : 1" in md
+    p = tmp_path / "lieux" / "2026-07-21_arbitrage_lieux_all.yaml"
+    lignes = yaml.safe_load(p.read_text(encoding="utf-8"))
+    assert len(lignes) == 1
+    assert lignes[0]["handle_merge"] in {"HE", "HF"}
