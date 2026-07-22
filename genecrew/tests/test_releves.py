@@ -100,14 +100,14 @@ def test_patronyme_absent_de_l_arbre_n_est_pas_rare():
 
 
 def _releve(**kw):
-    base = dict(
-        fonds="CGHB",
-        reference="106710046161418286",
-        sujet_nom="JACQUET",
-        sujet_prenom="Rose",
-        evenement_type="Death",
-        texte_brut="…",
-    )
+    base = {
+        "fonds": "CGHB",
+        "reference": "106710046161418286",
+        "sujet_nom": "JACQUET",
+        "sujet_prenom": "Rose",
+        "evenement_type": "Death",
+        "texte_brut": "…",
+    }
     base.update(kw)
     return ReleveIndexe(**base)
 

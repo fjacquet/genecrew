@@ -134,16 +134,16 @@ def _client(records, notes=()):
 
 
 def _base_piste(**kw):
-    base = dict(
-        gramps_id="I1123",
-        handle="h1",
-        source="matchid",
-        identite="a1b2c3d4",
-        requete="nom=SOULAT&prenom=Kleber",
-        url="https://deces.matchid.io/id/a1b2c3d4",
-        concordances=["nom", "date complète"],
-        divergences=[],
-    )
+    base = {
+        "gramps_id": "I1123",
+        "handle": "h1",
+        "source": "matchid",
+        "identite": "a1b2c3d4",
+        "requete": "nom=SOULAT&prenom=Kleber",
+        "url": "https://deces.matchid.io/id/a1b2c3d4",
+        "concordances": ["nom", "date complète"],
+        "divergences": [],
+    }
     base.update(kw)
     return base
 
