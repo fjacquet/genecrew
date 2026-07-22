@@ -133,7 +133,7 @@ Attendu : `ModuleNotFoundError: No module named 'crewai_custom_tools.tools.genea
 class Subdivision(BaseModel):
     """Une subdivision administrative résolue depuis Wikidata (référentiel des lieux)."""
 
-    qid: str                            # "Q1273"
+    qid: str                            # "Q12771"
     iso: str                            # "CH-VD"
     code: str                           # "VD" — l'ISO amputé du préfixe pays
     libelle_fr: str
@@ -443,19 +443,19 @@ def test_les_noms_dapariement_portent_le_francais_puis_le_vernaculaire():
 
 
 def test_les_noms_ne_repetent_pas_un_libelle_identique():
-    rows = [ligne("Q1273", "Vaud", "CH-VD", parent="Q39", nom_local="Vaud")]
+    rows = [ligne("Q12771", "Vaud", "CH-VD", parent="Q39", nom_local="Vaud")]
     subs, _ = map_subdivisions(rows, CH)
     assert subs[0].noms == ["Vaud"]
 
 
 def test_niveau_1_quand_le_parent_est_le_pays():
-    rows = [ligne("Q1273", "Vaud", "CH-VD", parent="Q39",
+    rows = [ligne("Q12771", "Vaud", "CH-VD", parent="Q39",
                   coord="Point(6.6 46.6)", art="https://fr.wikipedia.org/wiki/Canton_de_Vaud")]
     subs, collisions = map_subdivisions(rows, CH)
     assert collisions == []
     assert len(subs) == 1
     s = subs[0]
-    assert (s.qid, s.iso, s.code, s.niveau) == ("Q1273", "CH-VD", "VD", 1)
+    assert (s.qid, s.iso, s.code, s.niveau) == ("Q12771", "CH-VD", "VD", 1)
     assert s.place_type == "State"          # jamais "Canton" : type natif seulement
     assert s.parent_qid == "Q39"
     assert (s.lat, s.long) == ("46.6", "6.6")   # WKT = Point(lon lat), ne pas inverser
@@ -464,7 +464,7 @@ def test_niveau_1_quand_le_parent_est_le_pays():
 
 def test_niveau_2_quand_le_parent_est_une_subdivision_de_niveau_1():
     rows = [ligne("Q18338206", "Auvergne-Rhône-Alpes", "FR-ARA", parent="Q142"),
-            ligne("Q12549", "Allier", "FR-03", parent="Q18338206")]
+            ligne("Q3113", "Allier", "FR-03", parent="Q18338206")]
     subs, _ = map_subdivisions(rows, FR)
     par_iso = {s.iso: s for s in subs}
     assert par_iso["FR-ARA"].niveau == 1 and par_iso["FR-ARA"].place_type == "Region"
@@ -523,8 +523,8 @@ def test_un_parent_de_meme_code_iso_que_lenfant_est_ignore():
 def test_les_p131_historiques_sont_neutralises_par_labsence_de_lentite_dissoute():
     # Rhône-Alpes est dissoute : la requête ne la rend pas, elle n'est donc pas candidate.
     rows = [ligne("Q18338206", "Auvergne-Rhône-Alpes", "FR-ARA", parent="Q142"),
-            ligne("Q12549", "Allier", "FR-03", parent="Q3084"),      # Rhône-Alpes, absente
-            ligne("Q12549", "Allier", "FR-03", parent="Q18338206")]
+            ligne("Q3113", "Allier", "FR-03", parent="Q3084"),      # Rhône-Alpes, absente
+            ligne("Q3113", "Allier", "FR-03", parent="Q18338206")]
     subs, _ = map_subdivisions(rows, FR)
     assert {s.iso: s.parent_qid for s in subs} == {"FR-ARA": "Q142", "FR-03": "Q18338206"}
 
@@ -536,7 +536,7 @@ def test_une_entite_sans_aucun_parent_est_ecartee():
 
 
 def test_coordonnees_absentes_ne_font_pas_echouer():
-    rows = [ligne("Q1273", "Vaud", "CH-VD", parent="Q39")]
+    rows = [ligne("Q12771", "Vaud", "CH-VD", parent="Q39")]
     subs, _ = map_subdivisions(rows, CH)
     assert subs[0].lat is None and subs[0].long is None
 ```
@@ -1204,7 +1204,7 @@ ENTITE = "http://www.wikidata.org/entity/"
 
 def test_charger_pays_rend_les_subdivisions(monkeypatch):
     monkeypatch.setattr(chargement, "sparql_rows", lambda q, timeout=0: [
-        {"item": ENTITE + "Q1273", "itemLabel": "Vaud", "iso": "CH-VD",
+        {"item": ENTITE + "Q12771", "itemLabel": "Vaud", "iso": "CH-VD",
          "parent": ENTITE + "Q39"}])
     res = chargement.charger_pays(CH)
     assert res.erreur is None
@@ -1218,7 +1218,7 @@ def test_charger_pays_reessaye_puis_reussit(monkeypatch):
         appels["n"] += 1
         if appels["n"] < 3:
             raise chargement.RequestException("502 Bad Gateway")
-        return [{"item": ENTITE + "Q1273", "itemLabel": "Vaud", "iso": "CH-VD",
+        return [{"item": ENTITE + "Q12771", "itemLabel": "Vaud", "iso": "CH-VD",
                  "parent": ENTITE + "Q39"}]
 
     monkeypatch.setattr(chargement, "sparql_rows", flaky)
@@ -1672,7 +1672,7 @@ from genecrew.referentiel import (
     doublons_de_larbre, render_referentiel_report, render_referentiel_yaml,
 )
 
-VAUD = Subdivision(qid="Q1273", iso="CH-VD", code="VD", libelle_fr="canton de Vaud",
+VAUD = Subdivision(qid="Q12771", iso="CH-VD", code="VD", libelle_fr="canton de Vaud",
                    place_type="State", niveau=1, parent_qid="Q39",
                    lat="46.6", long="6.6", frwiki="https://fr.wikipedia.org/wiki/Canton_de_Vaud")
 SUISSE = EntitePays(qid="Q39", libelle_fr="Suisse", lat="46.8", long="8.2",
@@ -1960,13 +1960,13 @@ from genecrew.referentiel_apply import (
     apparier, decider, index_par_nom_contenant, index_par_nom_type, index_par_qid,
 )
 
-VAUD = Subdivision(qid="Q1273", iso="CH-VD", code="VD", libelle_fr="canton de Vaud",
+VAUD = Subdivision(qid="Q12771", iso="CH-VD", code="VD", libelle_fr="canton de Vaud",
                    noms=["canton de Vaud"], place_type="State", niveau=1, parent_qid="Q39",
                    lat="46.6", long="6.6", frwiki="https://fr.wikipedia.org/wiki/Canton_de_Vaud")
 
 
 def test_le_qid_prime_sur_les_noms():
-    par_qid = {"Q1273": "h_qid"}
+    par_qid = {"Q12771": "h_qid"}
     par_nom_type = {("canton de Vaud", "State"): "h_nom"}
     assert apparier(VAUD, par_qid, par_nom_type, {}) == "h_qid"
 
@@ -1982,7 +1982,7 @@ def test_appariement_par_nom_vernaculaire_quand_aucun_qid_nest_pose():
 
 def test_appariement_par_nom_seul_pour_retyper_une_wilaya():
     """Souk Ahras est typée `Wilaya` : aucune clé (nom, type) ne peut la retrouver."""
-    souk = Subdivision(qid="Q223818", iso="DZ-41", code="41", libelle_fr="Souk Ahras",
+    souk = Subdivision(qid="Q236772", iso="DZ-41", code="41", libelle_fr="Souk Ahras",
                        noms=["Souk Ahras"], place_type="Province", niveau=1, parent_qid="Q262")
     assert apparier(souk, {}, {}, {"Souk Ahras": "h_wilaya"}) == "h_wilaya"
 
@@ -1998,8 +1998,8 @@ def test_index_par_nom_contenant_ignore_les_communes():
 
 def test_index_par_qid_lit_lurl_wikidata():
     places = [{"handle": "h1", "urls": [
-        {"path": "https://www.wikidata.org/wiki/Q1273", "desc": "Wikidata"}]}]
-    assert index_par_qid(places) == {"Q1273": "h1"}
+        {"path": "https://www.wikidata.org/wiki/Q12771", "desc": "Wikidata"}]}]
+    assert index_par_qid(places) == {"Q12771": "h1"}
 
 
 def test_index_par_qid_ignore_les_autres_urls():
@@ -2045,7 +2045,7 @@ def test_un_gps_deja_rempli_nest_pas_ecrase():
 def test_un_code_deja_rempli_nest_pas_ecrase():
     place = {"handle": "h", "name": {"value": "Allier"}, "place_type": "Department",
              "lat": "", "long": "", "code": "03", "alt_names": []}
-    allier = Subdivision(qid="Q12549", iso="FR-03", code="03", libelle_fr="Allier",
+    allier = Subdivision(qid="Q3113", iso="FR-03", code="03", libelle_fr="Allier",
                          noms=["Allier"], place_type="Department", niveau=2,
                          parent_qid="Q18338206")
     plan = decider(allier, place)
@@ -2055,7 +2055,7 @@ def test_un_code_deja_rempli_nest_pas_ecrase():
 def test_le_retypage_dune_wilaya_est_la_seule_reecriture_permise():
     place = {"handle": "h", "name": {"value": "Souk Ahras"}, "place_type": "Wilaya",
              "lat": "", "long": "", "code": "41", "alt_names": []}
-    souk = Subdivision(qid="Q223818", iso="DZ-41", code="41", libelle_fr="Souk Ahras",
+    souk = Subdivision(qid="Q236772", iso="DZ-41", code="41", libelle_fr="Souk Ahras",
                        noms=["Souk Ahras"], place_type="Province", niveau=1,
                        parent_qid="Q262")
     plan = decider(souk, place)
@@ -2072,7 +2072,7 @@ def test_le_libelle_francais_identique_nentre_pas_en_alt_names():
 def test_les_urls_a_poser_sont_le_qid_et_larticle():
     plan = decider(VAUD, None)
     chemins = [u["path"] for u in plan["urls"]]
-    assert "https://www.wikidata.org/wiki/Q1273" in chemins
+    assert "https://www.wikidata.org/wiki/Q12771" in chemins
     assert "https://fr.wikipedia.org/wiki/Canton_de_Vaud" in chemins
 ```
 

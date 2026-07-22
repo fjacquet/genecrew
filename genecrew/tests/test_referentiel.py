@@ -11,7 +11,7 @@ from genecrew.referentiel import (
     doublons_de_larbre, render_referentiel_report, render_referentiel_yaml,
 )
 
-VAUD = Subdivision(qid="Q1273", iso="CH-VD", code="VD", libelle_fr="canton de Vaud",
+VAUD = Subdivision(qid="Q12771", iso="CH-VD", code="VD", libelle_fr="canton de Vaud",
                    place_type="State", niveau=1, parent_qid="Q39",
                    lat="46.6", long="6.6", frwiki="https://fr.wikipedia.org/wiki/Canton_de_Vaud")
 SUISSE = EntitePays(qid="Q39", libelle_fr="Suisse", lat="46.8", long="8.2",
