@@ -11,6 +11,10 @@ from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient
 from crewai_custom_tools.tools.genealogy.gramps.write_tools import (
     GrampsMergePlacesTool, effective_dry_run,
 )
+from crewai_custom_tools.tools.genealogy.models.domain import PlaceFacts
+
+from genecrew.batching import iter_places
+from genecrew.logging_setup import get_logger
 
 
 def _link(gramps_id: str, base_url: str) -> str:
@@ -32,6 +36,43 @@ def render_merge_report(date, done, errors, dry_run, base_url="http://localhost"
               if errors else ["Aucune erreur."])
     lines.append("")
     return "\n".join(lines)
+
+
+def _retroliens(client: GrampsClient, handle: str) -> int:
+    """Nombre d'objets qui référencent ce lieu ; 0 si l'API ne répond pas.
+
+    Un appel par lieu : coûteux, mais c'est la seule mesure qui dise lequel de deux
+    homonymes l'arbre utilise réellement. Un échec ne doit pas faire échouer la
+    détection — il dégrade seulement le départage vers les critères suivants.
+    """
+    try:
+        objet = client.get_json(f"/places/{handle}", params={"backlinks": "1"}) or {}
+    except Exception as exc:
+        get_logger().warning("rétroliens de %s indisponibles : %s", handle, exc)
+        return 0
+    return sum(len(refs) for refs in (objet.get("backlinks") or {}).values())
+
+
+def collecter_lieux(client: GrampsClient, scope: str, batch_size: int = 200,
+                    limit: int | None = None) -> list[PlaceFacts]:
+    """Lit les lieux du périmètre et les réduit aux faits utiles à la détection."""
+    lieux: list[PlaceFacts] = []
+    for lot in iter_places(client, scope, batch_size, limit):
+        for place in lot:
+            if not isinstance(place, dict):
+                continue
+            handle = place.get("handle", "")
+            lieux.append(PlaceFacts(
+                gramps_id=place.get("gramps_id", ""),
+                handle=handle,
+                nom=(place.get("name") or {}).get("value", "") or "",
+                place_type=place.get("place_type") or "",
+                code=place.get("code") or "",
+                lat=place.get("lat") or "",
+                long=place.get("long") or "",
+                a_parent=bool(place.get("placeref_list")),
+                retroliens=_retroliens(client, handle)))
+    return lieux
 
 
 def run_places_merge(client: GrampsClient, merges_yaml, output_dir, *, date: str,
