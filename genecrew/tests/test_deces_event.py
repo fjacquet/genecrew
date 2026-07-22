@@ -411,8 +411,13 @@ def _arbre(person, places=PLACES):
             page = int(request.url.params.get("page", 1))
             return httpx.Response(200, json=places if page == 1 else [])
         if path == "/api/sources/":
-            page = int(request.url.params.get("page", 1))
-            return httpx.Response(200, json=[] if page > 1 else [])
+            # Scénario « aucune source existante » : vide sur toute page, à
+            # l'image du même idiome de pagination utilisé juste au-dessus
+            # pour /api/places/ (`X if page == 1 else []`) — ici X est vide
+            # aussi, d'où une seule branche. `page` reste lu pour exiger le
+            # paramètre, comme partout ailleurs.
+            int(request.url.params.get("page", 1))
+            return httpx.Response(200, json=[])
         if path == "/api/tags/":
             return httpx.Response(200, json=[])
         if path.startswith("/api/people/"):
