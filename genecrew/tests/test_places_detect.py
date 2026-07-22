@@ -192,3 +192,44 @@ def test_les_erreurs_sont_rapportees():
     md = render_detect_report("2026-07-21", [], [], [("P0070", "HTTP 500")], 303,
                               dry_run=False)
     assert "P0070" in md and "HTTP 500" in md
+
+
+def test_une_barre_verticale_dans_le_nom_n_ajoute_pas_de_colonne():
+    """Un nom de lieu bancal (import réel : virgules et libellés composites) contenant
+    une barre verticale et un saut de ligne ne doit ni ajouter de colonne ni faire
+    éclater la ligne du tableau sur plusieurs lignes Markdown."""
+    prop = _prop(canonical="Saint-Ouen | Faux-village\nligne2",
+                 verdict="auto")
+    md = render_detect_report("2026-07-21", [prop], [], [], 303, dry_run=False)
+    lignes = md.splitlines()
+    ligne = next(row for row in lignes if "P0064" in row and "P0070" in row)
+    # 5 colonnes déclarées par l'en-tête == 6 barres verticales de structure ;
+    # la barre du nom ne doit pas en ajouter une 7e.
+    assert ligne.count("|") == 6
+    assert "ligne2" in ligne  # le saut de ligne a été aplati, pas perdu
+    assert "Faux-village" in ligne
+
+
+def test_un_motif_multiligne_avec_pipe_n_ajoute_pas_de_colonne():
+    """Même défaut sur le motif (`reason`) et la perte évitée : valeurs libres
+    composées à partir des mêmes noms de lieux bancals."""
+    prop = _prop(canonical="Cerbois",
+                 perte="note *importante* | avec pipe\nligne2")
+    md = render_detect_report("2026-07-21", [prop], [], [], 303, dry_run=False)
+    ligne = next(row for row in md.splitlines() if "P0064" in row and "P0070" in row)
+    assert ligne.count("|") == 6
+    assert "avec pipe" in ligne and "ligne2" in ligne
+
+
+def test_message_d_erreur_multiligne_ne_brise_pas_la_liste():
+    """Un message d'erreur multiligne doit rester une seule puce, pas fusionner
+    avec la puce suivante."""
+    md = render_detect_report("2026-07-21", [], [],
+                              [("P0070", "échec réseau\nsur la deuxième ligne"),
+                               ("P0080", "autre erreur")],
+                              303, dry_run=False)
+    section = md.split("## Erreurs", 1)[1]
+    puces = [row for row in section.splitlines() if row.startswith("- ")]
+    assert len(puces) == 2
+    assert "P0070" in puces[0] and "échec réseau" in puces[0] and "deuxième ligne" in puces[0]
+    assert "P0080" in puces[1]

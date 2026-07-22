@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import httpx
@@ -22,6 +23,27 @@ def _link(gramps_id: str, base_url: str) -> str:
     return f"[{gramps_id}]({base_url}/place/{gramps_id})"
 
 
+_ESPACES = re.compile(r"\s+")
+
+
+def _cellule_sure(valeur) -> str:
+    """Rend une valeur issue des données de l'arbre sûre pour une cellule Markdown.
+
+    Un nom de lieu ou un motif composé à partir de lui peut contenir n'importe quoi —
+    l'arbre réel a des lieux du genre `', , Bourges - Cher, , , , ,'`. Deux dégâts
+    possibles sur un tableau Markdown : un saut de ligne éclate la ligne du tableau en
+    plusieurs lignes, et une barre verticale ajoute une colonne qui décale tout ce qui
+    suit — un relecteur associerait alors la mauvaise preuve au mauvais couple
+    gardé/absorbé sur une décision de fusion irréversible.
+
+    Les blancs (dont les sauts de ligne) sont aplatis en un espace simple. La barre
+    verticale est remplacée par son équivalent pleine chasse (｜, U+FF5C) : visuellement
+    quasi identique, donc toujours lisible, mais jamais interprétée comme un séparateur
+    de colonne par un moteur Markdown.
+    """
+    return _ESPACES.sub(" ", str(valeur)).strip().replace("|", "｜")
+
+
 def render_merge_report(date, done, errors, dry_run, base_url="http://localhost") -> str:
     mode = "simulation (dry-run, aucune fusion)" if dry_run else "fusions appliquées"
     lines = [f"# Fusions de lieux — {date}", "", f"Mode : {mode}.", "",
@@ -29,11 +51,13 @@ def render_merge_report(date, done, errors, dry_run, base_url="http://localhost"
     if done:
         lines += ["| Gardé | Fusionné | Canonique |", "|---|---|---|"]
         for keep, merge, canon in done:
-            lines.append(f"| {_link(keep, base_url)} | {_link(merge, base_url)} | {canon} |")
+            lines.append(f"| {_link(keep, base_url)} | {_link(merge, base_url)} "
+                        f"| {_cellule_sure(canon)} |")
     else:
         lines.append("Aucune.")
     lines += ["", "## Erreurs", ""]
-    lines += (["| Fusionné | Erreur |", "|---|---|"] + [f"| {_link(m, base_url)} | {e} |" for m, e in errors]
+    lines += (["| Fusionné | Erreur |", "|---|---|"]
+              + [f"| {_link(m, base_url)} | {_cellule_sure(e)} |" for m, e in errors]
               if errors else ["Aucune erreur."])
     lines.append("")
     return "\n".join(lines)
@@ -60,8 +84,9 @@ def render_detect_report(date: str, fusions: list, arbitrage: list, errors: list
                   "| Gardé | Absorbé | Nom | Preuve | Perte évitée |",
                   "|---|---|---|---|---|"]
         lines += [f"| {_link(p.gramps_id_keep, base_url)} "
-                  f"| {_link(p.gramps_id_merge, base_url)} | {p.canonical} "
-                  f"| {p.reason} | {p.perte_evitee or '—'} |" for p in fusions]
+                  f"| {_link(p.gramps_id_merge, base_url)} | {_cellule_sure(p.canonical)} "
+                  f"| {_cellule_sure(p.reason)} "
+                  f"| {_cellule_sure(p.perte_evitee) or '—'} |" for p in fusions]
         lines.append("")
     if arbitrage:
         lines += ["## Arbitrage", "",
@@ -69,12 +94,12 @@ def render_detect_report(date: str, fusions: list, arbitrage: list, errors: list
                   "`merge places --yaml`.", "",
                   "| Gardé | Absorbé | Nom | Motif |", "|---|---|---|---|"]
         lines += [f"| {_link(p.gramps_id_keep, base_url)} "
-                  f"| {_link(p.gramps_id_merge, base_url)} | {p.canonical} "
-                  f"| {p.reason} |" for p in arbitrage]
+                  f"| {_link(p.gramps_id_merge, base_url)} | {_cellule_sure(p.canonical)} "
+                  f"| {_cellule_sure(p.reason)} |" for p in arbitrage]
         lines.append("")
     if errors:
         lines += ["## Erreurs", ""]
-        lines += [f"- {gid} : {msg}" for gid, msg in errors]
+        lines += [f"- {gid} : {_cellule_sure(msg)}" for gid, msg in errors]
         lines.append("")
     if not fusions and not arbitrage and not errors:
         lines += ["Aucun doublon détecté.", ""]
