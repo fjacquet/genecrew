@@ -391,6 +391,22 @@ def deces_apply_cmd(args) -> None:
     print(f"Rapport : {report}")
 
 
+def deces_event_cmd(args) -> None:
+    """Create the missing death events from a reviewed YAML; print the report path."""
+    from pathlib import Path
+
+    from crewai_custom_tools.tools.genealogy.gramps.client import get_client
+
+    from genecrew.deces_event import run_deces_event
+
+    client = get_client()
+    output_dir = Path(os.environ.get("GENECREW_OUTPUT_DIR", "output"))
+    date = args.date or __import__("datetime").date.today().isoformat()
+    report = run_deces_event(client, Path(args.yaml), output_dir,
+                             date=date, dry_run=args.dry_run)
+    print(f"Rapport : {report}")
+
+
 def lieu_import_cmd(args) -> None:
     """Import one place from a free-form address (fuzzy engine); print the summary."""
     from crewai_custom_tools.tools.genealogy.gramps.client import get_client
@@ -467,6 +483,10 @@ def main() -> None:
         # presse Gallica. La source Gramps est déduite de chaque proposition du YAML
         # (deces_apply.source_title_for), pas du nom de la commande — ADR 0011.
         ("apply", "citations"): lambda: deces_apply_cmd(args),
+        # `citations` pose une source sur un événement EXISTANT ; `deaths` CRÉE
+        # l'événement absent. Deux commandes, un même YAML, des propositions
+        # disjointes (`type: source` / `type: date`) — ADR 0014.
+        ("apply", "deaths"): lambda: deces_event_cmd(args),
         ("apply", "all"): lambda: apply_all_cmd(args),
         ("merge", "places"): lambda: lieux_merge_cmd(args),
         ("merge", "people"): lambda: people_merge_cmd(args),

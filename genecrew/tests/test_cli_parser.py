@@ -2,10 +2,10 @@ import pytest
 
 from genecrew.cli import build_parser
 
-# (argv, command, target) — 16 lignes de test pour 15 feuilles DISTINCTES : `merge
+# (argv, command, target) — 17 lignes de test pour 16 feuilles DISTINCTES : `merge
 # places` y apparaît deux fois (une par mode, YAML relu et détection) mais reste une
 # seule et même feuille — la grammaire à sept verbes n'en a pas gagné une (voir
-# docs/adr/0012-cli-grammaire-verbes.md, « 16 anciens noms plats → 15 feuilles »).
+# docs/adr/0012-cli-grammaire-verbes.md).
 LEAVES = [
     (["stats"], "stats", None),
     (["propose", "audit"], "propose", "audit"),
@@ -17,6 +17,7 @@ LEAVES = [
     (["apply", "gender"], "apply", "gender"),
     (["apply", "places"], "apply", "places"),
     (["apply", "citations", "--yaml", "relu.yaml"], "apply", "citations"),
+    (["apply", "deaths", "--yaml", "relu.yaml"], "apply", "deaths"),
     (["apply", "all"], "apply", "all"),
     (["merge", "places", "--yaml", "fusions.yaml"], "merge", "places"),
     (["merge", "places", "--scope", "all"], "merge", "places"),

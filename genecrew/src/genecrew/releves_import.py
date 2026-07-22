@@ -25,7 +25,6 @@ from crewai_custom_tools.tools.genealogy.gramps.write_tools import (
     GrampsAttachCitationTool,
     GrampsAttachTool,
     GrampsCreateCitationTool,
-    GrampsCreateEventTool,
     GrampsCreateNoteTool,
     GrampsCreatePersonTool,
     GrampsEnsureSourceTool,
@@ -40,6 +39,7 @@ from crewai_custom_tools.tools.genealogy.standardize.places import parse_pname
 from genecrew.batching import iter_people_batches
 from genecrew.crew import build_llm
 from genecrew.deces_apply import source_title_for
+from genecrew.evenements import creer_evenement_source, dateval_iso
 from genecrew.lieu_import import run_lieu_import
 from genecrew.pistes import _normaliser
 from genecrew.releves import (
@@ -435,23 +435,6 @@ def ecrire_citation(client: GrampsClient, releve: ReleveIndexe,
     return {"posee": True, "raison": "citation posée"}
 
 
-def _dateval_iso(iso: str) -> list[int] | None:
-    """« AAAA-MM-JJ » → [jour, mois, année] pour un `dateval` Gramps ; None sinon.
-
-    On ne crée un événement DATÉ que sur une date pleine (le relevé de décès en
-    fournit une). Une chaîne vide ou mal formée rend None : l'événement est alors
-    créé sans date plutôt qu'avec une date inventée.
-    """
-    parts = (iso or "").split("-")
-    if len(parts) != 3:
-        return None
-    try:
-        annee, mois, jour = (int(p) for p in parts)
-    except ValueError:
-        return None
-    return [jour, mois, annee]
-
-
 def completer_evenement_principal(client: GrampsClient, releve: ReleveIndexe,
                                   appariement: Appariement, *,
                                   dry_run: bool = False) -> dict:
@@ -492,27 +475,22 @@ def _creer_evenement(client: GrampsClient, releve: ReleveIndexe, person_handle: 
     """
     etype = event_type or releve.evenement_type
     lieu_handle = resoudre_ou_creer_lieu(client, releve, dry_run=dry_run) if avec_lieu else None
-    dv = dateval if dateval is not None else _dateval_iso(releve.evenement_date)
+    dv = dateval if dateval is not None else dateval_iso(releve.evenement_date)
     citation_handle, raison_cit = _creer_citation_releve(client, releve, dry_run=dry_run)
-    evt = json.loads(GrampsCreateEventTool()._run(
-        person_handle=person_handle, event_type=etype, dateval=dv,
-        modifier=modifier, quality=quality,
-        place_handle=lieu_handle, citation_handle=citation_handle, dry_run=dry_run))
-    if not evt["success"]:
-        return {"posee": False, "raison": f"création {etype} refusée : {evt['error']}"}
-    data = evt["data"]
+    res = creer_evenement_source(
+        person_handle, event_type=etype, dateval=dv, place_handle=lieu_handle,
+        citation_handle=citation_handle, modifier=modifier, quality=quality,
+        dry_run=dry_run)
+    if not res["posee"]:
+        return {"posee": False, "raison": res["raison"]}
+    # `posee` a ici un sens PROPRE à l'import de relevés : « la citation est posée »,
+    # pas « l'événement existe ». On ne l'aligne pas sur la brique partagée, sous peine
+    # de changer le rapport de `import releve` que ses tests verrouillent.
     posee = citation_handle is not None
-    attache = data.get("attached", True)
-    event_handle = data["handle"]
-    if not attache:
-        # L'événement EXISTE mais n'a pas pu être rattaché (orphelin). On le DIT, avec
-        # son handle — pas un « créé » trompeur — pour qu'un humain le retrouve.
-        raison = (f"{etype} créé mais NON rattaché (orphelin {event_handle}) : "
-                  f"{data.get('attach_error', '')}")
-    else:
-        raison = f"{etype} créé" + ("" if posee else f" (sans citation : {raison_cit})")
-    return {"posee": posee, "event_handle": event_handle, "lieu": lieu_handle,
-            "attache": attache, "raison": raison}
+    raison = res["raison"] if not res["attache"] else (
+        f"{etype} créé" + ("" if posee else f" (sans citation : {raison_cit})"))
+    return {"posee": posee, "event_handle": res["event_handle"], "lieu": lieu_handle,
+            "attache": res["attache"], "raison": raison}
 
 
 def completer_naissance_estimee(client: GrampsClient, releve: ReleveIndexe,
