@@ -2455,13 +2455,13 @@ git commit -m "feat(cli): feuilles propose/apply referentiel"
 ### Task 11 : ADR et documentation
 
 **Files:**
-- Create: `docs/adr/0015-referentiel-subdivisions-administratives.md`
+- Create: `docs/adr/0016-referentiel-subdivisions-administratives.md`
 - Modify: `CLAUDE.md`
 - Modify: `docs/adr/0012-cli-grammaire-verbes.md` (table de correspondance des feuilles)
 
 - [ ] **Step 1: écrire l'ADR**
 
-Créer `docs/adr/0015-referentiel-subdivisions-administratives.md`, en suivant la forme des ADR
+Créer `docs/adr/0016-referentiel-subdivisions-administratives.md`, en suivant la forme des ADR
 existants (contexte, décision, conséquences). Il doit consigner, chacun avec sa raison :
 
 1. Sélection Wikidata par **ISO 3166-2**, pas par classe `P31` — la classe `provincia` rate
@@ -2498,7 +2498,7 @@ uv run genecrew apply referentiel --yaml <relu.yaml> --dry-run   # écrit pays +
 - [ ] **Step 3: compléter l'ADR 0012**
 
 Ajouter `referentiel` aux feuilles listées sous `propose` et sous `apply`, avec un renvoi vers
-l'ADR 0015.
+l'ADR 0016.
 
 - [ ] **Step 4: vérifier que la documentation construit**
 
@@ -2512,9 +2512,9 @@ Attendu : aucun avertissement bloquant. Si `mkdocs` n'est pas installé dans le 
 - [ ] **Step 5: commit**
 
 ```bash
-git add docs/adr/0015-referentiel-subdivisions-administratives.md \
+git add docs/adr/0016-referentiel-subdivisions-administratives.md \
         docs/adr/0012-cli-grammaire-verbes.md CLAUDE.md
-git commit -m "docs(adr): ADR 0015 — référentiel des subdivisions administratives"
+git commit -m "docs(adr): ADR 0016 — référentiel des subdivisions administratives"
 ```
 
 ---
