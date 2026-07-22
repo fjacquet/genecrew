@@ -70,6 +70,8 @@ Créer `tests/test_genealogy_referentiel_config.py` :
 """La table des pays est une donnée dure : QID vérifiés, niveaux cohérents."""
 from crewai_custom_tools.tools.genealogy.referentiel.config import PAYS_REFERENTIEL
 
+from genecrew.batching import iter_places
+
 
 def test_les_neuf_pays_attendus_sont_presents():
     assert set(PAYS_REFERENTIEL) == {"FR", "CH", "DE", "IT", "DZ", "US", "PL", "BE", "SY"}
@@ -1880,23 +1882,14 @@ def render_referentiel_yaml(resultats: list[ResultatPays],
     return yaml.safe_dump(doc, allow_unicode=True, sort_keys=False)
 
 
-def lire_places(client) -> list[dict]:
-    places, page = [], 1
-    while True:
-        lot = client.get_json("/places/", params={"page": page, "pagesize": 200})
-        if not lot:
-            return places
-        places.extend(lot)
-        page += 1
-
-
 def run_referentiel(client, output_dir, *, date: str,
                     codes_pays: list[str] | None = None) -> tuple[Path, Path]:
     """Interroge les pays demandés (tous par défaut) ; écrit rapport et YAML. Lecture seule."""
     codes = codes_pays or sorted(PAYS_REFERENTIEL)
     resultats = [charger_pays(PAYS_REFERENTIEL[code]) for code in codes]
     entites = charger_entites_pays([PAYS_REFERENTIEL[code].qid for code in codes])
-    doublons = doublons_de_larbre(lire_places(client))
+    places = [place for lot in iter_places(client, "all", 200, None) for place in lot]
+    doublons = doublons_de_larbre(places)
 
     out = Path(output_dir) / "referentiel"
     out.mkdir(parents=True, exist_ok=True)
