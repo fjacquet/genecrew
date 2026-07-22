@@ -4,6 +4,8 @@ No LLM, no network: ``collect_audit_findings`` is stubbed and the crew is a fake
 factory whose ``kickoff`` returns a canned CrewOutput.
 """
 
+from typing import ClassVar
+
 import yaml
 from crewai_custom_tools.tools.genealogy.models.domain import Anomaly, PersonFacts
 from genecrew.crew_audit import (
@@ -135,8 +137,11 @@ class _FakeOutput:
 
 
 class _FakeCrew:
-    kickoff_inputs = []
-    log_files = []
+    # Accumulateurs volontairement partagés entre instances (relevés par les
+    # tests, réinitialisés en tête de chaque test) : ClassVar documente
+    # l'intention plutôt que d'en faire une supposition (revue RUF012).
+    kickoff_inputs: ClassVar[list] = []
+    log_files: ClassVar[list] = []
 
     def kickoff(self, inputs):
         _FakeCrew.kickoff_inputs.append(inputs)
@@ -209,7 +214,10 @@ def test_run_crew_audit_batches_writes_report_and_pins_dry_run(tmp_path, monkeyp
 class _UnstructuredOutput:
     raw = "texte libre sans structure"
     token_usage = _FakeUsage()
-    tasks_output = [_FakeTaskOutput(), _FakeTaskOutput()]  # aucun PropositionsLot
+    tasks_output: ClassVar[list] = [
+        _FakeTaskOutput(),
+        _FakeTaskOutput(),
+    ]  # aucun PropositionsLot
 
 
 class _UnstructuredCrew:
@@ -258,7 +266,7 @@ class _RawJsonOutput:
 
     raw = "récapitulatif final du chroniqueur"
     token_usage = _FakeUsage()
-    tasks_output = [
+    tasks_output: ClassVar[list] = [
         _FakeTaskOutput(),
         _FakeTaskOutput(),
         type(
