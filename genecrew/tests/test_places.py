@@ -79,7 +79,7 @@ def test_build_proposition_resolver_http_error_is_indecidable(monkeypatch):
 def test_run_places_continues_past_resolver_http_error(tmp_path, monkeypatch):
     monkeypatch.setattr(places, "resolve_place", _boom)
     client = GrampsClient(CONFIG, transport=httpx.MockTransport(_handler))
-    report, yaml_path = run_places(client, "all", tmp_path, date="2026-07-19")
+    report, _yaml_path = run_places(client, "all", tmp_path, date="2026-07-19")
     md = report.read_text(encoding="utf-8")
     assert (
         "P0001" in md and "indecidable" in md

@@ -587,7 +587,7 @@ def test_le_pays_georgie_nest_ni_enrichi_ni_rerattache(mocker, tmp_path):
     un enfant des États-Unis. L'invariant tenait — rien n'était écrasé — et la donnée était
     fausse quand même : il protège de la destruction, pas du mauvais objet."""
     places = [_lieu("h_geo", "P0700", "Géorgie", "Country")]
-    journal, texte, _ = _lancer(mocker, tmp_path, places, pays=(ETATS_UNIS,),
+    journal, _texte, _ = _lancer(mocker, tmp_path, places, pays=(ETATS_UNIS,),
                                 subdivisions=(GEORGIE,))
     assert [p for p in journal["puts"] if p["handle"] == "h_geo"] == []
     assert [p["place_type"] for p in journal["posts"]] == ["Country", "State"]
