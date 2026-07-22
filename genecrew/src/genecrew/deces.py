@@ -55,7 +55,7 @@ def _match_url(match: dict) -> str:
 def _search_with_backoff(surname: str, first_name: str, birth_year: str) -> list[dict]:
     """search_deces with retry on rate-limit answers (MatchID replies 422 when the
     ~5-request bucket is empty; it refills in ~30 s)."""
-    for i, wait in enumerate((*BACKOFF_S, None)):
+    for wait in (*BACKOFF_S, None):
         try:
             return search_deces(
                 surname, first_name=first_name, birth_date=birth_year, limit=10
