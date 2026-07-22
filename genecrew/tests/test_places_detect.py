@@ -329,7 +329,7 @@ def _stub_fusion_interrompue(monkeypatch, exc, a_l_appel):
 
 def test_fusionne_les_doublons_prouves(tmp_path, monkeypatch):
     vus = _stub_fusion(monkeypatch)
-    chemin = run_places_detect(_arbre(DOUBLONS), tmp_path, scope="all",
+    chemin, _lot_borne = run_places_detect(_arbre(DOUBLONS), tmp_path, scope="all",
                                date="2026-07-21")
     md = chemin.read_text(encoding="utf-8")
     assert "Fusions appliquées : 1" in md
@@ -347,7 +347,7 @@ def test_paris_n_est_jamais_fusionne(tmp_path, monkeypatch):
     Zéro fusion ET zéro arbitrage, donc — pas seulement zéro fusion.
     """
     vus = _stub_fusion(monkeypatch)
-    chemin = run_places_detect(_arbre(PARIS), tmp_path, scope="all", date="2026-07-21")
+    chemin, _lot_borne = run_places_detect(_arbre(PARIS), tmp_path, scope="all", date="2026-07-21")
     md = chemin.read_text(encoding="utf-8")
     assert vus == []
     assert "Fusions appliquées : 0" in md
@@ -368,7 +368,7 @@ def test_l_arbitrage_est_ecrit_en_yaml_consommable(tmp_path, monkeypatch):
 
 def test_la_simulation_n_execute_aucune_fusion(tmp_path, monkeypatch):
     vus = _stub_fusion(monkeypatch)
-    chemin = run_places_detect(_arbre(DOUBLONS), tmp_path, scope="all",
+    chemin, _lot_borne = run_places_detect(_arbre(DOUBLONS), tmp_path, scope="all",
                                date="2026-07-21", dry_run=True)
     assert vus == []
     md = chemin.read_text(encoding="utf-8")
@@ -378,7 +378,7 @@ def test_la_simulation_n_execute_aucune_fusion(tmp_path, monkeypatch):
 
 def test_un_echec_de_fusion_est_rapporte(tmp_path, monkeypatch):
     _stub_fusion(monkeypatch, succes=False)
-    chemin = run_places_detect(_arbre(DOUBLONS), tmp_path, scope="all",
+    chemin, _lot_borne = run_places_detect(_arbre(DOUBLONS), tmp_path, scope="all",
                                date="2026-07-21")
     md = chemin.read_text(encoding="utf-8")
     assert "Fusions appliquées : 0" in md
@@ -391,7 +391,7 @@ def test_une_proposition_d_arbitrage_n_est_jamais_executee_comme_fusion(tmp_path
     fusionnerait irréversiblement une paire que la détection a explicitement
     renvoyée à la relecture humaine faute de preuve."""
     vus = _stub_fusion(monkeypatch)
-    chemin = run_places_detect(_arbre(DOUBLONS + HOMONYMES_SANS_PREUVE), tmp_path,
+    chemin, _lot_borne = run_places_detect(_arbre(DOUBLONS + HOMONYMES_SANS_PREUVE), tmp_path,
                                scope="all", date="2026-07-21")
     md = chemin.read_text(encoding="utf-8")
     assert len(vus) == 1
@@ -411,11 +411,12 @@ def test_le_scan_complet_de_la_grappe_melangee_ne_fusionne_rien(tmp_path, monkey
     """Référence de comparaison : sur les quatre « Saint-Palais », le veto de grappe
     tient et renvoie les trois couples à la relecture."""
     vus = _stub_fusion(monkeypatch)
-    chemin = run_places_detect(_arbre(SAINT_PALAIS), tmp_path, scope="all",
+    chemin, lot_borne = run_places_detect(_arbre(SAINT_PALAIS), tmp_path, scope="all",
                                date="2026-07-21")
     md = chemin.read_text(encoding="utf-8")
     assert vus == []
     assert "À relire : 3" in md
+    assert lot_borne is False       # aucun --limit ici : ce n'est pas la garde du lot
 
 
 def test_un_lot_borne_n_execute_aucune_fusion(tmp_path, monkeypatch):
@@ -424,41 +425,47 @@ def test_un_lot_borne_n_execute_aucune_fusion(tmp_path, monkeypatch):
     trois, le membre exclu est justement celui qui portait la preuve du mélange : sans
     la simulation forcée, la paire HA/HB partirait en fusion IRRÉVERSIBLE."""
     vus = _stub_fusion(monkeypatch)
-    chemin = run_places_detect(_arbre(SAINT_PALAIS), tmp_path, scope="all",
+    chemin, lot_borne = run_places_detect(_arbre(SAINT_PALAIS), tmp_path, scope="all",
                                date="2026-07-21", limit=3)
     md = chemin.read_text(encoding="utf-8")
     assert vus == []
     assert "Fusions à appliquer" in md
     assert "Fusions appliquées" not in md
+    # (C2) `lot_borne` est la seule source de vérité que la CLI doit consommer pour son
+    # avertissement console — elle ne doit plus jamais réinspecter `args.limit`.
+    assert lot_borne is True
 
 
 def test_un_lot_borne_dit_pourquoi_rien_n_a_ete_ecrit(tmp_path, monkeypatch):
     """Sans explication, l'utilisateur qui suit la consigne de borner croirait à une
     panne. Le rapport doit nommer `--limit` et dire que le passage complet est requis."""
     _stub_fusion(monkeypatch)
-    chemin = run_places_detect(_arbre(DOUBLONS), tmp_path, scope="all",
+    chemin, lot_borne = run_places_detect(_arbre(DOUBLONS), tmp_path, scope="all",
                                date="2026-07-21", limit=2)
     md = chemin.read_text(encoding="utf-8")
     assert "--limit" in md
     assert "lot borné" in md
+    assert lot_borne is True
 
 
 def test_un_lot_borne_ignore_la_demande_d_ecriture(tmp_path, monkeypatch):
     """`dry_run=False` explicite ne rachète pas un lot tronqué."""
     vus = _stub_fusion(monkeypatch)
-    run_places_detect(_arbre(DOUBLONS), tmp_path, scope="all", date="2026-07-21",
-                      limit=2, dry_run=False)
+    _chemin, lot_borne = run_places_detect(_arbre(DOUBLONS), tmp_path, scope="all",
+                      date="2026-07-21", limit=2, dry_run=False)
     assert vus == []
+    assert lot_borne is True
 
 
 def test_un_lot_complet_fusionne_toujours(tmp_path, monkeypatch):
     """La garde ne doit pas être trop serrée : sans `--limit`, une grappe saine
     s'exécute comme avant."""
     vus = _stub_fusion(monkeypatch)
-    chemin = run_places_detect(_arbre(DOUBLONS), tmp_path, scope="all",
+    chemin, lot_borne = run_places_detect(_arbre(DOUBLONS), tmp_path, scope="all",
                                date="2026-07-21", limit=None)
     assert len(vus) == 1
     assert "Fusions appliquées : 1" in chemin.read_text(encoding="utf-8")
+    assert lot_borne is False
 
 
 # --- C2 : une interruption ne perd pas la trace des fusions déjà faites -------------
@@ -532,7 +539,7 @@ def test_un_arbitrage_dont_le_motif_dit_code_officiel_identique_n_est_pas_fusion
     texte du motif au lieu du verdict fusionnerait irréversiblement ce couple que la
     détection a explicitement renvoyé à un humain."""
     vus = _stub_fusion(monkeypatch)
-    chemin = run_places_detect(_arbre(CODE_IDENTIQUE_TYPE_PERDU), tmp_path,
+    chemin, _lot_borne = run_places_detect(_arbre(CODE_IDENTIQUE_TYPE_PERDU), tmp_path,
                                scope="all", date="2026-07-21")
     md = chemin.read_text(encoding="utf-8")
     assert vus == []                                  # tue la mutation « boucle de fusion »

@@ -2,7 +2,10 @@ import pytest
 
 from genecrew.cli import build_parser
 
-# (argv, command, target) — les 16 feuilles de la nouvelle grammaire
+# (argv, command, target) — 16 lignes de test pour 15 feuilles DISTINCTES : `merge
+# places` y apparaît deux fois (une par mode, YAML relu et détection) mais reste une
+# seule et même feuille — la grammaire à sept verbes n'en a pas gagné une (voir
+# docs/adr/0012-cli-grammaire-verbes.md, « 16 anciens noms plats → 15 feuilles »).
 LEAVES = [
     (["stats"], "stats", None),
     (["propose", "audit"], "propose", "audit"),
@@ -136,3 +139,15 @@ def test_merge_places_accepte_le_mode_detection_sans_yaml():
     assert args.yaml is None
     assert args.scope == "all"
     assert args.limit is None
+
+
+def test_l_aide_du_verbe_merge_ne_contredit_pas_l_aide_de_la_feuille_places():
+    """`uv run genecrew --help` (le verbe) et `uv run genecrew merge places --help` (la
+    feuille) doivent raconter la même histoire. La feuille décrit bien les deux modes
+    (détection ou YAML relu, voir le bloc `merge_sub.add_parser("places", ...)` juste
+    en dessous) ; l'aide du verbe, un cran au-dessus, ne doit donc pas prétendre que les
+    lieux ne fusionnent QUE depuis un YAML relu."""
+    aide_verbe = build_parser().format_help()
+    ligne_merge = next(ligne for ligne in aide_verbe.splitlines()
+                       if ligne.strip().startswith("merge"))
+    assert "lieux relus" not in ligne_merge

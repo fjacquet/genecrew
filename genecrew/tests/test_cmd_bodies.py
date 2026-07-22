@@ -56,7 +56,7 @@ def test_lieux_merge_cmd_sans_yaml_detecte(monkeypatch, tmp_path):
 
     def _spy(client, output_dir, *, scope, date, limit=None, dry_run=False):
         captured["scope"] = scope
-        return tmp_path / "rapport.md"
+        return tmp_path / "rapport.md", False
 
     monkeypatch.setattr(places_merge_mod, "run_places_detect", _spy)
 
@@ -75,7 +75,7 @@ def test_lieux_merge_cmd_avertit_sur_la_console_quand_le_lot_est_borne(
     monkeypatch.setenv("GENECREW_OUTPUT_DIR", str(tmp_path))
 
     def _spy(client, output_dir, *, scope, date, limit=None, dry_run=False):
-        return tmp_path / "rapport.md"
+        return tmp_path / "rapport.md", True
 
     monkeypatch.setattr(places_merge_mod, "run_places_detect", _spy)
 
@@ -94,7 +94,7 @@ def test_lieux_merge_cmd_sans_limit_ne_dit_rien_sur_le_lot_borne(
     monkeypatch.setenv("GENECREW_OUTPUT_DIR", str(tmp_path))
 
     def _spy(client, output_dir, *, scope, date, limit=None, dry_run=False):
-        return tmp_path / "rapport.md"
+        return tmp_path / "rapport.md", False
 
     monkeypatch.setattr(places_merge_mod, "run_places_detect", _spy)
 
@@ -102,6 +102,129 @@ def test_lieux_merge_cmd_sans_limit_ne_dit_rien_sur_le_lot_borne(
 
     out = capsys.readouterr().out
     assert "lot borné" not in out.lower()
+
+
+# --- C2 : une seule source de vérité pour « lot borné, donc aucune écriture » -------
+#
+# `lieux_merge_cmd` ne doit JAMAIS redériver la décision depuis `args.limit` : elle doit
+# se contenter d'afficher ce que `run_places_detect` lui a renvoyé. Les deux tests
+# ci-dessous posent volontairement la valeur renvoyée en CONTRADICTION avec ce
+# qu'`args.limit` suggérerait, pour prouver que c'est bien le retour de la fonction —
+# et lui seul — qui pilote l'avertissement console. Si la CLI se remettait à
+# réimplémenter `args.limit is not None`, l'un des deux tomberait.
+
+def test_lieux_merge_cmd_avertit_meme_sans_limit_si_la_fonction_le_dit(
+        monkeypatch, tmp_path, capsys):
+    """Aucun --limit posé, mais la fonction dit quand même « lot borné » : l'avertissement
+    doit apparaître. Une CLI qui déciderait elle-même depuis args.limit resterait muette."""
+    monkeypatch.setattr(gramps_client_mod, "get_client", lambda: FAKE_CLIENT)
+    monkeypatch.setenv("GENECREW_OUTPUT_DIR", str(tmp_path))
+
+    def _spy(client, output_dir, *, scope, date, limit=None, dry_run=False):
+        return tmp_path / "rapport.md", True
+
+    monkeypatch.setattr(places_merge_mod, "run_places_detect", _spy)
+
+    main_mod.lieux_merge_cmd(_args(["merge", "places", "--scope", "all"]))
+
+    out = capsys.readouterr().out
+    assert "lot borné" in out.lower()
+
+
+def test_lieux_merge_cmd_n_avertit_pas_si_la_fonction_dit_non_borne_malgre_limit(
+        monkeypatch, tmp_path, capsys):
+    """--limit posé, mais la fonction dit qu'elle n'a PAS été bornée (cas construit,
+    contredisant volontairement `args.limit`) : aucun avertissement ne doit apparaître.
+    Une CLI qui imprimerait dès `args.limit is not None`, sans regarder le retour de la
+    fonction, afficherait ici « simulation forcée » alors que des fusions auraient
+    réellement lieu — exactement le scénario décrit en revue."""
+    monkeypatch.setattr(gramps_client_mod, "get_client", lambda: FAKE_CLIENT)
+    monkeypatch.setenv("GENECREW_OUTPUT_DIR", str(tmp_path))
+
+    def _spy(client, output_dir, *, scope, date, limit=None, dry_run=False):
+        return tmp_path / "rapport.md", False
+
+    monkeypatch.setattr(places_merge_mod, "run_places_detect", _spy)
+
+    main_mod.lieux_merge_cmd(
+        _args(["merge", "places", "--scope", "all", "--limit", "5"]))
+
+    out = capsys.readouterr().out
+    assert "lot borné" not in out.lower()
+
+
+# --- C1 : le drapeau de simulation, réellement transmis au moteur -------------------
+#
+# `test_lieux_merge_cmd_passes_yaml_flag_to_engine` et
+# `test_lieux_merge_cmd_sans_yaml_detecte` prouvent que `merges_yaml`/`scope` arrivent ;
+# aucun test n'observait `dry_run` avant ceux-ci. Un `dry_run=False` câblé en dur au lieu
+# de `dry_run=args.dry_run` laissait toute la suite verte — le scénario le plus coûteux
+# possible pour une commande qui fusionne irréversiblement des lieux.
+
+def test_lieux_merge_cmd_mode_yaml_transmet_dry_run_vrai(monkeypatch, tmp_path):
+    captured = {}
+    monkeypatch.setattr(gramps_client_mod, "get_client", lambda: FAKE_CLIENT)
+    monkeypatch.setenv("GENECREW_OUTPUT_DIR", str(tmp_path))
+
+    def _spy(client, merges_yaml, output_dir, *, date, dry_run=False):
+        captured["dry_run"] = dry_run
+        return tmp_path / "rapport.md"
+
+    monkeypatch.setattr(places_merge_mod, "run_places_merge", _spy)
+
+    main_mod.lieux_merge_cmd(
+        _args(["merge", "places", "--yaml", "fusions_relues.yaml", "--dry-run"]))
+
+    assert captured["dry_run"] is True
+
+
+def test_lieux_merge_cmd_mode_yaml_transmet_dry_run_faux(monkeypatch, tmp_path):
+    captured = {}
+    monkeypatch.setattr(gramps_client_mod, "get_client", lambda: FAKE_CLIENT)
+    monkeypatch.setenv("GENECREW_OUTPUT_DIR", str(tmp_path))
+
+    def _spy(client, merges_yaml, output_dir, *, date, dry_run=False):
+        captured["dry_run"] = dry_run
+        return tmp_path / "rapport.md"
+
+    monkeypatch.setattr(places_merge_mod, "run_places_merge", _spy)
+
+    main_mod.lieux_merge_cmd(
+        _args(["merge", "places", "--yaml", "fusions_relues.yaml"]))
+
+    assert captured["dry_run"] is False
+
+
+def test_lieux_merge_cmd_mode_detection_transmet_dry_run_vrai(monkeypatch, tmp_path):
+    captured = {}
+    monkeypatch.setattr(gramps_client_mod, "get_client", lambda: FAKE_CLIENT)
+    monkeypatch.setenv("GENECREW_OUTPUT_DIR", str(tmp_path))
+
+    def _spy(client, output_dir, *, scope, date, limit=None, dry_run=False):
+        captured["dry_run"] = dry_run
+        return tmp_path / "rapport.md", False
+
+    monkeypatch.setattr(places_merge_mod, "run_places_detect", _spy)
+
+    main_mod.lieux_merge_cmd(_args(["merge", "places", "--scope", "all", "--dry-run"]))
+
+    assert captured["dry_run"] is True
+
+
+def test_lieux_merge_cmd_mode_detection_transmet_dry_run_faux(monkeypatch, tmp_path):
+    captured = {}
+    monkeypatch.setattr(gramps_client_mod, "get_client", lambda: FAKE_CLIENT)
+    monkeypatch.setenv("GENECREW_OUTPUT_DIR", str(tmp_path))
+
+    def _spy(client, output_dir, *, scope, date, limit=None, dry_run=False):
+        captured["dry_run"] = dry_run
+        return tmp_path / "rapport.md", False
+
+    monkeypatch.setattr(places_merge_mod, "run_places_detect", _spy)
+
+    main_mod.lieux_merge_cmd(_args(["merge", "places", "--scope", "all"]))
+
+    assert captured["dry_run"] is False
 
 
 def test_deces_apply_cmd_passes_yaml_flag_to_engine(monkeypatch, tmp_path):

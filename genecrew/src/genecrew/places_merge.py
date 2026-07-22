@@ -254,7 +254,8 @@ def _ecrire_sorties(output_dir: Path, *, date: str, scope: str, fusions: list,
 
 
 def run_places_detect(client: GrampsClient, output_dir, *, scope: str, date: str,
-                      limit: int | None = None, dry_run: bool = False) -> Path:
+                      limit: int | None = None,
+                      dry_run: bool = False) -> tuple[Path, bool]:
     """Détecte les doublons de lieux, fusionne les prouvés, dépose le reste en YAML.
 
     Une seule passe : les candidats sont groupés par égalité de nom normalisé, une
@@ -268,6 +269,14 @@ def run_places_detect(client: GrampsClient, output_dir, *, scope: str, date: str
     justement celui qui portait la preuve du mélange — et la fusion irréversible
     partirait alors toute seule. Poser `--limit` force donc la simulation, quel que
     soit `dry_run`, et le rapport le dit noir sur blanc.
+
+    Rend `(chemin_du_rapport, lot_borne)`. `lot_borne` est la SEULE source de vérité
+    de cette garde : c'est le booléen exact qui a servi à forcer la simulation
+    ci-dessous, pas une valeur recalculée après coup. La couche ligne de commande
+    (`main.py::lieux_merge_cmd`) doit le consommer tel quel pour décider d'afficher son
+    avertissement — jamais réinspecter `args.limit` de son côté, sous peine de pouvoir
+    un jour afficher « simulation forcée » pendant qu'une fusion irréversible a
+    réellement lieu.
     """
     lot_borne = limit is not None
     eff = effective_dry_run(dry_run) or lot_borne
@@ -312,4 +321,4 @@ def run_places_detect(client: GrampsClient, output_dir, *, scope: str, date: str
                                  arbitrage=arbitrage, errors=errors,
                                  total_lieux=len(lieux), dry_run=eff,
                                  lot_borne=lot_borne)
-    return chemin
+    return chemin, lot_borne

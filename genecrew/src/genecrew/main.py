@@ -278,17 +278,21 @@ def lieux_merge_cmd(args) -> None:
         report = run_places_merge(client, args.yaml, output_dir, date=date,
                                   dry_run=args.dry_run)
     else:
-        if args.limit is not None:
-            # La garde vit dans run_places_detect (un lot borné ne fusionne jamais :
-            # `--limit` tronque les groupes d'homonymes sur lesquels elle raisonne) et
-            # son explication n'est sinon disponible que dans le rapport Markdown. Sans
-            # ce mot ici, quelqu'un qui lance la commande avec --limit et voit « zéro
-            # fusion » irait chercher une panne au lieu de relancer sans --limit.
+        report, lot_borne = run_places_detect(client, output_dir, scope=args.scope,
+                                              date=date, limit=args.limit,
+                                              dry_run=args.dry_run)
+        if lot_borne:
+            # La garde « un lot borné ne fusionne jamais » vit dans run_places_detect ET
+            # N'EST DÉCIDÉE QUE LÀ ; son explication n'est sinon disponible que dans le
+            # rapport Markdown. Sans ce mot ici, quelqu'un qui lance la commande avec
+            # --limit et voit « zéro fusion » irait chercher une panne au lieu de
+            # relancer sans --limit. `lot_borne` est le retour EXACT de la fonction —
+            # jamais un recalcul depuis `args.limit` : une seule source de vérité, pour
+            # que la console ne puisse plus dire « simulation forcée » pendant qu'une
+            # fusion irréversible a réellement lieu.
             print("Lot borné (--limit) : simulation forcée, aucune fusion. Un groupe "
                   "d'homonymes tronqué ne permet pas de décider d'une fusion "
                   "irréversible — relancez sans --limit pour appliquer les fusions.")
-        report = run_places_detect(client, output_dir, scope=args.scope, date=date,
-                                   limit=args.limit, dry_run=args.dry_run)
     print(f"Rapport : {report}")
 
 
