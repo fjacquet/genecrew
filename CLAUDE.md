@@ -171,3 +171,7 @@ gotchas — c'est elle qui impose l'ordre de livraison entre les deux dépôts.
   différents, et les coordonnées ne prouvent rien entre types différents : Paris existe en
   `Department` 75 et en `Municipality` 75056, deux entités réelles. Le survivant est le plus
   riche, pas le plus référencé — Gramps garde ses champs simples et effacerait ceux de l'autre.
+  **Un `--limit` désactive les écritures** : le veto de grappe raisonne sur le groupe entier
+  d'homonymes, et borner la lecture tronque les groupes — `merge places --scope ... --limit N`
+  simule donc toujours, quel que soit `--dry-run`, le réflexe qui borne ailleurs (`merge people
+  --limit 200`) produisant ici une simulation silencieuse.

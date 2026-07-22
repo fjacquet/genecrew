@@ -62,7 +62,10 @@ tiennent la forme du code livré :
    identique : un code est canonique, et la présence d'un troisième code voisin ne fragilise en
    rien la preuve que deux lieux au même code sont le même lieu. Exemple réel verrouillé en
    test : quatre « Saint-Palais » dans une même grappe, deux au code 18205 et deux au code
-   17398 — la paire 18205 reste `auto` malgré le veto porté par la grappe.
+   17398 — la paire 18205 reste `auto` malgré le veto porté par la grappe. Sur les grappes à
+   deux entités, 92 % des paires dégradées par le veto de grappe étaient prouvées par un code
+   identique — sans cette nuance, la commande aurait perdu son intérêt sur l'essentiel de son
+   périmètre.
 
 ## Conséquences
 
