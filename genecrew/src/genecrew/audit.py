@@ -5,7 +5,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import yaml
-
 from crewai_custom_tools.tools.genealogy.analysis.corrections import (
     suggest_century_typo,
     suggest_misattached_parent_event,

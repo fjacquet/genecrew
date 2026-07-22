@@ -40,3 +40,20 @@ dev = [
     "pytest>=8.3",
     "pytest-mock>=3.14",
 ]
+
+[tool.ruff]
+# Aligné sur la bibliothèque voisine. Mesuré : p99 = 93 caractères, zéro ligne au-dessus
+# de 120 — le défaut de ruff (88) en signalerait 193 sans rien apprendre.
+line-length = 120
+
+[tool.ruff.lint]
+# Le jeu par défaut (E4, E7, E9, F) ne voit ni les imports désordonnés, ni les fermetures
+# sur variable de boucle, ni un `zip` qui tronque en silence. Les deux derniers sont des
+# risques de perte de données : un `zip` désynchronisé dans une fusion IRRÉVERSIBLE ferait
+# sauter une personne sans un mot.
+select = ["E", "W", "I", "UP", "B", "C4", "SIM", "RUF"]
+ignore = [
+    # Projet francophone : l'apostrophe typographique (’) et l'espace insécable sont
+    # voulues dans les libellés, les docstrings et les commentaires.
+    "RUF001", "RUF002", "RUF003",
+]

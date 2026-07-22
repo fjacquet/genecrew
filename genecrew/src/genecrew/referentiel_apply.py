@@ -23,13 +23,16 @@ from pathlib import Path
 
 import yaml
 from crewai_custom_tools.tools.genealogy.gramps.write_tools import (
-    GrampsAddUrlTool, GrampsCreatePlaceTool, GrampsUpdatePlaceTool, effective_dry_run,
+    GrampsAddUrlTool,
+    GrampsCreatePlaceTool,
+    GrampsUpdatePlaceTool,
+    effective_dry_run,
 )
 from crewai_custom_tools.tools.genealogy.models.domain import Subdivision
 from crewai_custom_tools.tools.genealogy.referentiel.chargement import EntitePays
 from crewai_custom_tools.tools.genealogy.referentiel.config import PAYS_REFERENTIEL
 
-from genecrew.batching import iter_places      # pagination déjà écrite, triée par gramps_id
+from genecrew.batching import iter_places  # pagination déjà écrite, triée par gramps_id
 
 _WIKIDATA = "https://www.wikidata.org/wiki/"
 

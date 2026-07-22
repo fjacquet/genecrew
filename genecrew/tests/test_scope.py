@@ -1,8 +1,7 @@
 import httpx
 import pytest
-
-from genecrew.scope import parse_scope, resolve_handles
 from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient, GrampsConfig
+from genecrew.scope import parse_scope, resolve_handles
 
 CONFIG = GrampsConfig(api_url="http://g.test/api", username="u", password="p")
 

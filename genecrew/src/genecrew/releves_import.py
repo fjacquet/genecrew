@@ -11,16 +11,16 @@ import json
 import logging
 import re
 import unicodedata
-
-import httpx
 from collections.abc import Callable
 
-from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient
-from crewai_custom_tools.tools.genealogy.gramps.facts import FactsFetcher
+import httpx
 from crewai_custom_tools.tools.genealogy.analysis.gender import (
     infer_sex,
     load_prenoms_table,
 )
+from crewai_custom_tools.tools.genealogy.geo.registry import resolve_place
+from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient
+from crewai_custom_tools.tools.genealogy.gramps.facts import FactsFetcher
 from crewai_custom_tools.tools.genealogy.gramps.write_tools import (
     GrampsAttachCitationTool,
     GrampsAttachTool,
@@ -31,9 +31,8 @@ from crewai_custom_tools.tools.genealogy.gramps.write_tools import (
     GrampsEnsureTagTool,
     effective_dry_run,
 )
-from crewai_custom_tools.tools.genealogy.standardize.names import normalize_case
-from crewai_custom_tools.tools.genealogy.geo.registry import resolve_place
 from crewai_custom_tools.tools.genealogy.models.domain import PersonFacts, ResolvedPlace
+from crewai_custom_tools.tools.genealogy.standardize.names import normalize_case
 from crewai_custom_tools.tools.genealogy.standardize.places import parse_pname
 
 from genecrew.batching import iter_people_batches

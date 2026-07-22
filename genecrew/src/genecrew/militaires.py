@@ -11,7 +11,6 @@ from datetime import date as _date
 from pathlib import Path
 
 import yaml
-
 from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient
 from crewai_custom_tools.tools.genealogy.gramps.facts import FactsFetcher
 from crewai_custom_tools.tools.genealogy.militaires import match_militaires

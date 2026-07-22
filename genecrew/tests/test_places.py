@@ -5,8 +5,9 @@ from crewai_custom_tools.tools.genealogy.models.domain import (
     PlaceLevel,
     ResolvedPlace,
 )
-from genecrew import places
 from genecrew.places import render_places_report, run_places
+
+from genecrew import places
 
 CONFIG = GrampsConfig(api_url="http://g.test/api", username="u", password="p")
 PLACES = [

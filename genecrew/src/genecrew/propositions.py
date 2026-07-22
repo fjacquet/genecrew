@@ -4,7 +4,7 @@
 D-rules emit them too; every genecrew import keeps working through this shim.
 """
 
-from crewai_custom_tools.tools.genealogy.models.domain import (  # noqa: F401
+from crewai_custom_tools.tools.genealogy.models.domain import (
     PropositionAudit,
     PropositionsLot,
 )

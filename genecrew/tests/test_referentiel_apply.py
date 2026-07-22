@@ -16,10 +16,17 @@ from crewai_custom_tools.tools.genealogy.gramps import write_tools
 from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient, GrampsConfig
 from crewai_custom_tools.tools.genealogy.models.domain import Subdivision
 from crewai_custom_tools.tools.genealogy.referentiel.chargement import EntitePays
-
 from genecrew.referentiel_apply import (
-    apparier, decider, handles_designant, identifiant, index_par_nom_contenant,
-    index_par_nom_type, index_par_qid, motif_dexclusion, qid_pose, run_referentiel_apply,
+    apparier,
+    decider,
+    handles_designant,
+    identifiant,
+    index_par_nom_contenant,
+    index_par_nom_type,
+    index_par_qid,
+    motif_dexclusion,
+    qid_pose,
+    run_referentiel_apply,
     subdivision_de_pays,
 )
 

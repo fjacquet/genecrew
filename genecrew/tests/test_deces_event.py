@@ -6,8 +6,6 @@ import httpx
 import pytest
 import yaml
 from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient, GrampsConfig
-
-from genecrew import deces_event, evenements
 from genecrew.deces_event import (
     index_lieux,
     normaliser_lieu,
@@ -16,6 +14,8 @@ from genecrew.deces_event import (
     run_deces_event,
     trier_propositions,
 )
+
+from genecrew import deces_event, evenements
 
 CONFIG = GrampsConfig(api_url="http://g.test/api", username="u", password="p")
 

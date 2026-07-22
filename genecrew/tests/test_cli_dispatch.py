@@ -2,11 +2,11 @@ from pathlib import Path
 
 import pytest
 from crewai_custom_tools.tools.genealogy.gramps import client as gramps_client_mod
+from genecrew.cli import build_parser
 
 from genecrew import main as main_mod
 from genecrew import referentiel as referentiel_mod
 from genecrew import referentiel_apply as referentiel_apply_mod
-from genecrew.cli import build_parser
 
 # (argv, nom de la fonction *_cmd que main() doit appeler)
 ROUTES = [

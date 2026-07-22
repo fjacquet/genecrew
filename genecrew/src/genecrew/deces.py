@@ -13,7 +13,6 @@ from datetime import date as _date
 from pathlib import Path
 
 import yaml
-
 from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient
 from crewai_custom_tools.tools.genealogy.gramps.facts import FactsFetcher
 from crewai_custom_tools.tools.genealogy.matchid import score_deces_match, search_deces
@@ -117,6 +116,8 @@ def build_deces_proposition(
             + ", avec la source INSEE en citation.",
             preuve_url=_match_url(match),
             preuve_detail=detail,
+            date_iso=insee_iso,
+            lieu_nom=lieu,
             priorite="moyenne",
             confiance=confiance,
         )
@@ -135,6 +136,8 @@ def build_deces_proposition(
             "décès existant — les dates concordent.",
             preuve_url=_match_url(match),
             preuve_detail=detail,
+            date_iso=insee_iso,
+            lieu_nom=lieu,
             priorite="basse",
             confiance=2 if (exact_death or confiance == 2) else 1,
         )
@@ -149,6 +152,8 @@ def build_deces_proposition(
         f"{insee_iso}" + (f" à {lieu}" if lieu else "") + ". Trancher sur pièce.",
         preuve_url=_match_url(match),
         preuve_detail=detail,
+        date_iso=insee_iso,
+        lieu_nom=lieu,
         priorite="haute",
         confiance=1,
     )

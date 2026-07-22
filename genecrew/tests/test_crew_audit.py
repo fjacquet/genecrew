@@ -6,14 +6,14 @@ factory whose ``kickoff`` returns a canned CrewOutput.
 
 import yaml
 from crewai_custom_tools.tools.genealogy.models.domain import Anomaly, PersonFacts
-
-from genecrew import crew_audit
 from genecrew.crew_audit import (
     group_anomalies_by_person,
     render_anomalies_block,
     render_crew_report,
     run_crew_audit,
 )
+
+from genecrew import crew_audit
 
 
 def _anom(rule, sev, gid, handle, msg):

@@ -10,9 +10,11 @@ from collections import defaultdict
 from pathlib import Path
 
 import yaml
-
 from crewai_custom_tools.tools.genealogy.referentiel.chargement import (
-    EntitePays, ResultatPays, charger_entites_pays, charger_pays,
+    EntitePays,
+    ResultatPays,
+    charger_entites_pays,
+    charger_pays,
 )
 from crewai_custom_tools.tools.genealogy.referentiel.config import PAYS_REFERENTIEL
 

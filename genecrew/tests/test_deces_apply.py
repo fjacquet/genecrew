@@ -7,7 +7,6 @@ import pytest
 import yaml
 from crewai_custom_tools.tools.genealogy.gramps import write_tools
 from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient, GrampsConfig
-
 from genecrew.deces_apply import (
     SOURCE_TITLE,
     citation_page,

@@ -11,6 +11,7 @@ import json
 from pathlib import Path
 
 from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient
+from crewai_custom_tools.tools.genealogy.gramps.facts import FactsFetcher
 from crewai_custom_tools.tools.genealogy.gramps.write_tools import (
     GrampsUpdateNameTool,
     effective_dry_run,
@@ -21,7 +22,6 @@ from crewai_custom_tools.tools.genealogy.standardize.names import (
 )
 
 from genecrew.batching import iter_people_batches
-from crewai_custom_tools.tools.genealogy.gramps.facts import FactsFetcher
 
 
 def _link(gramps_id: str, base_url: str) -> str:

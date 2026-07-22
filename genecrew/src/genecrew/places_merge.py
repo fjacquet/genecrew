@@ -25,7 +25,6 @@ from typing import NamedTuple
 
 import httpx
 import yaml
-
 from crewai_custom_tools.tools.genealogy.analysis.place_duplicates import etager_lieux
 from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient
 from crewai_custom_tools.tools.genealogy.gramps.write_tools import (

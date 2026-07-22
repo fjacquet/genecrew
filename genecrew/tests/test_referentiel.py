@@ -1,14 +1,16 @@
 # genecrew/tests/test_referentiel.py
 """Rendu du rapport et du YAML de `propose referentiel`. Pur, hors ligne."""
 import yaml
-
 from crewai_custom_tools.tools.genealogy.models.domain import (
-    CollisionIso, EntiteEcartee, Subdivision,
+    CollisionIso,
+    EntiteEcartee,
+    Subdivision,
 )
 from crewai_custom_tools.tools.genealogy.referentiel.chargement import EntitePays, ResultatPays
-
 from genecrew.referentiel import (
-    doublons_de_larbre, render_referentiel_report, render_referentiel_yaml,
+    doublons_de_larbre,
+    render_referentiel_report,
+    render_referentiel_yaml,
 )
 
 VAUD = Subdivision(qid="Q12771", iso="CH-VD", code="VD", libelle_fr="canton de Vaud",

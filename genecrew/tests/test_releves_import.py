@@ -14,7 +14,6 @@ from crewai_custom_tools.tools.genealogy.gramps.write_tools import (
     GrampsEnsureTagTool,
 )
 from crewai_custom_tools.tools.genealogy.models.domain import ResolvedPlace
-
 from genecrew.deces_apply import source_title_for
 from genecrew.pistes import _normaliser
 from genecrew.releves import Appariement, ReleveIndexe

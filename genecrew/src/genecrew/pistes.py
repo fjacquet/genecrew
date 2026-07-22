@@ -17,7 +17,7 @@ from crewai_custom_tools.tools.genealogy.gramps.write_tools import (
     GrampsEnsureTagTool,
     effective_dry_run,
 )
-from crewai_custom_tools.tools.genealogy.models.domain import Piste  # noqa: F401
+from crewai_custom_tools.tools.genealogy.models.domain import Piste
 
 _LONGUEUR_CLE = 8
 

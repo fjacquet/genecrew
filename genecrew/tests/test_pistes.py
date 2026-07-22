@@ -4,9 +4,8 @@ import httpx
 import pytest
 from crewai_custom_tools.tools.genealogy.gramps import write_tools
 from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient, GrampsConfig
-from pydantic import ValidationError
-
 from genecrew.pistes import Piste, cle_derivee, consigner, marqueur, marqueurs_existants
+from pydantic import ValidationError
 
 CONFIG = GrampsConfig(api_url="http://g.test/api", username="u", password="p")
 

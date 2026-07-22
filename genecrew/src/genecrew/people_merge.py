@@ -10,7 +10,6 @@ import json
 from pathlib import Path
 
 import yaml
-
 from crewai_custom_tools.tools.genealogy.analysis.duplicates import etager
 from crewai_custom_tools.tools.genealogy.analysis.merge_plan import plan_fusions
 from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient
@@ -25,6 +24,7 @@ from crewai_custom_tools.tools.genealogy.models.domain import (
     MergePair,
     PersonFacts,
 )
+
 from genecrew.batching import iter_people_batches
 
 _TAILLE_LOT = 200

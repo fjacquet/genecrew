@@ -3,9 +3,9 @@
 import json
 
 import pytest
+from genecrew.evenements import creer_evenement_source, dateval_iso
 
 from genecrew import evenements
-from genecrew.evenements import creer_evenement_source, dateval_iso
 
 
 @pytest.fixture(autouse=True)

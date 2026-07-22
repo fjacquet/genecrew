@@ -128,16 +128,24 @@ uv run genecrew propose wikidata --scope person:I0042  # pistes Wikidata ; scan 
 uv run genecrew propose dhs --scope person:I0042       # pistes DHS (projection de Wikidata via P902) ; aucune citation créée
 uv run genecrew propose referentiel --country FR,CH   # subdivisions Wikidata par pays, lecture seule (ADR 0016)
 uv run genecrew apply referentiel --yaml <relu.yaml> --dry-run   # écrit pays + subdivisions du YAML relu (ADR 0016)
-# `referentiel` : décision posée (ADR 0016), câblage CLI (cli.py/main.py) pas encore livré (tâche 10 du plan)
 
 # Train / replay / test the crew
 uv run train <n_iterations> <filename>
 uv run replay <task_id>
 uv run test <n_iterations> <eval_llm>
 
-# Lint (ruff is a dev dependency; no ruff config file yet — defaults apply)
+# Lint. ATTENTION : les deux dépôts ne sont PAS linterisés au même niveau. La bibliothèque
+# a une configuration complète (select E,W,I,UP,B,C4,SIM,RUF ; line-length 120) ; genecrew
+# n'a AUCUNE config, donc ruff y tourne sur son jeu par défaut (E4, E7, E9, F) : ni tri
+# d'imports, ni longueur de ligne, ni `zip` qui tronque en silence. Un `ruff check` vert
+# ici en dit beaucoup moins que là-bas.
 uv run ruff check .
 ```
+
+**Un test est rouge sur `main`**, indépendamment de toute modification en cours :
+`genecrew/tests/test_deces.py::test_proposition_date_porte_la_donnee_machine`. `deces.py` ne
+renseigne pas les champs `date_iso` / `lieu_nom` que le test exige, alors que la bibliothèque les
+expose depuis la 0.26.0. Ne pas chercher ce qu'on a cassé : la suite part de 1 échec.
 
 Gramps Web **not** brought up from this repo — see "Genealogy stack (Gramps Web)" above.
 
@@ -151,6 +159,18 @@ gotchas — c'est elle qui impose l'ordre de livraison entre les deux dépôts.
 
 - `.env` (repo root) holds LLM config (**OpenRouter**, needs `OPENROUTER_API_KEY`; per-role mix: `MODEL`=`openrouter/mistralai/mistral-small-2603` for historien/chroniqueur, `MODEL_DETECTIVE`/`MODEL_STANDARDISATEUR`=`openrouter/z-ai/glm-5.2` for judgment — mistral-small alone fails Détective post), `GRAMPS_*` connection vars, `GENECREW_*` pipeline settings — see `.env.example`. Never print or commit its contents.
 - Root `.gitignore` excludes `.env`, `__pycache__/`, `.DS_Store`, standard Python build/venv artifacts.
+
+## Outillage Claude Code (`.claude/`, versionné)
+
+- **`.mcp.json`** déclare `gramps-mcp` sur `http://localhost:8000/mcp` — la pile doit tourner
+  (voir « Genealogy stack »). Interroger l'arbre passe par là, pas par des scripts jetables.
+- **Hooks** (`.claude/settings.json`) : lecture et écriture de `.env` **bloquées** (`.env.example`
+  reste accessible) ; toute édition d'un `pyproject.toml` vérifie que `version` et `__version__`
+  concordent — l'oubli du second a déjà fait rougir la CI.
+- **Sous-agents** : `verificateur-qid` (un QID écrit de mémoire s'est révélé désigner un biplan),
+  `chasseur-de-tests-muets` (éprouve les tests par mutation).
+- **Compétences** : `release-croisee` (la séquence bump → tag → `uv sync`, dans l'ordre que la CI
+  impose), `etat-des-branches` (inventaire de ce qui dort hors de `main` dans les deux dépôts).
 
 ## Gotchas
 
@@ -172,7 +192,7 @@ gotchas — c'est elle qui impose l'ordre de livraison entre les deux dépôts.
   la liste — invisible dans les vues qui suivent l'index, bien présent en base.
   Le lieu se résout par **nom + type** : `index_lieux` n'indexe que les types de feuille
   des résolveurs `geo/` (`TYPES_LIEU_DECES` = `Municipality`, `City`) — liste
-  d'inclusion, car un contenant oublié (`Department`, `Canton`, `State`…) rattacherait
+  d'inclusion, car un contenant oublié (`Department`, `State`, `Province`…) rattacherait
   un décès à un département en silence. Le rapport porte le mode dans son nom
   (`…_simulation.md` / `…_ecritures.md`) pour que l'écriture n'écrase pas l'aperçu qui
   l'a autorisée.

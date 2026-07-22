@@ -1,5 +1,4 @@
 import pytest
-
 from genecrew.cli import build_parser
 
 # (argv, command, target) — 19 lignes de test pour 18 feuilles DISTINCTES : `merge

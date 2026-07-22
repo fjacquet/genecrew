@@ -1,8 +1,7 @@
 import httpx
-
-from genecrew.batching import iter_people_batches
-from crewai_custom_tools.tools.genealogy.gramps.facts import FactsFetcher
 from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient, GrampsConfig
+from crewai_custom_tools.tools.genealogy.gramps.facts import FactsFetcher
+from genecrew.batching import iter_people_batches
 
 CONFIG = GrampsConfig(api_url="http://g.test/api", username="u", password="p")
 
