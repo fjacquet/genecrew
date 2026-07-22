@@ -121,9 +121,25 @@ def motif_dexclusion(place: dict) -> str | None:
 
 
 # --- index de l'arbre -------------------------------------------------------------------
-# Les trois index retiennent le PREMIER lieu rencontré (`setdefault`). `iter_places` trie
-# par `gramps_id`, donc deux exécutions sur le même arbre rendent le même résultat — c'est
-# ce déterminisme qui rend une simulation représentative de l'écriture qu'elle autorise.
+# L'index par QID retient le PREMIER lieu rencontré : un QID est une identité, deux lieux
+# le portant est une anomalie traitée ailleurs (`motif_dexclusion`).
+#
+# Les index par NOM retiennent en revanche TOUS les homonymes. N'en garder qu'un a un coût
+# mesuré sur l'arbre réel : il porte deux lieux nommés `Souk Ahras` — un `Department`
+# rattaché à lui-même (cycle préexistant dans les données) et la vraie `Wilaya` sous
+# l'Algérie. Le premier gagnait l'index, était jugé « rattaché ailleurs », et la wilaya
+# correctement rattachée n'était jamais examinée : une duplication alors qu'un appariement
+# parfait existait, à deux lignes de là.
+#
+# Les listes sont triées par `gramps_id`, donc deux exécutions évaluent les candidats dans
+# le même ordre — c'est ce déterminisme qui rend une simulation représentative de l'écriture
+# qu'elle autorise.
+
+
+def _handles_ordonnes(places: list[dict]) -> list[str]:
+    """Les handles d'un lot d'homonymes, dans un ordre stable d'une exécution à l'autre."""
+    return [p["handle"] for p in sorted(places, key=lambda p: p.get("gramps_id", ""))]
+
 
 def index_par_qid(places: list[dict]) -> dict[str, str]:
     """QID → handle, lu dans les `urls` des lieux. L'identité durable de l'appariement."""
@@ -137,28 +153,28 @@ def index_par_qid(places: list[dict]) -> dict[str, str]:
     return index
 
 
-def index_par_nom_type(places: list[dict]) -> dict[tuple[str, str], str]:
-    """(nom, type) → handle. Repli du premier passage, avant que les QID soient posés."""
-    index: dict[tuple[str, str], str] = {}
+def index_par_nom_type(places: list[dict]) -> dict[tuple[str, str], list[str]]:
+    """(nom, type) → TOUS les handles homonymes. Repli d'avant la pose des QID."""
+    index: dict[tuple[str, str], list[dict]] = {}
     for place in places:
         if motif_dexclusion(place):
             continue
         nom = (place.get("name") or {}).get("value", "")
         if nom:
-            index.setdefault((nom, type_lisible(place)), place["handle"])
-    return index
+            index.setdefault((nom, type_lisible(place)), []).append(place)
+    return {cle: _handles_ordonnes(lot) for cle, lot in index.items()}
 
 
-def index_par_nom_contenant(places: list[dict]) -> dict[str, str]:
-    """nom → handle, restreint aux lieux CONTENANTS. Dernière prise de l'appariement."""
-    index: dict[str, str] = {}
+def index_par_nom_contenant(places: list[dict]) -> dict[str, list[str]]:
+    """nom → TOUS les handles CONTENANTS homonymes. Dernière prise de l'appariement."""
+    index: dict[str, list[dict]] = {}
     for place in places:
         if motif_dexclusion(place):
             continue
         nom = (place.get("name") or {}).get("value", "")
         if nom and type_lisible(place) in TYPES_CONTENANTS:
-            index.setdefault(nom, place["handle"])
-    return index
+            index.setdefault(nom, []).append(place)
+    return {nom: _handles_ordonnes(lot) for nom, lot in index.items()}
 
 
 def _handles_designants(qid: str, noms: list[str], place_type: str,
@@ -279,8 +295,8 @@ def verdict_candidat(sub: Subdivision, place: dict | None, parents: set[str]) ->
 
 
 def apparier(sub: Subdivision, par_qid: dict[str, str],
-             par_nom_type: dict[tuple[str, str], str],
-             par_nom: dict[str, str], *,
+             par_nom_type: dict[tuple[str, str], list[str]],
+             par_nom: dict[str, list[str]], *,
              par_handle: dict[str, dict] | None = None,
              parents: set[str] | frozenset[str] = frozenset()) -> tuple[str, str | None]:
     """Trois prises, dans l'ordre : QID, puis (nom, type), puis nom seul chez les contenants.
@@ -295,18 +311,19 @@ def apparier(sub: Subdivision, par_qid: dict[str, str],
     prises par le nom ne sont que des présomptions ; `par_handle` leur donne les lieux dont
     elles ont besoin pour se juger, `parents` les handles du parent attendu.
 
-    Un candidat à confirmer ne coupe pas la recherche : si une prise suivante trouve un
-    candidat franchement au bon endroit, c'est lui qui l'emporte.
+    **Tous** les candidats homonymes sont évalués avant de conclure — un candidat à
+    confirmer, ou franchement mal placé, ne coupe pas la recherche. Le premier qui obtient
+    `"apparier"` l'emporte ; à défaut c'est le verdict le plus informatif qui est rendu,
+    `"confirmer"` primant sur `"creer"` puisqu'il demande un arbitrage humain au lieu de
+    créer en silence.
     """
     if sub.qid and sub.qid in par_qid:
         return "apparier", par_qid[sub.qid]
     index = par_handle or {}
     a_confirmer: str | None = None
-    for prise in ([par_nom_type.get((nom, sub.place_type)) for nom in sub.noms],
-                  [par_nom.get(nom) for nom in sub.noms]):
+    for prise in ([h for nom in sub.noms for h in par_nom_type.get((nom, sub.place_type), [])],
+                  [h for nom in sub.noms for h in par_nom.get(nom, [])]):
         for handle in prise:
-            if not handle:
-                continue
             verdict = verdict_candidat(sub, index.get(handle), set(parents))
             if verdict == "apparier":
                 return "apparier", handle

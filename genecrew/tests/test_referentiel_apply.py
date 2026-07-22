@@ -52,24 +52,24 @@ ETATS_UNIS = EntitePays(qid="Q30", libelle_fr="États-Unis", lat="39.8", long="-
 
 def test_le_qid_prime_sur_les_noms():
     par_qid = {"Q12771": "h_qid"}
-    par_nom_type = {("canton de Vaud", "State"): "h_nom"}
+    par_nom_type = {("canton de Vaud", "State"): ["h_nom"]}
     assert apparier(VAUD, par_qid, par_nom_type, {}) == ("apparier", "h_qid")
 
 
 def test_appariement_par_nom_vernaculaire_quand_aucun_qid_nest_pose():
     """Premier run : `Bayern` est en base en allemand, la subdivision arrive en français."""
-    par_nom_type = {("Bayern", "State"): "h_bayern"}
+    par_nom_type = {("Bayern", "State"): ["h_bayern"]}
     assert apparier(BAYERN, {}, par_nom_type, {}) == ("apparier", "h_bayern")
 
 
 def test_appariement_par_nom_seul_pour_retyper_une_wilaya():
     """Souk Ahras est typée `Wilaya` : aucune clé (nom, type) ne peut la retrouver."""
-    assert apparier(SOUK, {}, {}, {"Souk Ahras": "h_wilaya"}) == ("apparier", "h_wilaya")
+    assert apparier(SOUK, {}, {}, {"Souk Ahras": ["h_wilaya"]}) == ("apparier", "h_wilaya")
 
 
 def test_la_deuxieme_prise_exige_le_type_et_pas_seulement_le_nom():
     """Souk Ahras est à la fois une wilaya et une commune : c'est le type qui les sépare."""
-    assert apparier(SOUK, {}, {("Souk Ahras", "Municipality"): "h_commune"}, {}) == ("creer", None)
+    assert apparier(SOUK, {}, {("Souk Ahras", "Municipality"): ["h_commune"]}, {}) == ("creer", None)
 
 
 def test_un_pays_homonyme_nest_jamais_pris_pour_une_subdivision():
@@ -77,7 +77,7 @@ def test_un_pays_homonyme_nest_jamais_pris_pour_une_subdivision():
     GPS d'Atlanta, le code `GA` et un rattachement sous les États-Unis."""
     par_handle = {"h_pays": {"handle": "h_pays", "name": {"value": "Géorgie"},
                              "place_type": "Country", "placeref_list": []}}
-    assert apparier(GEORGIE, {}, {}, {"Géorgie": "h_pays"},
+    assert apparier(GEORGIE, {}, {}, {"Géorgie": ["h_pays"]},
                     par_handle=par_handle) == ("creer", None)
 
 
@@ -86,9 +86,9 @@ def test_un_candidat_rattache_ailleurs_est_refuse():
     par_handle = {"h_r": {"handle": "h_r", "name": {"value": "Rhône"},
                           "place_type": "Department",
                           "placeref_list": [{"ref": "h_un_autre_parent"}]}}
-    assert apparier(RHONE, {}, {("Rhône", "Department"): "h_r"}, {},
+    assert apparier(RHONE, {}, {("Rhône", "Department"): ["h_r"]}, {},
                     par_handle=par_handle, parents={"h_ara"}) == ("creer", None)
-    assert apparier(RHONE, {}, {("Rhône", "Department"): "h_r"}, {},
+    assert apparier(RHONE, {}, {("Rhône", "Department"): ["h_r"]}, {},
                     par_handle=par_handle,
                     parents={"h_un_autre_parent"}) == ("apparier", "h_r")
 
@@ -98,7 +98,7 @@ def test_un_candidat_non_rattache_est_renvoye_a_confirmation():
     l'écrire (risque du mauvais objet) ni le doubler (nettoyage imposé). On le signale."""
     par_handle = {"h_r": {"handle": "h_r", "name": {"value": "Rhône"},
                           "place_type": "Department", "placeref_list": []}}
-    assert apparier(RHONE, {}, {("Rhône", "Department"): "h_r"}, {},
+    assert apparier(RHONE, {}, {("Rhône", "Department"): ["h_r"]}, {},
                     par_handle=par_handle, parents={"h_ara"}) == ("confirmer", "h_r")
 
 
@@ -109,7 +109,7 @@ def test_un_parent_attendu_introuvable_est_une_preuve_indisponible():
     par_handle = {"h_r": {"handle": "h_r", "name": {"value": "Rhône"},
                           "place_type": "Department",
                           "placeref_list": [{"ref": "h_ara"}]}}
-    assert apparier(RHONE, {}, {("Rhône", "Department"): "h_r"}, {},
+    assert apparier(RHONE, {}, {("Rhône", "Department"): ["h_r"]}, {},
                     par_handle=par_handle) == ("confirmer", "h_r")
 
 
@@ -118,7 +118,7 @@ def test_un_pays_na_pas_de_parent_a_exiger():
     suisse = subdivision_de_pays(SUISSE)
     par_handle = {"h_ch": {"handle": "h_ch", "name": {"value": "Suisse"},
                            "place_type": "Country", "placeref_list": []}}
-    assert apparier(suisse, {}, {("Suisse", "Country"): "h_ch"}, {},
+    assert apparier(suisse, {}, {("Suisse", "Country"): ["h_ch"]}, {},
                     par_handle=par_handle) == ("apparier", "h_ch")
 
 
@@ -130,7 +130,7 @@ def test_un_enfant_sous_lun_des_homonymes_du_parent_est_reconnu():
                       place_type="Region", niveau=1, parent_qid="Q142")
     par_handle = {"h_ara": {"handle": "h_ara", "name": {"value": "Auvergne-Rhône-Alpes"},
                             "place_type": "Region", "placeref_list": [{"ref": "h_f1"}]}}
-    assert apparier(ara, {}, {("Auvergne-Rhône-Alpes", "Region"): "h_ara"}, {},
+    assert apparier(ara, {}, {("Auvergne-Rhône-Alpes", "Region"): ["h_ara"]}, {},
                     par_handle=par_handle,
                     parents={"h_f1", "h_f2"}) == ("apparier", "h_ara")
 
@@ -142,8 +142,8 @@ def test_un_candidat_a_confirmer_ne_coupe_pas_la_recherche():
                                  "place_type": "Province", "placeref_list": []},
                   "h_bon": {"handle": "h_bon", "name": {"value": "Souk Ahras"},
                             "place_type": "Wilaya", "placeref_list": [{"ref": "h_dz"}]}}
-    assert apparier(SOUK, {}, {("Souk Ahras", "Province"): "h_flottant"},
-                    {"Souk Ahras": "h_bon"}, par_handle=par_handle,
+    assert apparier(SOUK, {}, {("Souk Ahras", "Province"): ["h_flottant"]},
+                    {"Souk Ahras": ["h_bon"]}, par_handle=par_handle,
                     parents={"h_dz"}) == ("apparier", "h_bon")
 
 
@@ -154,8 +154,8 @@ def test_le_premier_candidat_a_confirmer_est_celui_retenu():
                                 "place_type": "Province", "placeref_list": []},
                   "h_second": {"handle": "h_second", "name": {"value": "Souk Ahras"},
                                "place_type": "Wilaya", "placeref_list": []}}
-    assert apparier(SOUK, {}, {("Souk Ahras", "Province"): "h_premier"},
-                    {"Souk Ahras": "h_second"}, par_handle=par_handle,
+    assert apparier(SOUK, {}, {("Souk Ahras", "Province"): ["h_premier"]},
+                    {"Souk Ahras": ["h_second"]}, par_handle=par_handle,
                     parents={"h_dz"}) == ("confirmer", "h_premier")
 
 
@@ -174,7 +174,7 @@ def test_index_par_nom_contenant_ignore_les_communes():
                "place_type": "Municipality"},
               {"handle": "h_wilaya", "name": {"value": "Souk Ahras"},
                "place_type": "Wilaya"}]
-    assert index_par_nom_contenant(places) == {"Souk Ahras": "h_wilaya"}
+    assert index_par_nom_contenant(places) == {"Souk Ahras": ["h_wilaya"]}
 
 
 def test_index_par_qid_lit_lurl_wikidata():
@@ -191,7 +191,7 @@ def test_index_par_qid_ignore_les_autres_urls():
 
 def test_index_par_nom_type():
     places = [{"handle": "h2", "name": {"value": "Bayern"}, "place_type": "State"}]
-    assert index_par_nom_type(places) == {("Bayern", "State"): "h2"}
+    assert index_par_nom_type(places) == {("Bayern", "State"): ["h2"]}
 
 
 # Le « premier gagne » des trois index n'est pas un détail d'implémentation : `iter_places`
@@ -204,16 +204,49 @@ def test_index_par_qid_retient_le_premier_lieu_rencontre():
                           {"handle": "h2", "urls": urls}]) == {"Q142": "h1"}
 
 
-def test_index_par_nom_type_retient_le_premier_lieu_rencontre():
-    places = [{"handle": "h1", "name": {"value": "France"}, "place_type": "Country"},
-              {"handle": "h2", "name": {"value": "France"}, "place_type": "Country"}]
-    assert index_par_nom_type(places) == {("France", "Country"): "h1"}
+def test_index_par_nom_type_retient_tous_les_homonymes_tries():
+    """N'en garder qu'un cache la bonne cible derrière un homonyme mal placé. L'ordre est
+    celui des `gramps_id`, pour que deux exécutions évaluent les candidats pareillement."""
+    places = [{"handle": "h2", "gramps_id": "P0357", "name": {"value": "France"},
+               "place_type": "Country"},
+              {"handle": "h1", "gramps_id": "P0345", "name": {"value": "France"},
+               "place_type": "Country"}]
+    assert index_par_nom_type(places) == {("France", "Country"): ["h1", "h2"]}
 
 
-def test_index_par_nom_contenant_retient_le_premier_lieu_rencontre():
-    places = [{"handle": "h1", "name": {"value": "France"}, "place_type": "Country"},
-              {"handle": "h2", "name": {"value": "France"}, "place_type": "Country"}]
-    assert index_par_nom_contenant(places) == {"France": "h1"}
+def test_index_par_nom_contenant_retient_tous_les_homonymes_tries():
+    places = [{"handle": "h2", "gramps_id": "P0357", "name": {"value": "France"},
+               "place_type": "Country"},
+              {"handle": "h1", "gramps_id": "P0345", "name": {"value": "France"},
+               "place_type": "Country"}]
+    assert index_par_nom_contenant(places) == {"France": ["h1", "h2"]}
+
+
+def test_le_bon_homonyme_lemporte_sur_celui_qui_vient_avant():
+    """Cas relevé en simulation sur l'arbre réel : deux `Souk Ahras`, un `Department`
+    rattaché à lui-même (P0345, cycle préexistant) et la vraie `Wilaya` sous l'Algérie
+    (P0357). Le premier gagnait l'index et faisait conclure « créer » ; la wilaya
+    correctement rattachée n'était jamais examinée."""
+    par_handle = {"h_345": {"handle": "h_345", "name": {"value": "Souk Ahras"},
+                            "place_type": "Department",
+                            "placeref_list": [{"ref": "h_345"}]},
+                  "h_357": {"handle": "h_357", "name": {"value": "Souk Ahras"},
+                            "place_type": "Wilaya",
+                            "placeref_list": [{"ref": "h_dz"}]}}
+    assert apparier(SOUK, {}, {}, {"Souk Ahras": ["h_345", "h_357"]},
+                    par_handle=par_handle, parents={"h_dz"}) == ("apparier", "h_357")
+
+
+def test_confirmer_prime_sur_creer_entre_homonymes():
+    """Aucun candidat au bon endroit, mais l'un d'eux n'est pas rattaché : demander un
+    arbitrage vaut mieux que créer en silence."""
+    par_handle = {"h_ailleurs": {"handle": "h_ailleurs", "name": {"value": "Souk Ahras"},
+                                 "place_type": "Department",
+                                 "placeref_list": [{"ref": "h_autre"}]},
+                  "h_flottant": {"handle": "h_flottant", "name": {"value": "Souk Ahras"},
+                                 "place_type": "Wilaya", "placeref_list": []}}
+    assert apparier(SOUK, {}, {}, {"Souk Ahras": ["h_ailleurs", "h_flottant"]},
+                    par_handle=par_handle, parents={"h_dz"}) == ("confirmer", "h_flottant")
 
 
 def test_un_type_illisible_ecarte_le_lieu_des_trois_index():
@@ -600,6 +633,26 @@ def test_un_homonyme_non_rattache_est_signale_au_lieu_detre_double(mocker, tmp_p
     # La colonne « ce qui aurait été posé » : une décision, pas une enquête.
     assert "code BY" in ligne and "alt_name Bavière" in ligne
     assert "https://www.wikidata.org/wiki/Q980" in ligne
+
+
+def test_la_wilaya_bien_rattachee_est_apparie_malgre_son_homonyme(mocker, tmp_path):
+    """Cas relevé par `apply referentiel --dry-run` sur l'arbre réel. Deux `Souk Ahras` :
+    P0345 typée `Department` et rattachée à elle-même (cycle préexistant dans les données),
+    P0357 la vraie `Wilaya` sous l'Algérie. `iter_places` triant par `gramps_id`, P0345
+    gagnait l'index par nom, était jugée « rattachée ailleurs », et la wilaya correctement
+    rattachée n'était jamais examinée — duplication alors qu'un appariement parfait
+    existait."""
+    places = [_lieu("h_dz", "P0100", "Algérie", "Country"),
+              _lieu("h_345", "P0345", "Souk Ahras", "Department",
+                    placeref_list=[{"ref": "h_345"}]),
+              _sous("h_dz", _lieu("h_357", "P0357", "Souk Ahras", "Wilaya"))]
+    journal, texte, _ = _lancer(mocker, tmp_path, places, pays=(ALGERIE,),
+                                subdivisions=(SOUK,))
+    assert journal["posts"] == []                              # aucune wilaya dupliquée
+    assert journal["objets"]["h_357"]["code"] == "41"          # la bonne est servie
+    assert journal["objets"]["h_345"]["code"] == ""            # l'homonyme reste intact
+    assert "| DZ-41 | Souk Ahras | Wilaya | Province |" in _section_du_rapport(
+        texte, "Retypages")
 
 
 def test_un_yaml_sans_pays_nautorise_aucune_ecriture_par_le_nom(mocker, tmp_path):
