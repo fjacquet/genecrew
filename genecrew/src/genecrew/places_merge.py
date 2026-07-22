@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import httpx
 import yaml
 
 from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient
@@ -44,13 +45,31 @@ def _retroliens(client: GrampsClient, handle: str) -> int:
     Un appel par lieu : coûteux, mais c'est la seule mesure qui dise lequel de deux
     homonymes l'arbre utilise réellement. Un échec ne doit pas faire échouer la
     détection — il dégrade seulement le départage vers les critères suivants.
+
+    Un `handle` vide n'est jamais envoyé : `f"/places/{handle}"` s'effondrerait sur
+    l'URL de *liste* des lieux (`/places/`) et rendrait des rétroliens sans rapport
+    avec le lieu concerné — un départage faussé sur une fusion irréversible.
+
+    La protection va jusqu'à la valeur rendue (pas seulement l'appel réseau) : une
+    catégorie de rétroliens à `null` compte pour zéro sans faire tomber les autres
+    catégories du même lieu, ni le reste du lot.
+
+    On nomme ici les deux familles réellement attendues plutôt que d'attraper large :
+    `httpx.HTTPError` couvre à la fois les statuts d'erreur HTTP (`raise_for_status`)
+    et les coupures réseau (connexion refusée, expiration) — ce sont les deux modes
+    d'échec normaux d'un appel API. Une régression future dans ce calcul (ex. une
+    structure de données vraiment inattendue) doit remonter comme une erreur de
+    programmation, pas se faire passer silencieusement pour une API indisponible.
     """
+    if not handle:
+        return 0
     try:
         objet = client.get_json(f"/places/{handle}", params={"backlinks": "1"}) or {}
-    except Exception as exc:
+        backlinks = objet.get("backlinks") or {}
+        return sum(len(refs or []) for refs in backlinks.values())
+    except httpx.HTTPError as exc:
         get_logger().warning("rétroliens de %s indisponibles : %s", handle, exc)
         return 0
-    return sum(len(refs) for refs in (objet.get("backlinks") or {}).values())
 
 
 def collecter_lieux(client: GrampsClient, scope: str, batch_size: int = 200,

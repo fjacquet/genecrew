@@ -89,3 +89,51 @@ def test_echec_du_comptage_degrade_vers_zero_sans_faire_echouer_la_collecte():
     lieux = collecter_lieux(_client(_h), "all")
     assert len(lieux) == 1
     assert lieux[0].retroliens == 0
+
+
+def test_categorie_de_retroliens_nulle_compte_pour_zero():
+    """Une catégorie de rétroliens rendue à `null` par l'API ne doit pas faire tomber le lot
+
+    (C1) : seule cette catégorie compte pour zéro, les autres catégories restent comptées.
+    """
+    client = _arbre([PLACE], backlinks={"H1": {"event": None, "place": ["p1"]}})
+    lieux = collecter_lieux(client, "all")
+    assert len(lieux) == 1
+    assert lieux[0].retroliens == 1
+
+
+def test_coupure_reseau_sur_le_comptage_degrade_vers_zero():
+    """Une coupure réseau (avant toute réponse HTTP) dégrade vers zéro, comme un 5xx (C2)."""
+    def _h(request):
+        p = request.url.path
+        if p == "/api/places/":
+            page = int(request.url.params.get("page", 1))
+            return httpx.Response(200, json=[PLACE] if page == 1 else [])
+        if p.startswith("/api/places/"):
+            raise httpx.ConnectError("connexion refusée", request=request)
+        return httpx.Response(404, json={})
+
+    lieux = collecter_lieux(_client(_h), "all")
+    assert len(lieux) == 1
+    assert lieux[0].retroliens == 0
+
+
+def test_handle_vide_ne_declenche_aucune_requete_de_retroliens():
+    """Un lieu à handle vide rend zéro rétroliens sans jamais interroger l'URL de liste (C3)."""
+    place_sans_handle = {**PLACE, "handle": ""}
+    calls: list[str] = []
+
+    def _h(request):
+        p = request.url.path
+        calls.append(p)
+        if p == "/api/places/":
+            page = int(request.url.params.get("page", 1))
+            return httpx.Response(200, json=[place_sans_handle] if page == 1 else [])
+        return httpx.Response(404, json={})
+
+    lieux = collecter_lieux(_client(_h), "all")
+    assert len(lieux) == 1
+    assert lieux[0].retroliens == 0
+    # Deux pages de liste (page 1 avec le lieu, page 2 vide qui arrête la pagination) ;
+    # un handle vide ne doit ajouter aucun appel de comptage vers "/api/places/".
+    assert calls.count("/api/places/") == 2
