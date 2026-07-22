@@ -16,6 +16,8 @@ from crewai_custom_tools.tools.genealogy.referentiel.chargement import (
 )
 from crewai_custom_tools.tools.genealogy.referentiel.config import PAYS_REFERENTIEL
 
+from genecrew.batching import iter_places
+
 
 def doublons_de_larbre(places: list[dict]) -> list[dict]:
     """Lieux partageant nom + type + parent : signalés, jamais fusionnés (spec §5.4).
@@ -81,6 +83,18 @@ def render_referentiel_report(date: str, resultats: list[ResultatPays],
             lignes.append(f"| {code_pays} | {col.iso} | {', '.join(col.qids)} "
                           f"| {', '.join(col.libelles)} |")
 
+    ecartees = [(r.code_iso, e) for r in resultats for e in r.ecartees]
+    if ecartees:
+        lignes += ["", "## Entités écartées", "",
+                   "Ces entités n'ont pas passé les règles de filtrage : elles ne figurent "
+                   "dans aucune liste de subdivisions. Le motif est porté ici pour qu'un rejet "
+                   "anormal (par exemple un rattachement introuvable en masse sur tout un pays) "
+                   "ne reste jamais invisible à qui ne lit que ce rapport.", "",
+                   "| Pays | ISO | QID | Libellé | Motif |", "|---|---|---|---|---|"]
+        for code_pays, ecartee in sorted(ecartees, key=lambda pe: (pe[0], pe[1].iso)):
+            lignes.append(f"| {code_pays} | {ecartee.iso} | {ecartee.qid} "
+                          f"| {ecartee.libelle_fr} | {ecartee.motif} |")
+
     if doublons:
         lignes += ["", "## Doublons déjà dans l'arbre — à fusionner à la main", "",
                    "Ces lieux partagent nom, type et parent. La fusion n'est jamais "
@@ -111,24 +125,14 @@ def render_referentiel_yaml(resultats: list[ResultatPays],
     return yaml.safe_dump(doc, allow_unicode=True, sort_keys=False)
 
 
-def lire_places(client) -> list[dict]:
-    """Toutes les places de l'arbre, page par page. Lecture seule."""
-    places, page = [], 1
-    while True:
-        lot = client.get_json("/places/", params={"page": page, "pagesize": 200})
-        if not lot:
-            return places
-        places.extend(lot)
-        page += 1
-
-
 def run_referentiel(client, output_dir, *, date: str,
                     codes_pays: list[str] | None = None) -> tuple[Path, Path]:
     """Interroge les pays demandés (tous par défaut) ; écrit rapport et YAML. Lecture seule."""
     codes = codes_pays or sorted(PAYS_REFERENTIEL)
     resultats = [charger_pays(PAYS_REFERENTIEL[code]) for code in codes]
     entites = charger_entites_pays([PAYS_REFERENTIEL[code].qid for code in codes])
-    doublons = doublons_de_larbre(lire_places(client))
+    places = [place for lot in iter_places(client, "all", 200, None) for place in lot]
+    doublons = doublons_de_larbre(places)
 
     out = Path(output_dir) / "referentiel"
     out.mkdir(parents=True, exist_ok=True)

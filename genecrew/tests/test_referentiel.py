@@ -2,7 +2,9 @@
 """Rendu du rapport et du YAML de `propose referentiel`. Pur, hors ligne."""
 import yaml
 
-from crewai_custom_tools.tools.genealogy.models.domain import CollisionIso, Subdivision
+from crewai_custom_tools.tools.genealogy.models.domain import (
+    CollisionIso, EntiteEcartee, Subdivision,
+)
 from crewai_custom_tools.tools.genealogy.referentiel.chargement import EntitePays, ResultatPays
 
 from genecrew.referentiel import (
@@ -65,6 +67,16 @@ def test_le_rapport_signale_les_collisions_sans_les_ecrire():
         "2026-07-21", [ResultatPays(code_iso="FR", collisions=[collision])], {}, [])
     assert "FR-69" in md
     assert "Q46130" in md and "Q18914778" in md
+
+
+def test_le_rapport_liste_les_entites_ecartees_avec_leur_motif():
+    """Le compteur global ne suffit pas : un rejet anormal (masse d'entités écartées sur
+    un pays entier) doit rester visible dans le .md, avec le motif de chacune."""
+    ecartee = EntiteEcartee(qid="Q999", iso="IT-01", libelle_fr="Latium",
+                            motif="rattachement introuvable")
+    md = render_referentiel_report(
+        "2026-07-21", [ResultatPays(code_iso="IT", ecartees=[ecartee])], {}, [])
+    assert "Q999" in md and "Latium" in md and "rattachement introuvable" in md
 
 
 def test_le_rapport_nomme_les_pays_en_echec():
