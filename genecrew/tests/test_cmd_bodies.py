@@ -28,6 +28,15 @@ from genecrew.cli import build_parser
 FAKE_CLIENT = object()
 
 
+def _detection(tmp_path, *, lot_borne=False, scope_unitaire=False):
+    """Retour type de `run_places_detect` — les deux gardes de simulation forcée y sont
+    NOMMÉES, et c'est ce que `lieux_merge_cmd` doit consommer sans jamais redériver la
+    décision depuis `args`."""
+    return places_merge_mod.ResultatDetection(
+        chemin=tmp_path / "rapport.md", lot_borne=lot_borne,
+        scope_unitaire=scope_unitaire)
+
+
 def _args(argv):
     return build_parser().parse_args(argv)
 
@@ -56,7 +65,7 @@ def test_lieux_merge_cmd_sans_yaml_detecte(monkeypatch, tmp_path):
 
     def _spy(client, output_dir, *, scope, date, limit=None, dry_run=False):
         captured["scope"] = scope
-        return tmp_path / "rapport.md", False
+        return _detection(tmp_path)
 
     monkeypatch.setattr(places_merge_mod, "run_places_detect", _spy)
 
@@ -75,7 +84,7 @@ def test_lieux_merge_cmd_avertit_sur_la_console_quand_le_lot_est_borne(
     monkeypatch.setenv("GENECREW_OUTPUT_DIR", str(tmp_path))
 
     def _spy(client, output_dir, *, scope, date, limit=None, dry_run=False):
-        return tmp_path / "rapport.md", True
+        return _detection(tmp_path, lot_borne=True)
 
     monkeypatch.setattr(places_merge_mod, "run_places_detect", _spy)
 
@@ -94,7 +103,7 @@ def test_lieux_merge_cmd_sans_limit_ne_dit_rien_sur_le_lot_borne(
     monkeypatch.setenv("GENECREW_OUTPUT_DIR", str(tmp_path))
 
     def _spy(client, output_dir, *, scope, date, limit=None, dry_run=False):
-        return tmp_path / "rapport.md", False
+        return _detection(tmp_path)
 
     monkeypatch.setattr(places_merge_mod, "run_places_detect", _spy)
 
@@ -121,7 +130,7 @@ def test_lieux_merge_cmd_avertit_meme_sans_limit_si_la_fonction_le_dit(
     monkeypatch.setenv("GENECREW_OUTPUT_DIR", str(tmp_path))
 
     def _spy(client, output_dir, *, scope, date, limit=None, dry_run=False):
-        return tmp_path / "rapport.md", True
+        return _detection(tmp_path, lot_borne=True)
 
     monkeypatch.setattr(places_merge_mod, "run_places_detect", _spy)
 
@@ -142,7 +151,7 @@ def test_lieux_merge_cmd_n_avertit_pas_si_la_fonction_dit_non_borne_malgre_limit
     monkeypatch.setenv("GENECREW_OUTPUT_DIR", str(tmp_path))
 
     def _spy(client, output_dir, *, scope, date, limit=None, dry_run=False):
-        return tmp_path / "rapport.md", False
+        return _detection(tmp_path)
 
     monkeypatch.setattr(places_merge_mod, "run_places_detect", _spy)
 
@@ -202,7 +211,7 @@ def test_lieux_merge_cmd_mode_detection_transmet_dry_run_vrai(monkeypatch, tmp_p
 
     def _spy(client, output_dir, *, scope, date, limit=None, dry_run=False):
         captured["dry_run"] = dry_run
-        return tmp_path / "rapport.md", False
+        return _detection(tmp_path)
 
     monkeypatch.setattr(places_merge_mod, "run_places_detect", _spy)
 
@@ -218,13 +227,90 @@ def test_lieux_merge_cmd_mode_detection_transmet_dry_run_faux(monkeypatch, tmp_p
 
     def _spy(client, output_dir, *, scope, date, limit=None, dry_run=False):
         captured["dry_run"] = dry_run
-        return tmp_path / "rapport.md", False
+        return _detection(tmp_path)
 
     monkeypatch.setattr(places_merge_mod, "run_places_detect", _spy)
 
     main_mod.lieux_merge_cmd(_args(["merge", "places", "--scope", "all"]))
 
     assert captured["dry_run"] is False
+
+
+# --- C4 : le périmètre à un seul lieu reçoit le même traitement que `--limit` -------
+#
+# `--scope place:ID` est annoncé dans l'aide de la commande, mais un lieu isolé ne forme
+# jamais de groupe d'homonymes : la détection ne peut structurellement rien conclure, et
+# la commande annonçait pourtant « écritures appliquées, aucun doublon détecté ». Comme
+# pour `--limit`, la décision appartient à `run_places_detect` et la CLI se contente de
+# l'afficher — les deux tests de contradiction ci-dessous le verrouillent.
+
+def test_lieux_merge_cmd_avertit_quand_le_scope_ne_vise_qu_un_lieu(
+        monkeypatch, tmp_path, capsys):
+    monkeypatch.setattr(gramps_client_mod, "get_client", lambda: FAKE_CLIENT)
+    monkeypatch.setenv("GENECREW_OUTPUT_DIR", str(tmp_path))
+
+    def _spy(client, output_dir, *, scope, date, limit=None, dry_run=False):
+        return _detection(tmp_path, scope_unitaire=True)
+
+    monkeypatch.setattr(places_merge_mod, "run_places_detect", _spy)
+
+    main_mod.lieux_merge_cmd(
+        _args(["merge", "places", "--scope", "place:P0080"]))
+
+    out = capsys.readouterr().out
+    assert "place:" in out
+    assert "un seul lieu" in out.lower()
+
+
+def test_lieux_merge_cmd_ne_dit_rien_du_scope_quand_il_est_complet(
+        monkeypatch, tmp_path, capsys):
+    """`--scope all` : aucune garde de périmètre, donc aucun avertissement."""
+    monkeypatch.setattr(gramps_client_mod, "get_client", lambda: FAKE_CLIENT)
+    monkeypatch.setenv("GENECREW_OUTPUT_DIR", str(tmp_path))
+
+    def _spy(client, output_dir, *, scope, date, limit=None, dry_run=False):
+        return _detection(tmp_path)
+
+    monkeypatch.setattr(places_merge_mod, "run_places_detect", _spy)
+
+    main_mod.lieux_merge_cmd(_args(["merge", "places", "--scope", "all"]))
+
+    assert "un seul lieu" not in capsys.readouterr().out.lower()
+
+
+def test_lieux_merge_cmd_avertit_sur_le_scope_meme_si_args_dit_all(
+        monkeypatch, tmp_path, capsys):
+    """Contradiction volontaire : `--scope all` mais la fonction dit « un seul lieu ».
+    Une CLI qui redériverait la décision depuis `args.scope` resterait muette."""
+    monkeypatch.setattr(gramps_client_mod, "get_client", lambda: FAKE_CLIENT)
+    monkeypatch.setenv("GENECREW_OUTPUT_DIR", str(tmp_path))
+
+    def _spy(client, output_dir, *, scope, date, limit=None, dry_run=False):
+        return _detection(tmp_path, scope_unitaire=True)
+
+    monkeypatch.setattr(places_merge_mod, "run_places_detect", _spy)
+
+    main_mod.lieux_merge_cmd(_args(["merge", "places", "--scope", "all"]))
+
+    assert "un seul lieu" in capsys.readouterr().out.lower()
+
+
+def test_lieux_merge_cmd_ne_dit_rien_si_la_fonction_dit_scope_complet_malgre_place(
+        monkeypatch, tmp_path, capsys):
+    """Contradiction inverse : `--scope place:ID` mais la fonction dit qu'elle a pu
+    décider. Une CLI qui imprimerait dès `args.scope` afficherait « simulation forcée »
+    pendant qu'une fusion irréversible aurait réellement lieu."""
+    monkeypatch.setattr(gramps_client_mod, "get_client", lambda: FAKE_CLIENT)
+    monkeypatch.setenv("GENECREW_OUTPUT_DIR", str(tmp_path))
+
+    def _spy(client, output_dir, *, scope, date, limit=None, dry_run=False):
+        return _detection(tmp_path)
+
+    monkeypatch.setattr(places_merge_mod, "run_places_detect", _spy)
+
+    main_mod.lieux_merge_cmd(_args(["merge", "places", "--scope", "place:P0080"]))
+
+    assert "un seul lieu" not in capsys.readouterr().out.lower()
 
 
 def test_deces_apply_cmd_passes_yaml_flag_to_engine(monkeypatch, tmp_path):
