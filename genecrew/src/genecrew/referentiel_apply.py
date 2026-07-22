@@ -417,12 +417,12 @@ def _section(titre: str, entetes: list[str], lignes: list[tuple],
     """Une section du rapport, cellules assainies. Le titre est toujours rendu, même vide."""
     bloc = [f"## {titre}", ""]
     if not lignes:
-        return bloc + [vide, ""]
+        return [*bloc, vide, ""]
     if chapeau:
         bloc += [chapeau, ""]
     bloc += ["| " + " | ".join(entetes) + " |", "|" + "---|" * len(entetes)]
     bloc += ["| " + " | ".join(_cellule(c) for c in ligne) + " |" for ligne in lignes]
-    return bloc + [""]
+    return [*bloc, ""]
 
 
 def render_apply_report(date: str, bilan: dict, dry_run: bool) -> str:
