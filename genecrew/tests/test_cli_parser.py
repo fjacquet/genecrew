@@ -2,10 +2,13 @@ import pytest
 
 from genecrew.cli import build_parser
 
-# (argv, command, target) — 16 lignes de test pour 15 feuilles DISTINCTES : `merge
+# (argv, command, target) — 18 lignes de test pour 17 feuilles DISTINCTES : `merge
 # places` y apparaît deux fois (une par mode, YAML relu et détection) mais reste une
 # seule et même feuille — la grammaire à sept verbes n'en a pas gagné une (voir
-# docs/adr/0012-cli-grammaire-verbes.md, « 16 anciens noms plats → 15 feuilles »).
+# docs/adr/0012-cli-grammaire-verbes.md, « 16 anciens noms plats → 15 feuilles » pour
+# l'historique de la migration ; `propose referentiel` et `apply referentiel` sont
+# deux feuilles ajoutées ENSUITE, sous des verbes déjà existants, ce qui porte le
+# total à 17).
 LEAVES = [
     (["stats"], "stats", None),
     (["propose", "audit"], "propose", "audit"),
@@ -13,11 +16,13 @@ LEAVES = [
     (["propose", "deaths"], "propose", "deaths"),
     (["propose", "military"], "propose", "military"),
     (["propose", "gender"], "propose", "gender"),
+    (["propose", "referentiel", "--country", "FR,CH"], "propose", "referentiel"),
     (["apply", "case"], "apply", "case"),
     (["apply", "gender"], "apply", "gender"),
     (["apply", "places"], "apply", "places"),
     (["apply", "citations", "--yaml", "relu.yaml"], "apply", "citations"),
     (["apply", "all"], "apply", "all"),
+    (["apply", "referentiel", "--yaml", "relu.yaml"], "apply", "referentiel"),
     (["merge", "places", "--yaml", "fusions.yaml"], "merge", "places"),
     (["merge", "places", "--scope", "all"], "merge", "places"),
     (["enrich", "wiki"], "enrich", "wiki"),
@@ -55,6 +60,32 @@ def test_a_verb_without_target_is_rejected():
 def test_yaml_is_required_for_apply_citations():
     with pytest.raises(SystemExit):
         build_parser().parse_args(["apply", "citations"])
+
+
+def test_yaml_is_required_for_apply_referentiel():
+    """Le YAML relu est le SEUL point d'entrée de l'écriture (spec) : sans lui, rien."""
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["apply", "referentiel"])
+
+
+def test_propose_referentiel_sans_country_vaut_tous_les_pays():
+    """`--country` absent doit rester `None` au niveau du parseur : c'est à la commande
+    (pas au parseur) de traduire l'absence en « tous les pays de la table »."""
+    args = build_parser().parse_args(["propose", "referentiel"])
+    assert args.country is None
+
+
+def test_propose_referentiel_country_est_lu_tel_quel():
+    args = build_parser().parse_args(["propose", "referentiel", "--country", "FR,CH"])
+    assert args.country == "FR,CH"
+
+
+def test_referentiel_ne_cree_pas_de_nouveau_verbe():
+    """`propose referentiel`/`apply referentiel` sont des feuilles sous des verbes
+    déjà existants (ADR 0012) : aucun verbe `init` (ni aucun autre) n'a été créé
+    pour les accueillir."""
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["init"])
 
 
 def test_defaults_are_preserved():

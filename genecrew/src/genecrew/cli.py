@@ -97,6 +97,14 @@ def build_parser() -> argparse.ArgumentParser:
     _add_batch(p)
     _add_date(p)
 
+    p = propose_sub.add_parser(
+        "referentiel",
+        help="Référentiel des subdivisions administratives, interrogé sur Wikidata")
+    p.add_argument("--country", default=None,
+                   help="codes ISO séparés par des virgules, ex. FR,CH "
+                        "(défaut : tous les pays de la table)")
+    _add_date(p)
+
     # --- apply : écrit dans Gramps ---
     apply_p = sub.add_parser("apply", help="Applique des corrections (écrit)")
     apply_sub = apply_p.add_subparsers(dest="target", required=True)
@@ -136,6 +144,13 @@ def build_parser() -> argparse.ArgumentParser:
                    help="seuil de confiance du volet genre (défaut 0.98)")
     _add_min_score(p, "seuil de score du volet lieux (défaut 0.90)")
     _add_batch(p)
+    _add_dry_run(p)
+    _add_date(p)
+
+    p = apply_sub.add_parser(
+        "referentiel",
+        help="Écrit le référentiel des subdivisions depuis un YAML relu par un humain")
+    _add_yaml(p)
     _add_dry_run(p)
     _add_date(p)
 
