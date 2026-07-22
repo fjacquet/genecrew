@@ -73,3 +73,19 @@ def test_champs_absents_donnent_des_defauts_vides():
     nu = {"handle": "H2", "gramps_id": "P0002", "name": {"value": "X"}}
     p = collecter_lieux(_arbre([nu]), "all")[0]
     assert (p.place_type, p.code, p.lat, p.long, p.a_parent) == ("", "", "", "", False)
+
+
+def test_echec_du_comptage_degrade_vers_zero_sans_faire_echouer_la_collecte():
+    """Un vrai échec réseau/API sur le comptage ne doit ni lever, ni perdre le lieu."""
+    def _h(request):
+        p = request.url.path
+        if p == "/api/places/":
+            page = int(request.url.params.get("page", 1))
+            return httpx.Response(200, json=[PLACE] if page == 1 else [])
+        if p.startswith("/api/places/"):
+            return httpx.Response(500, json={"error": "boom"})
+        return httpx.Response(404, json={})
+
+    lieux = collecter_lieux(_client(_h), "all")
+    assert len(lieux) == 1
+    assert lieux[0].retroliens == 0
