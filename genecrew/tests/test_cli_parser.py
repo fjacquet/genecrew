@@ -2,7 +2,10 @@ import pytest
 
 from genecrew.cli import build_parser
 
-# (argv, command, target) — les 16 feuilles de la nouvelle grammaire
+# (argv, command, target) — 17 lignes de test pour 16 feuilles DISTINCTES : `merge
+# places` y apparaît deux fois (une par mode, YAML relu et détection) mais reste une
+# seule et même feuille — la grammaire à sept verbes n'en a pas gagné une (voir
+# docs/adr/0012-cli-grammaire-verbes.md).
 LEAVES = [
     (["stats"], "stats", None),
     (["propose", "audit"], "propose", "audit"),
@@ -17,6 +20,7 @@ LEAVES = [
     (["apply", "deaths", "--yaml", "relu.yaml"], "apply", "deaths"),
     (["apply", "all"], "apply", "all"),
     (["merge", "places", "--yaml", "fusions.yaml"], "merge", "places"),
+    (["merge", "places", "--scope", "all"], "merge", "places"),
     (["enrich", "wiki"], "enrich", "wiki"),
     (["import", "place", "Bourges, Cher, France"], "import", "place"),
     (["crew", "audit"], "crew", "audit"),
@@ -52,11 +56,6 @@ def test_a_verb_without_target_is_rejected():
 def test_yaml_is_required_for_apply_citations():
     with pytest.raises(SystemExit):
         build_parser().parse_args(["apply", "citations"])
-
-
-def test_yaml_is_required_for_merge_places():
-    with pytest.raises(SystemExit):
-        build_parser().parse_args(["merge", "places"])
 
 
 def test_defaults_are_preserved():
@@ -133,3 +132,23 @@ def test_merge_people_accepte_le_mode_detection():
 def test_merge_people_accepte_un_yaml_relu():
     args = build_parser().parse_args(["merge", "people", "--yaml", "arbitrage.yaml"])
     assert args.yaml == "arbitrage.yaml"
+
+
+def test_merge_places_accepte_le_mode_detection_sans_yaml():
+    """`--yaml` devient optionnel : sans lui, la commande détecte."""
+    args = build_parser().parse_args(["merge", "places", "--scope", "all"])
+    assert args.yaml is None
+    assert args.scope == "all"
+    assert args.limit is None
+
+
+def test_l_aide_du_verbe_merge_ne_contredit_pas_l_aide_de_la_feuille_places():
+    """`uv run genecrew --help` (le verbe) et `uv run genecrew merge places --help` (la
+    feuille) doivent raconter la même histoire. La feuille décrit bien les deux modes
+    (détection ou YAML relu, voir le bloc `merge_sub.add_parser("places", ...)` juste
+    en dessous) ; l'aide du verbe, un cran au-dessus, ne doit donc pas prétendre que les
+    lieux ne fusionnent QUE depuis un YAML relu."""
+    aide_verbe = build_parser().format_help()
+    ligne_merge = next(ligne for ligne in aide_verbe.splitlines()
+                       if ligne.strip().startswith("merge"))
+    assert "lieux relus" not in ligne_merge

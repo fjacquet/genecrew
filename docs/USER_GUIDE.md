@@ -393,6 +393,48 @@ sont réversibles via l'historique des transactions Gramps (ADR 0001).
 
 ---
 
+## Fusionner les doublons de lieux
+
+`apply places` ne traite que les lieux de type `Unknown` : un doublon déjà structuré (deux
+communes homonymes toutes deux typées `Municipality`, par exemple) n'entre dans le champ
+d'aucune commande — il fallait le fusionner à la main dans Gramps. `merge places --scope`
+comble cet angle mort : il détecte les doublons **et** fusionne en API ceux qui sont prouvés.
+Voir la décision `docs/adr/0015-detection-doublons-lieux.md`.
+
+```bash
+uv run genecrew merge places --scope all --dry-run   # détecte, simule
+uv run genecrew merge places --scope all             # détecte et fusionne les prouvés
+uv run genecrew merge places --yaml <arbitrage.yaml> # exécute les paires relues
+```
+
+Le premier passage écrit deux fichiers dans `output/lieux/` : un rapport Markdown et un YAML
+d'arbitrage. Les fusions **prouvées** — même code officiel, ou mêmes coordonnées à type égal —
+sont faites automatiquement. Les autres attendent votre relecture dans le YAML, que la
+troisième commande exécute une fois relu.
+
+Le rapport indique, pour chaque fusion, quel lieu survit et **ce qui aurait été perdu** dans
+l'ordre inverse : Gramps conserve les champs simples du survivant et efface ceux du lieu
+absorbé.
+
+Le tableau d'arbitrage et le YAML donnent, **pour les deux lieux de chaque couple**, leur type,
+leur code officiel, leurs coordonnées, leur contenant et leur nombre de rétroliens — de quoi
+trancher sans ouvrir Gramps. Dans le YAML ces faits vivent sous une clé `relecture` que
+`merge places --yaml` ignore : le fichier reste exécutable **tel quel**, sans transformation.
+
+**Deux périmètres désactivent les écritures.** Un doublon est une propriété d'un *groupe*
+d'homonymes ; toute lecture tronquée interdit de conclure, et force la simulation quel que soit
+`--dry-run` (le rapport et la console le disent explicitement) :
+
+- **`--limit N`** — la garde qui refuse de fusionner une grappe mélangeant deux entités
+  distinctes raisonne sur le groupe entier ; borner la lecture tronque les groupes et fait
+  tomber cette garde. Relancez **sans `--limit`** pour appliquer les fusions.
+- **`--scope place:<ID>`** — ne lit qu'un seul lieu, qui ne forme jamais de groupe. La commande
+  ne trouvera jamais rien : « aucun doublon détecté » y serait une absence de regard, pas une
+  bonne nouvelle. Ce périmètre sert à inspecter ce que la collecte lit d'un lieu précis ; pour
+  chercher des doublons, utilisez **`--scope all`**.
+
+---
+
 ## Fusion des doublons de personnes
 
 Deux GEDCOM d'origines différentes réunis dans un même arbre produisent des doublons — souvent

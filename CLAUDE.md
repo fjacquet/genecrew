@@ -111,7 +111,10 @@ uv run genecrew propose places --scope all        # propositions de lieux (lectu
 uv run genecrew apply places --dry-run            # écrit hiérarchie + GPS au-dessus du score
 uv run genecrew apply places --scope place:P0080 --dry-run  # cibler UN lieu avant d'élargir
 uv run genecrew apply deaths --yaml <relu.yaml> --dry-run  # crée les décès absents (ADR 0014)
-uv run genecrew merge places --yaml <fusions.yaml>  # exécute les fusions relues (jamais auto)
+uv run genecrew merge places --yaml <fusions.yaml>  # exécute les fusions relues (sans relire le verdict)
+uv run genecrew merge places --scope all --dry-run   # détecte les doublons de lieux (ADR 0015)
+# `merge places --scope all` FUSIONNE les doublons prouvés ; --limit et --scope place:<ID>
+# forcent la simulation (une lecture tronquée ne décide pas d'une fusion irréversible)
 pbpaste | uv run genecrew import releve            # relevé collé → smart match (stdin ; simule par défaut)
 uv run genecrew import releve --file acte.txt --person I0421  # trancher un gris : forcer la personne
 uv run genecrew merge people --scope all --limit 200 --dry-run  # fusionne les doublons prouvés, YAML pour le reste
@@ -179,3 +182,12 @@ gotchas — c'est elle qui impose l'ordre de livraison entre les deux dépôts.
   `marie pagani` scorent 0.957 alors que ce sont deux lignées. `PersonMergeArgs` n'offre aucun
   contrôle champ par champ, et **le genre n'est pas unionné** — d'où l'unique patch préalable.
   La déduplication est transitive : relancer jusqu'à ce qu'une passe ne fusionne plus rien.
+- **Doublons de lieux** : `merge places --scope` (ADR 0015) les détecte, ce qu'`apply places`
+  ne peut pas faire — il ne regarde que les lieux de type `Unknown`. Veto sur codes officiels
+  différents, et les coordonnées ne prouvent rien entre types différents : Paris existe en
+  `Department` 75 et en `Municipality` 75056, deux entités réelles. Le survivant est le plus
+  riche, pas le plus référencé — Gramps garde ses champs simples et effacerait ceux de l'autre.
+  **Un `--limit` désactive les écritures** : le veto de grappe raisonne sur le groupe entier
+  d'homonymes, et borner la lecture tronque les groupes — `merge places --scope ... --limit N`
+  simule donc toujours, quel que soit `--dry-run`, le réflexe qui borne ailleurs (`merge people
+  --limit 200`) produisant ici une simulation silencieuse.
