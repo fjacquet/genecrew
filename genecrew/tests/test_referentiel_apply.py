@@ -39,6 +39,13 @@ GEORGIE = Subdivision(qid="Q1428", iso="US-GA", code="GA", libelle_fr="Géorgie"
 RHONE = Subdivision(qid="Q46130", iso="FR-69", code="69", libelle_fr="Rhône",
                     noms=["Rhône"], place_type="Department", niveau=2,
                     parent_qid="Q18338206")
+ARA = Subdivision(qid="Q18338206", iso="FR-ARA", code="ARA",
+                  libelle_fr="Auvergne-Rhône-Alpes", noms=["Auvergne-Rhône-Alpes"],
+                  place_type="Region", niveau=1, parent_qid="Q142")
+ALLEMAGNE = EntitePays(qid="Q183", libelle_fr="Allemagne", lat="51.0", long="9.0")
+ALGERIE = EntitePays(qid="Q262", libelle_fr="Algérie", lat="28.0", long="2.6")
+FRANCE = EntitePays(qid="Q142", libelle_fr="France", lat="46.2", long="2.2")
+ETATS_UNIS = EntitePays(qid="Q30", libelle_fr="États-Unis", lat="39.8", long="-98.6")
 
 
 # --- appariement -----------------------------------------------------------------------
@@ -93,9 +100,26 @@ def test_un_candidat_non_rattache_est_renvoye_a_confirmation():
                           "place_type": "Department", "placeref_list": []}}
     assert apparier(RHONE, {}, {("Rhône", "Department"): "h_r"}, {},
                     par_handle=par_handle, parents={"h_ara"}) == ("confirmer", "h_r")
-    # Parent inconnu : on ne peut rien exiger, donc aucune contrainte de lieu.
+
+
+def test_un_parent_attendu_introuvable_est_une_preuve_indisponible():
+    """`charger_entites_pays` rend `{}` quand son appel échoue pendant que `charger_pays`
+    réussit : un YAML d'apparence normale peut porter 430 subdivisions et AUCUN pays.
+    Traiter ce cas comme « rien à exiger » rouvrirait le défaut du Limbourg en silence."""
+    par_handle = {"h_r": {"handle": "h_r", "name": {"value": "Rhône"},
+                          "place_type": "Department",
+                          "placeref_list": [{"ref": "h_ara"}]}}
     assert apparier(RHONE, {}, {("Rhône", "Department"): "h_r"}, {},
-                    par_handle=par_handle) == ("apparier", "h_r")
+                    par_handle=par_handle) == ("confirmer", "h_r")
+
+
+def test_un_pays_na_pas_de_parent_a_exiger():
+    """Seul un `parent_qid` VIDE autorise vraiment à ne rien exiger."""
+    suisse = subdivision_de_pays(SUISSE)
+    par_handle = {"h_ch": {"handle": "h_ch", "name": {"value": "Suisse"},
+                           "place_type": "Country", "placeref_list": []}}
+    assert apparier(suisse, {}, {("Suisse", "Country"): "h_ch"}, {},
+                    par_handle=par_handle) == ("apparier", "h_ch")
 
 
 def test_un_enfant_sous_lun_des_homonymes_du_parent_est_reconnu():
@@ -109,6 +133,30 @@ def test_un_enfant_sous_lun_des_homonymes_du_parent_est_reconnu():
     assert apparier(ara, {}, {("Auvergne-Rhône-Alpes", "Region"): "h_ara"}, {},
                     par_handle=par_handle,
                     parents={"h_f1", "h_f2"}) == ("apparier", "h_ara")
+
+
+def test_un_candidat_a_confirmer_ne_coupe_pas_la_recherche():
+    """La prise 2 trouve un homonyme flottant, la prise 3 un lieu franchement sous le parent
+    attendu : c'est la preuve qui l'emporte, pas l'ordre des prises."""
+    par_handle = {"h_flottant": {"handle": "h_flottant", "name": {"value": "Souk Ahras"},
+                                 "place_type": "Province", "placeref_list": []},
+                  "h_bon": {"handle": "h_bon", "name": {"value": "Souk Ahras"},
+                            "place_type": "Wilaya", "placeref_list": [{"ref": "h_dz"}]}}
+    assert apparier(SOUK, {}, {("Souk Ahras", "Province"): "h_flottant"},
+                    {"Souk Ahras": "h_bon"}, par_handle=par_handle,
+                    parents={"h_dz"}) == ("apparier", "h_bon")
+
+
+def test_le_premier_candidat_a_confirmer_est_celui_retenu():
+    """Deux homonymes flottants : le premier rencontré est rendu, pour que deux exécutions
+    sur le même arbre nomment le même lieu au rapport."""
+    par_handle = {"h_premier": {"handle": "h_premier", "name": {"value": "Souk Ahras"},
+                                "place_type": "Province", "placeref_list": []},
+                  "h_second": {"handle": "h_second", "name": {"value": "Souk Ahras"},
+                               "place_type": "Wilaya", "placeref_list": []}}
+    assert apparier(SOUK, {}, {("Souk Ahras", "Province"): "h_premier"},
+                    {"Souk Ahras": "h_second"}, par_handle=par_handle,
+                    parents={"h_dz"}) == ("confirmer", "h_premier")
 
 
 def test_handles_designant_ramasse_les_homonymes_et_les_porteurs_du_qid():
@@ -397,6 +445,15 @@ def _lieu(handle, gid, nom, type_, **extra):
             "alt_names": [], "placeref_list": [], "urls": [], **extra}
 
 
+def _sous(parent_handle, place):
+    """Rattache un lieu — c'est ce rattachement qui fait la preuve d'appartenance.
+
+    Sans lui, `parents` reste vide et les gardes de parent ne sont jamais éprouvées : un
+    test qui tourne sur `pays=()` ne visite pas le chemin que la production empruntera.
+    """
+    return {**place, "placeref_list": [{"ref": parent_handle}]}
+
+
 def test_le_pays_est_ecrit_avant_ses_subdivisions(mocker, tmp_path):
     """Un enfant ne peut pas se rattacher à un parent qui n'existe pas encore."""
     journal, _, _ = _lancer(mocker, tmp_path, [])
@@ -439,15 +496,18 @@ def test_un_placeref_existant_nest_pas_remplace(mocker, tmp_path):
 
 def test_le_nom_en_base_survit_a_lexecution(mocker, tmp_path):
     """L'invariant de bout en bout : aucun PUT ne change `name.value`."""
-    places = [_lieu("h_by", "P0600", "Bayern", "State")]
-    journal, _, _ = _lancer(mocker, tmp_path, places, pays=(), subdivisions=(BAYERN,))
-    assert {p["name"]["value"] for p in journal["puts"]} == {"Bayern"}
+    places = [_lieu("h_de", "P0700", "Allemagne", "Country"),
+              _sous("h_de", _lieu("h_by", "P0600", "Bayern", "State"))]
+    journal, _, _ = _lancer(mocker, tmp_path, places, pays=(ALLEMAGNE,),
+                            subdivisions=(BAYERN,))
+    assert {p["name"]["value"] for p in journal["puts"]} == {"Bayern", "Allemagne"}
     assert journal["puts"][-1]["alt_names"] == [{"value": "Bavière"}]
 
 
 def test_les_urls_wikidata_et_wikipedia_sont_ajoutees(mocker, tmp_path):
-    places = [_lieu("h_vd", "P0500", "canton de Vaud", "State")]
-    journal, _, _ = _lancer(mocker, tmp_path, places, pays=(), subdivisions=(VAUD,))
+    places = [_lieu("h_ch", "P0340", "Suisse", "Country"),
+              _sous("h_ch", _lieu("h_vd", "P0500", "canton de Vaud", "State"))]
+    journal, _, _ = _lancer(mocker, tmp_path, places)
     chemins = {u["path"] for u in journal["objets"]["h_vd"]["urls"]}
     assert chemins == {"https://www.wikidata.org/wiki/Q12771",
                        "https://fr.wikipedia.org/wiki/Canton_de_Vaud"}
@@ -487,9 +547,10 @@ def test_le_pays_georgie_nest_ni_enrichi_ni_rerattache(mocker, tmp_path):
     un enfant des États-Unis. L'invariant tenait — rien n'était écrasé — et la donnée était
     fausse quand même : il protège de la destruction, pas du mauvais objet."""
     places = [_lieu("h_geo", "P0700", "Géorgie", "Country")]
-    journal, texte, _ = _lancer(mocker, tmp_path, places, pays=(), subdivisions=(GEORGIE,))
+    journal, texte, _ = _lancer(mocker, tmp_path, places, pays=(ETATS_UNIS,),
+                                subdivisions=(GEORGIE,))
     assert [p for p in journal["puts"] if p["handle"] == "h_geo"] == []
-    assert [p["place_type"] for p in journal["posts"]] == ["State"]
+    assert [p["place_type"] for p in journal["posts"]] == ["Country", "State"]
     assert journal["objets"]["h_geo"]["code"] == ""      # le pays n'a rien reçu
 
 
@@ -498,9 +559,11 @@ def test_deux_entrees_sur_le_meme_lieu_nen_ecrivent_quune(mocker, tmp_path):
     seconde passe relisait un cache périmé, écrasait le code posé par la première, et
     rattachait le lieu à lui-même."""
     second = RHONE.model_copy(update={"qid": "Q18914778", "iso": "FR-69D", "code": "69D"})
-    places = [_lieu("h_r", "P0800", "Rhône", "Department")]
-    journal, texte, _ = _lancer(mocker, tmp_path, places, pays=(),
-                                subdivisions=(RHONE, second))
+    places = [_lieu("h_fr", "P0295", "France", "Country"),
+              _sous("h_fr", _lieu("h_ara", "P0400", "Auvergne-Rhône-Alpes", "Region")),
+              _sous("h_ara", _lieu("h_r", "P0800", "Rhône", "Department"))]
+    journal, texte, _ = _lancer(mocker, tmp_path, places, pays=(FRANCE,),
+                                subdivisions=(ARA, RHONE, second))
     ecrits = [p for p in journal["puts"] if p["handle"] == "h_r"]
     assert [p["code"] for p in ecrits] == ["69", "69"]      # jamais réécrit en 69D
     assert "| FR-69 | FR-69D | Rhône |" in _section_du_rapport(
@@ -533,10 +596,42 @@ def test_un_homonyme_non_rattache_est_signale_au_lieu_detre_double(mocker, tmp_p
     assert [p for p in journal["puts"] if p["handle"] == "h_by"] == []   # rien n'est écrit
     assert [p["name"]["value"] for p in journal["posts"]] == ["Allemagne"]   # rien créé
     ligne = _section_du_rapport(texte, "Homonymes non rattachés — à confirmer")
-    assert "| P0600 | Bayern | DE-BY | Bavière |" in ligne
+    assert "| P0600 | Bayern | DE-BY | Bavière | homonyme non rattaché |" in ligne
     # La colonne « ce qui aurait été posé » : une décision, pas une enquête.
     assert "code BY" in ligne and "alt_name Bavière" in ligne
     assert "https://www.wikidata.org/wiki/Q980" in ligne
+
+
+def test_un_yaml_sans_pays_nautorise_aucune_ecriture_par_le_nom(mocker, tmp_path):
+    """Cas reproduit : `charger_entites_pays` rend `{}` quand son appel échoue pendant que
+    `charger_pays` réussit. Le YAML sort d'apparence normale — des subdivisions, aucun pays
+    — et le Limbourg néerlandais recevait les données du Limbourg belge, sans même figurer
+    au rapport. Ici le lieu est même rattaché AILLEURS : la preuve contraire existait.
+    """
+    limbourg = Subdivision(qid="Q1095", iso="BE-VLI", code="VLI", libelle_fr="Limbourg",
+                           noms=["Limbourg"], place_type="Province", niveau=1,
+                           parent_qid="Q31", lat="51.0", long="5.4")
+    places = [_lieu("h_nl_pays", "P1001", "Pays-Bas", "Country"),
+              _sous("h_nl_pays", _lieu("h_nl", "P1000", "Limbourg", "Province"))]
+    journal, texte, _ = _lancer(mocker, tmp_path, places, pays=(),
+                                subdivisions=(limbourg,))
+    assert [p for p in journal["puts"] if p["handle"] == "h_nl"] == []
+    assert journal["posts"] == []
+    assert "| P1000 | Limbourg | BE-VLI | Limbourg | parent Q31 non résolu |" in (
+        _section_du_rapport(texte, "Homonymes non rattachés — à confirmer"))
+
+
+def test_un_pays_absent_du_yaml_ne_fait_pas_naitre_une_seconde_region(mocker, tmp_path):
+    """C3 par une autre porte : le pays est en base avec son QID mais absent du YAML, donc
+    jamais réapparié pendant le run. Amorcer sur le seul porteur du QID ferait passer la
+    région rattachée à l'exemplaire sans QID pour mal placée, et la ferait recréer."""
+    places = [_lieu("h_f1", "P0295", "France", "Country"),
+              _lieu("h_f2", "P0386", "France", "Country",
+                    urls=[{"path": "https://www.wikidata.org/wiki/Q142", "desc": "Wikidata"}]),
+              _sous("h_f1", _lieu("h_ara", "P0400", "Auvergne-Rhône-Alpes", "Region"))]
+    journal, _, _ = _lancer(mocker, tmp_path, places, pays=(), subdivisions=(ARA,))
+    assert journal["posts"] == []                                  # aucune région créée
+    assert journal["objets"]["h_ara"]["code"] == "ARA"             # l'existante est servie
 
 
 def test_la_descendance_dun_homonyme_a_confirmer_nest_pas_creee(mocker, tmp_path):
@@ -549,7 +644,7 @@ def test_la_descendance_dun_homonyme_a_confirmer_nest_pas_creee(mocker, tmp_path
     journal, texte, _ = _lancer(mocker, tmp_path, places, pays=(france,),
                                 subdivisions=(ara, RHONE.model_copy(update={"niveau": 2})))
     assert [p["name"]["value"] for p in journal["posts"]] == ["France"]
-    assert "| FR-69 | Rhône | FR-ARA | homonyme non rattaché à confirmer |" in (
+    assert "| FR-69 | Rhône | FR-ARA | homonyme non rattaché |" in (
         _section_du_rapport(texte, "Descendance bloquée"))
 
 
@@ -594,10 +689,12 @@ def test_la_descendance_dun_doublon_ecarte_nest_pas_creee(mocker, tmp_path):
 
 def test_un_lieu_inexploitable_ne_recoit_rien_et_sort_au_rapport(mocker, tmp_path):
     """Un type illisible ne fait plus sauter le run : le lieu est écarté et nommé."""
-    places = [_lieu("h_sa", "P0900", "Souk Ahras", "Wilaya"),
-              _lieu("h_x", "P0901", "Souk Ahras", {"_class": "PlaceType"})]
-    journal, texte, _ = _lancer(mocker, tmp_path, places, pays=(), subdivisions=(SOUK,))
-    assert {p["handle"] for p in journal["puts"]} == {"h_sa"}      # h_x n'est jamais écrit
+    places = [_lieu("h_dz", "P0100", "Algérie", "Country"),
+              _sous("h_dz", _lieu("h_sa", "P0900", "Souk Ahras", "Wilaya")),
+              _sous("h_dz", _lieu("h_x", "P0901", "Souk Ahras", {"_class": "PlaceType"}))]
+    journal, texte, _ = _lancer(mocker, tmp_path, places, pays=(ALGERIE,),
+                                subdivisions=(SOUK,))
+    assert "h_x" not in {p["handle"] for p in journal["puts"]}     # jamais écrit
     ecartes = _section_du_rapport(texte, "Lieux écartés de l'appariement")
     assert "P0901" in ecartes and "illisible" in ecartes
 
@@ -617,27 +714,32 @@ def test_un_lieu_nest_jamais_son_propre_parent(mocker, tmp_path):
 # --- le rapport est la seule trace d'audit d'une commande qui écrit ~430 lieux ----------
 
 def test_le_rapport_liste_les_lieux_completes(mocker, tmp_path):
-    places = [_lieu("h_vd", "P0500", "canton de Vaud", "State")]
-    _, texte, _ = _lancer(mocker, tmp_path, places, pays=(), subdivisions=(VAUD,))
+    places = [_lieu("h_ch", "P0340", "Suisse", "Country"),
+              _sous("h_ch", _lieu("h_vd", "P0500", "canton de Vaud", "State"))]
+    _, texte, _ = _lancer(mocker, tmp_path, places)
     assert "| CH-VD | canton de Vaud | State |" in texte
 
 
 def test_le_rapport_liste_chaque_retypage(mocker, tmp_path):
     """Un retypage de masse — la table des types natifs ne correspond plus au serveur —
     doit sauter aux yeux, pas se cacher derrière un compteur."""
-    places = [_lieu("h_sa", "P0900", "Souk Ahras", "Wilaya")]
-    _, texte, _ = _lancer(mocker, tmp_path, places, pays=(), subdivisions=(SOUK,))
+    places = [_lieu("h_dz", "P0100", "Algérie", "Country"),
+              _sous("h_dz", _lieu("h_sa", "P0900", "Souk Ahras", "Wilaya"))]
+    _, texte, _ = _lancer(mocker, tmp_path, places, pays=(ALGERIE,), subdivisions=(SOUK,))
     assert "| DZ-41 | Souk Ahras | Wilaya | Province |" in texte
 
 
-def _panne_en_ecriture(request):
-    return httpx.Response(500, text="boom") if request.method == "PUT" else None
+def _panne_sur_le_canton(request):
+    """Ne frappe que `h_vd` : le pays du même run doit s'écrire normalement, sans quoi le
+    compte d'erreurs mesurerait la panne du harnais et non le canal d'erreur."""
+    return (httpx.Response(500, text="boom")
+            if request.method == "PUT" and request.url.path.endswith("h_vd") else None)
 
 
 def test_le_rapport_porte_les_erreurs_dapi(mocker, tmp_path):
-    places = [_lieu("h_vd", "P0500", "canton de Vaud", "State")]
-    _, texte, _ = _lancer(mocker, tmp_path, places, pays=(), subdivisions=(VAUD,),
-                          panne=_panne_en_ecriture)
+    places = [_lieu("h_ch", "P0340", "Suisse", "Country"),
+              _sous("h_ch", _lieu("h_vd", "P0500", "canton de Vaud", "State"))]
+    _, texte, _ = _lancer(mocker, tmp_path, places, panne=_panne_sur_le_canton)
     assert "- Erreurs : 1" in texte
     assert "CH-VD" in _section_du_rapport(texte, "Erreurs")
     assert "500" in texte
@@ -645,9 +747,9 @@ def test_le_rapport_porte_les_erreurs_dapi(mocker, tmp_path):
 
 def test_un_message_derreur_multiligne_ne_casse_pas_le_tableau(mocker, tmp_path):
     """Un 500 rend un message sur plusieurs lignes ; tel quel il coupe le tableau en deux."""
-    places = [_lieu("h_vd", "P0500", "canton de Vaud", "State")]
-    _, texte, _ = _lancer(mocker, tmp_path, places, pays=(), subdivisions=(VAUD,),
-                          panne=_panne_en_ecriture)
+    places = [_lieu("h_ch", "P0340", "Suisse", "Country"),
+              _sous("h_ch", _lieu("h_vd", "P0500", "canton de Vaud", "State"))]
+    _, texte, _ = _lancer(mocker, tmp_path, places, panne=_panne_sur_le_canton)
     corps = [ligne for ligne in texte.split("## Erreurs")[1].splitlines()
              if ligne.strip()]
     assert len(corps) == 3                       # en-tête, séparateur, UNE ligne d'erreur
@@ -678,19 +780,24 @@ def test_un_lieu_en_doublon_nest_pas_ecrit_et_est_signale(mocker, tmp_path):
 def test_un_lieu_portant_un_autre_qid_est_refuse(mocker, tmp_path):
     """Un QID posé est une affirmation d'identité : diverger est une erreur, pas un ajout
     silencieux — au run suivant, l'ordre de la liste `urls` déciderait."""
-    places = [_lieu("h_vd", "P0500", "canton de Vaud", "State",
-                    urls=[{"path": "https://www.wikidata.org/wiki/Q1273",
-                           "desc": "Wikidata"}])]
-    journal, texte, _ = _lancer(mocker, tmp_path, places, pays=(), subdivisions=(VAUD,))
-    assert journal["puts"] == []
+    places = [_lieu("h_ch", "P0340", "Suisse", "Country"),
+              _sous("h_ch", _lieu("h_vd", "P0500", "canton de Vaud", "State",
+                                  urls=[{"path": "https://www.wikidata.org/wiki/Q1273",
+                                         "desc": "Wikidata"}]))]
+    journal, texte, _ = _lancer(mocker, tmp_path, places)
+    assert [p for p in journal["puts"] if p["handle"] == "h_vd"] == []
     assert "Q1273" in texte and "Q12771" in texte
 
 
 def test_une_place_malformee_narrete_pas_la_boucle(mocker, tmp_path):
     """Sinon les écritures déjà faites restent et aucun rapport n'est écrit."""
-    places = [_lieu("h_vd", "P0500", "canton de Vaud", "State", alt_names="Vaud"),
-              _lieu("h_by", "P0600", "Bayern", "State")]
-    journal, texte, _ = _lancer(mocker, tmp_path, places, pays=(),
+    places = [_lieu("h_ch", "P0340", "Suisse", "Country"),
+              _lieu("h_de", "P0700", "Allemagne", "Country"),
+              _sous("h_ch", _lieu("h_vd", "P0500", "canton de Vaud", "State",
+                                  alt_names="Vaud")),
+              _sous("h_de", _lieu("h_by", "P0600", "Bayern", "State"))]
+    journal, texte, _ = _lancer(mocker, tmp_path, places, pays=(SUISSE, ALLEMAGNE),
                                 subdivisions=(VAUD, BAYERN))
     assert "- Erreurs : 1" in texte
-    assert {p["handle"] for p in journal["puts"]} == {"h_by"}
+    assert "h_by" in {p["handle"] for p in journal["puts"]}   # la boucle a continué
+    assert "h_vd" not in {p["handle"] for p in journal["puts"]}

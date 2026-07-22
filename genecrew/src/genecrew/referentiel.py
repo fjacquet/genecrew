@@ -41,6 +41,24 @@ def doublons_de_larbre(places: list[dict]) -> list[dict]:
             for (nom, type_, parent), lot in sorted(groupes.items()) if len(lot) > 1]
 
 
+def echec_du_bloc_pays(resultats: list[ResultatPays],
+                       entites: dict[str, EntitePays]) -> dict | None:
+    """Le bloc `pays` est vide alors que des subdivisions ont été trouvées. `None` si sain.
+
+    `charger_entites_pays` rend `{}` quand son unique appel échoue, pendant que
+    `charger_pays` réussit pays par pays. Le YAML sort alors d'apparence parfaitement
+    normale — 430 subdivisions, aucun pays — et `apply referentiel` n'a plus un seul parent
+    à résoudre. Un relecteur doit voir que le référentiel est incomplet **avant** d'autoriser
+    l'écriture, pas après.
+    """
+    if entites or not any(res.subdivisions for res in resultats):
+        return None
+    return {"code_iso": "—",
+            "erreur": "aucune entité pays résolue alors que des subdivisions l'ont été : "
+                      "référentiel incomplet, relancer `propose referentiel` avant "
+                      "d'appliquer ce YAML"}
+
+
 def render_referentiel_report(date: str, resultats: list[ResultatPays],
                               entites: dict[str, EntitePays],
                               doublons: list[dict],
@@ -54,10 +72,17 @@ def render_referentiel_report(date: str, resultats: list[ResultatPays],
               f"- Subdivisions retenues : {total}",
               f"- Collisions signalées : {sum(len(r.collisions) for r in resultats)}",
               f"- Entités écartées : {sum(len(r.ecartees) for r in resultats)}",
-              f"- Entités pays résolues : {len(entites)}", "",
-              "## Par pays", "",
-              "| Pays | Niveau 1 | Niveau 2 | Collisions | Écartées | Erreur |",
-              "|---|---|---|---|---|---|"]
+              f"- Entités pays résolues : {len(entites)}", ""]
+    if echec_du_bloc_pays(resultats, entites):
+        lignes += ["> **Référentiel incomplet — ne pas appliquer ce YAML.** Aucune entité "
+                   f"pays n'a été résolue alors que {total} subdivisions l'ont été. "
+                   "`apply referentiel` ne pourrait rattacher aucune d'elles : il "
+                   "signalerait chaque subdivision comme « parent non résolu » sans rien "
+                   "écrire. Relancer `propose referentiel` — l'appel aux entités pays est "
+                   "unique et a probablement échoué seul.", ""]
+    lignes += ["## Par pays", "",
+               "| Pays | Niveau 1 | Niveau 2 | Collisions | Écartées | Erreur |",
+               "|---|---|---|---|---|---|"]
     for res in sorted(resultats, key=lambda r: r.code_iso):
         n1 = sum(1 for s in res.subdivisions if s.niveau == 1)
         n2 = sum(1 for s in res.subdivisions if s.niveau == 2)
@@ -120,7 +145,8 @@ def render_referentiel_yaml(resultats: list[ResultatPays],
         "ecartees": [e.model_dump() for r in resultats for e in r.ecartees],
         "doublons_arbre": doublons,
         "echecs": [{"code_iso": r.code_iso, "erreur": r.erreur}
-                   for r in resultats if r.erreur],
+                   for r in resultats if r.erreur]
+                  + [e for e in [echec_du_bloc_pays(resultats, entites)] if e],
     }
     return yaml.safe_dump(doc, allow_unicode=True, sort_keys=False)
 

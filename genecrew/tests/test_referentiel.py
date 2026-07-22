@@ -94,6 +94,31 @@ def test_le_yaml_porte_les_subdivisions_et_les_pays():
     assert doc["subdivisions"][0]["parent_qid"] == "Q39"
 
 
+def test_le_yaml_signale_un_bloc_pays_vide_comme_un_echec():
+    """`charger_entites_pays` rend `{}` quand son unique appel échoue, pendant que
+    `charger_pays` réussit pays par pays : le YAML sort d'apparence normale, avec ses
+    subdivisions et aucun pays. `apply referentiel` n'aurait alors plus un seul parent à
+    résoudre — le relecteur doit le voir AVANT d'autoriser l'écriture."""
+    doc = yaml.safe_load(render_referentiel_yaml(
+        [ResultatPays(code_iso="CH", subdivisions=[VAUD])], {}, []))
+    assert doc["pays"] == []
+    assert len(doc["echecs"]) == 1
+    assert "aucune entité pays résolue" in doc["echecs"][0]["erreur"]
+
+
+def test_le_yaml_ne_signale_rien_quand_les_pays_sont_resolus():
+    doc = yaml.safe_load(render_referentiel_yaml(
+        [ResultatPays(code_iso="CH", subdivisions=[VAUD])], {"Q39": SUISSE}, []))
+    assert doc["echecs"] == []
+
+
+def test_le_rapport_signale_un_referentiel_incomplet():
+    md = render_referentiel_report(
+        "2026-07-22", [ResultatPays(code_iso="CH", subdivisions=[VAUD])], {}, [])
+    assert "Référentiel incomplet" in md
+    assert "ne pas appliquer ce YAML" in md
+
+
 def test_le_yaml_ne_contient_pas_les_collisions_dans_les_subdivisions():
     collision = CollisionIso(iso="FR-69", qids=["Q46130", "Q18914778"],
                              libelles=["Rhône", "Rhône"])

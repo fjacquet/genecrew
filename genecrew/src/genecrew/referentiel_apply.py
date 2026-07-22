@@ -161,6 +161,27 @@ def index_par_nom_contenant(places: list[dict]) -> dict[str, str]:
     return index
 
 
+def _handles_designants(qid: str, noms: list[str], place_type: str,
+                        places: list[dict]) -> set[str]:
+    """TOUS les lieux de l'arbre qui peuvent désigner cette entité : porteurs du QID et
+    homonymes contenants. Un lieu portant un AUTRE QID est une identité distincte."""
+    handles = set()
+    for place in places:
+        if motif_dexclusion(place):
+            continue
+        porte = qid_pose(place)
+        if qid and porte == qid:
+            handles.add(place["handle"])
+            continue
+        if porte is not None and porte != qid:
+            continue
+        nom = (place.get("name") or {}).get("value", "")
+        type_ = type_lisible(place)
+        if nom in noms and (type_ == place_type or type_ in TYPES_CONTENANTS):
+            handles.add(place["handle"])
+    return handles
+
+
 def handles_designant(sub: Subdivision, places: list[dict]) -> set[str]:
     """TOUS les lieux de l'arbre qui pourraient désigner cette subdivision.
 
@@ -170,18 +191,28 @@ def handles_designant(sub: Subdivision, places: list[dict]) -> set[str]:
     ferait créer un second exemplaire de chaque région sous la « bonne » France, tandis que
     la région existante, correctement rattachée, ne recevrait rien.
     """
-    handles = set()
+    return _handles_designants(sub.qid, sub.noms, sub.place_type, places)
+
+
+def handles_designants_initiaux(places: list[dict]) -> dict[str, set[str]]:
+    """QID → tous les lieux qui le désignent, AVANT toute écriture.
+
+    Amorcer avec le seul lieu porteur du QID suffirait si l'arbre n'avait pas de doublons ;
+    il en a. Un pays présent en deux exemplaires et **absent du YAML relu** — donc jamais
+    réapparié pendant le run — laisserait sinon ses enfants rattachés à l'exemplaire sans
+    QID passer pour mal placés, et chacun serait recréé.
+    """
+    index: dict[str, set[str]] = {}
     for place in places:
         if motif_dexclusion(place):
             continue
-        if sub.qid and qid_pose(place) == sub.qid:
-            handles.add(place["handle"])
+        qid = qid_pose(place)
+        if not qid:
             continue
         nom = (place.get("name") or {}).get("value", "")
-        type_ = type_lisible(place)
-        if nom in sub.noms and (type_ == sub.place_type or type_ in TYPES_CONTENANTS):
-            handles.add(place["handle"])
-    return handles
+        index.setdefault(qid, set()).update(
+            _handles_designants(qid, [nom], type_lisible(place), places))
+    return index
 
 
 def subdivision_de_pays(entite: EntitePays) -> Subdivision:
@@ -221,19 +252,25 @@ def verdict_candidat(sub: Subdivision, place: dict | None, parents: set[str]) ->
       protège le `Province` « Limbourg » néerlandais des données du Limbourg belge.
     - `"apparier"` — le candidat est sous le parent attendu, ou aucun parent n'est connu et
       il n'y a alors rien à exiger.
-    - `"confirmer"` — le candidat n'a AUCUN rattachement. Il n'apporte aucune preuve, ni
-      pour ni contre. Écrire prendrait le risque du mauvais objet ; créer imposerait à
-      l'humain un nettoyage qu'il n'a pas demandé. On ne fait rien et on le dit : c'est
-      exactement la population pour laquelle le nom vernaculaire existe — les quatre `State`
-      allemands sont en base sous `Bayern`, `Hessen`… et créer `Bavière` à côté de `Bayern`
-      serait le pire des trois résultats.
+    - `"confirmer"` — la preuve est **indisponible**, de l'un ou l'autre côté. Soit le
+      candidat n'a AUCUN rattachement — c'est exactement la population pour laquelle le nom
+      vernaculaire existe, les quatre `State` allemands en base sous `Bayern`, `Hessen`… et
+      créer `Bavière` à côté de `Bayern` serait le pire des trois résultats. Soit le parent
+      attendu est **introuvable** : `charger_entites_pays` rend `{}` quand son appel échoue
+      pendant que `charger_pays` réussit, donc un YAML d'apparence normale peut porter 430
+      subdivisions et **aucun** pays. Traiter ce cas comme « rien à exiger » rouvrirait en
+      silence le défaut du Limbourg néerlandais.
+
+    Seul un `parent_qid` VIDE — un pays — autorise vraiment à ne rien exiger.
     """
     if place is None:
         return "apparier"
     if sub.niveau > 0 and type_lisible(place) == "Country":
         return "creer"
-    if not parents:
+    if not sub.parent_qid:
         return "apparier"
+    if not parents:
+        return "confirmer"
     refs = {ref.get("ref") for ref in place.get("placeref_list") or []
             if isinstance(ref, dict)}
     if not refs:
@@ -397,9 +434,11 @@ def render_apply_report(date: str, bilan: dict, dry_run: bool) -> str:
                 "table des types natifs ne correspond plus au serveur — saute aux yeux.")
     lignes += _section(
         "Homonymes non rattachés — à confirmer",
-        ["Lieu", "Nom en base", "ISO", "Subdivision", "Ce qui aurait été posé"],
+        ["Lieu", "Nom en base", "ISO", "Subdivision", "Motif",
+         "Ce qui aurait été posé"],
         bilan["a_confirmer"],
-        chapeau="Un lieu de l'arbre porte ce nom mais n'a **aucun** rattachement : rien ne "
+        chapeau="Un lieu de l'arbre porte ce nom, mais la preuve manque — il n'a aucun "
+                "rattachement, ou le parent attendu est introuvable. Rien ne "
                 "prouve qu'il est la cible visée, rien ne prouve le contraire. Écrire "
                 "prendrait le risque du mauvais objet ; créer imposerait un nettoyage que "
                 "personne n'a demandé. Donc rien n'a été fait, et la décision revient ici. "
@@ -458,7 +497,7 @@ def run_referentiel_apply(client, yaml_path, output_dir, *, date: str,
     createur, majeur, urleur = (GrampsCreatePlaceTool(), GrampsUpdatePlaceTool(),
                                 GrampsAddUrlTool())
     handles_qid = dict(par_qid)                     # QID -> le handle où l'on écrit
-    handles_designants = {qid: {handle} for qid, handle in par_qid.items()}
+    handles_designants = handles_designants_initiaux(places)
     consommes: dict[str, str] = {}                  # handle -> ISO qui l'a déjà pris
     ecartes: dict[str, tuple[str, str]] = {}        # QID non écrit -> (bloquant, motif)
     bilan: dict = {"crees": [], "completes": [], "retypages": [], "doublons_touches": [],
@@ -495,12 +534,15 @@ def run_referentiel_apply(client, yaml_path, output_dir, *, date: str,
                 ecartes[sub.qid] = (ident, "doublon de l'arbre")
                 continue
             if verdict == "confirmer":
-                # Un homonyme sans rattachement ne prouve rien. On rend la décision, avec
-                # de quoi la prendre — le lieu visé et ce que l'écriture aurait posé.
+                # La preuve manque, d'un côté ou de l'autre. On rend la décision, avec de
+                # quoi la prendre : le lieu visé, POURQUOI on hésite, et ce que
+                # l'écriture aurait posé.
+                motif = ("homonyme non rattaché" if parents
+                         else f"parent {sub.parent_qid} non résolu")
                 bilan["a_confirmer"].append(
                     (gid, (place or {}).get("name", {}).get("value", ""), ident,
-                     sub.libelle_fr, resume_du_plan(decider(sub, place))))
-                ecartes[sub.qid] = (ident, "homonyme non rattaché à confirmer")
+                     sub.libelle_fr, motif, resume_du_plan(decider(sub, place))))
+                ecartes[sub.qid] = (ident, motif)
                 continue
             if handle and handle in consommes:
                 # `par_handle` est un cache lu une fois : une seconde écriture sur le même
