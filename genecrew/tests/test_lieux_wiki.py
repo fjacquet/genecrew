@@ -3,6 +3,8 @@
 import json
 
 import httpx
+import pytest
+import requests
 from crewai_custom_tools.tools.genealogy.gramps import write_tools
 from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient, GrampsConfig
 from genecrew.lieux_wiki import (
@@ -94,13 +96,10 @@ def test_run_lieux_wiki_links_and_images_verified(tmp_path, monkeypatch, mocker)
     monkeypatch.setattr(lieux_wiki, "THROTTLE_S", 0)
     monkeypatch.setattr(
         lieux_wiki,
-        "frwiki_geosearch",
-        lambda lat, lon, **kw: [{"title": "Tiffech", "dist": 3.8}],
-    )
-    monkeypatch.setattr(
-        lieux_wiki,
         "frwiki_page_info",
         lambda t, **kw: {
+            "lat": 36.1917,
+            "lon": 7.7861,
             "title": "Tiffech",
             "url": "https://fr.wikipedia.org/wiki/Tiffech",
             "extract": "…",
@@ -167,13 +166,10 @@ def test_limit_bounds_the_gramps_fetch_not_only_the_filter(
     monkeypatch.setattr(lieux_wiki, "THROTTLE_S", 0)
     monkeypatch.setattr(
         lieux_wiki,
-        "frwiki_geosearch",
-        lambda lat, lon, **kw: [{"title": "Tiffech", "dist": 3.8}],
-    )
-    monkeypatch.setattr(
-        lieux_wiki,
         "frwiki_page_info",
         lambda t, **kw: {
+            "lat": 36.1917,
+            "lon": 7.7861,
             "title": "Tiffech",
             "url": "https://fr.wikipedia.org/wiki/Tiffech",
             "extract": "…",
@@ -206,13 +202,10 @@ def test_failed_image_upload_is_reported_not_swallowed(tmp_path, monkeypatch, mo
     monkeypatch.setattr(lieux_wiki, "THROTTLE_S", 0)
     monkeypatch.setattr(
         lieux_wiki,
-        "frwiki_geosearch",
-        lambda lat, lon, **kw: [{"title": "Tiffech", "dist": 3.8}],
-    )
-    monkeypatch.setattr(
-        lieux_wiki,
         "frwiki_page_info",
         lambda t, **kw: {
+            "lat": 36.1917,
+            "lon": 7.7861,
             "title": "Tiffech",
             "url": "https://fr.wikipedia.org/wiki/Tiffech",
             "extract": "…",
@@ -258,13 +251,10 @@ def test_run_lieux_wiki_dry_run_writes_nothing(tmp_path, monkeypatch, mocker):
     monkeypatch.setattr(lieux_wiki, "THROTTLE_S", 0)
     monkeypatch.setattr(
         lieux_wiki,
-        "frwiki_geosearch",
-        lambda lat, lon, **kw: [{"title": "Tiffech", "dist": 3.8}],
-    )
-    monkeypatch.setattr(
-        lieux_wiki,
         "frwiki_page_info",
         lambda t, **kw: {
+            "lat": 36.1917,
+            "lon": 7.7861,
             "title": "Tiffech",
             "url": "https://fr.wikipedia.org/wiki/Tiffech",
             "extract": "",
@@ -287,3 +277,160 @@ def test_run_lieux_wiki_dry_run_writes_nothing(tmp_path, monkeypatch, mocker):
     mocker.patch.object(write_tools, "get_client", return_value=client)
     report = run_lieux_wiki(client, tmp_path, date="2026-07-19", dry_run=True)
     assert "simulation (dry-run)" in report.read_text(encoding="utf-8")
+
+
+# --- résolution : le titre d'abord, la position ensuite ---
+
+
+def _page(title, lat, lon, url=None):
+    return {
+        "title": title,
+        "url": url or f"https://fr.wikipedia.org/wiki/{title}",
+        "extract": "…",
+        "image_url": "",
+        "image_name": "",
+        "lat": lat,
+        "lon": lon,
+    }
+
+
+def test_resolve_article_tranche_sur_le_titre_sans_recherche(monkeypatch):
+    """Le cas courant coûte UNE requête : le titre suffit, la position le confirme."""
+    monkeypatch.setattr(
+        lieux_wiki, "frwiki_page_info", lambda t, **kw: _page("Lyon", 45.76, 4.835)
+    )
+    monkeypatch.setattr(
+        lieux_wiki,
+        "frwiki_search_geo",
+        lambda *a, **kw: pytest.fail("recherche appelée alors que le titre suffisait"),
+    )
+
+    info, dist = lieux_wiki.resolve_article("Lyon", "45.7580", "4.8320")
+    assert info["title"] == "Lyon"
+    assert dist < 1000
+
+
+def test_resolve_article_suit_la_redirection_vers_l_exonyme(monkeypatch):
+    """'München' -> 'Munich' : la redirection porte une identité que la similarité rate.
+
+    `similarity("München", "Munich")` tombe sous MIN_SIM. Tant que la résolution passait
+    par la géorecherche + similarité, ces lieux étaient perdus par construction, quel que
+    soit le nombre de candidats lus.
+    """
+    from crewai_custom_tools.tools.genealogy.geo.score import similarity
+
+    assert similarity("München", "Munich") < lieux_wiki.MIN_SIM  # le piège, mesuré
+
+    monkeypatch.setattr(
+        lieux_wiki, "frwiki_page_info", lambda t, **kw: _page("Munich", 48.1372, 11.5755)
+    )
+    info, _ = lieux_wiki.resolve_article("München", "48.1351", "11.5820")
+    assert info["title"] == "Munich"
+
+
+def test_resolve_article_refuse_un_homonyme_au_mauvais_endroit(monkeypatch):
+    """Paris (Texas) ne prend pas l'article de Paris : la position tranche."""
+    monkeypatch.setattr(
+        lieux_wiki, "frwiki_page_info", lambda t, **kw: _page("Paris", 48.8566, 2.3522)
+    )
+    monkeypatch.setattr(lieux_wiki, "frwiki_search_geo", lambda *a, **kw: [])
+
+    assert lieux_wiki.resolve_article("Paris", "33.6609", "-95.5555") is None
+
+
+def test_resolve_article_retombe_sur_la_recherche_sur_page_d_homonymie(monkeypatch):
+    """'Valence' est une page d'homonymie : un titre, mais aucune position à vérifier."""
+    pages = {
+        "Valence": {**_page("Valence", None, None)},
+        "Valence (Drôme)": _page("Valence (Drôme)", 44.9333, 4.8917),
+    }
+    monkeypatch.setattr(lieux_wiki, "frwiki_page_info", lambda t, **kw: pages[t])
+    monkeypatch.setattr(
+        lieux_wiki,
+        "frwiki_search_geo",
+        lambda *a, **kw: [
+            {"title": "Bourg-lès-Valence", "lat": 44.9500, "lon": 4.8950},
+            {"title": "Valence (Drôme)", "lat": 44.9333, "lon": 4.8917},
+        ],
+    )
+
+    info, dist = lieux_wiki.resolve_article("Valence", "44.9333", "4.8917")
+    assert info["title"] == "Valence (Drôme)"
+    assert dist < 100
+
+
+def test_resolve_article_abstient_quand_la_recherche_ne_rend_pas_un_homonyme(
+    monkeypatch,
+):
+    """'El Arrouch' trouve Skikda à 1,6 km : au bon endroit, mauvais nom -> abstention.
+
+    C'est la moitié « homonyme » de la doctrine : la proximité seule ne fait pas un lien.
+    """
+    monkeypatch.setattr(
+        lieux_wiki, "frwiki_page_info", lambda t, **kw: _page(t, None, None)
+    )
+    monkeypatch.setattr(
+        lieux_wiki,
+        "frwiki_search_geo",
+        lambda *a, **kw: [{"title": "Skikda", "lat": 36.8790, "lon": 6.9060}],
+    )
+
+    assert lieux_wiki.resolve_article("El Arrouch", "36.8700", "6.9200") is None
+
+
+def test_resolve_article_ecarte_un_candidat_hors_rayon(monkeypatch):
+    """Un homonyme parfait mais lointain reste écarté avant même la similarité."""
+    monkeypatch.setattr(
+        lieux_wiki, "frwiki_page_info", lambda t, **kw: _page(t, None, None)
+    )
+    monkeypatch.setattr(
+        lieux_wiki,
+        "frwiki_search_geo",
+        lambda *a, **kw: [{"title": "Tiffech", "lat": 48.8566, "lon": 2.3522}],
+    )
+
+    assert lieux_wiki.resolve_article("Tiffech", "36.1917", "7.7861") is None
+
+
+# --- 429 : reprises et diagnostic ---
+
+
+def test_backoff_reprend_deux_fois_avant_d_abandonner(monkeypatch):
+    """Une seule reprise se reprenait un 429 en production (deux 429 par lieu au log)."""
+    monkeypatch.setattr(lieux_wiki, "BACKOFF_429_S", (0, 0))
+    appels = {"n": 0}
+
+    def _429():
+        appels["n"] += 1
+        response = requests.Response()
+        response.status_code = 429
+        raise requests.HTTPError(response=response)
+
+    with pytest.raises(requests.HTTPError):
+        lieux_wiki._with_backoff(_429)
+    assert appels["n"] == 3
+
+
+def test_backoff_ne_retente_pas_une_erreur_qui_n_est_pas_un_429(monkeypatch):
+    monkeypatch.setattr(lieux_wiki, "BACKOFF_429_S", (0, 0))
+    appels = {"n": 0}
+
+    def _404():
+        appels["n"] += 1
+        response = requests.Response()
+        response.status_code = 404
+        raise requests.HTTPError(response=response)
+
+    with pytest.raises(requests.HTTPError):
+        lieux_wiki._with_backoff(_404)
+    assert appels["n"] == 1
+
+
+def test_describe_error_porte_le_code_http():
+    """« HTTPError » nu a déjà fait passer une salve de 429 pour une panne indéterminée."""
+    response = requests.Response()
+    response.status_code = 429
+    assert lieux_wiki.describe_error(requests.HTTPError(response=response)) == (
+        "HTTPError 429"
+    )
+    assert lieux_wiki.describe_error(ValueError("x")) == "ValueError"
