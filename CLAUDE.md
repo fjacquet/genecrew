@@ -185,6 +185,13 @@ gotchas — c'est elle qui impose l'ordre de livraison entre les deux dépôts.
 - **Dates**: compare via integer `sortval` (Julian day; `0` = unknown/unsortable). Undated events come back as `dateval=[0,0,0,False]`, `year=0`, `sortval=0` (not empty). Text-only dates have `modifier==6`.
 - **Gender int**: `0=F, 1=M, 2=U`.
 - **Form vs fact**: casing = *form* → direct write allowed, guarded by a case-only invariant that refuses any non-casing change. A *fact* stays a proposal for human review — **except gender**, now written at high confidence by `apply gender` (ratio ≥ 0.98 on the INSEE+OFS table, reversible; ADR 0009 relaxes ADR 0008). Other facts (dates, relationships, name spelling) still need a source → proposal.
+- **`gramps-mcp create_person` ne pose pas `birth_ref_index`/`death_ref_index`.** Une personne
+  créée en un seul POST avec son `event_ref_list` sort avec les deux index à `-1` : les événements
+  sont bien attachés, mais Gramps ne sait pas lequel est la naissance, et toutes les vues qui
+  suivent l'index (profil, chronologie, `propose audit`) la voient sans dates. Le serveur
+  recalcule les index au PUT — un second appel `create_person` avec le `handle` suffit à réparer,
+  et il préserve événements et familles. Nos propres outils n'ont pas ce défaut
+  (`write_tools.py` pose l'index à l'attachement) : c'est propre au serveur MCP voisin.
 - **Créer un décès** : `apply deaths` (ADR 0014) écrit une donnée cœur, contrairement à
   `apply citations` qui reste append-only. La garde « la personne n'a pas de décès » est
   vérifiée **au moment de l'écriture** : `GrampsCreateEventTool` refuse d'écraser un
