@@ -94,6 +94,7 @@ PLACE = {
 def test_run_lieux_wiki_links_and_images_verified(tmp_path, monkeypatch, mocker):
     monkeypatch.setenv("GENECREW_DRY_RUN", "false")
     monkeypatch.setattr(lieux_wiki, "THROTTLE_S", 0)
+    monkeypatch.setattr(lieux_wiki, "THROTTLE_MEDIA_S", 0)
     monkeypatch.setattr(
         lieux_wiki,
         "frwiki_page_info",
@@ -164,6 +165,7 @@ def test_limit_bounds_the_gramps_fetch_not_only_the_filter(
     """
     monkeypatch.setenv("GENECREW_DRY_RUN", "true")
     monkeypatch.setattr(lieux_wiki, "THROTTLE_S", 0)
+    monkeypatch.setattr(lieux_wiki, "THROTTLE_MEDIA_S", 0)
     monkeypatch.setattr(
         lieux_wiki,
         "frwiki_page_info",
@@ -200,6 +202,7 @@ def test_failed_image_upload_is_reported_not_swallowed(tmp_path, monkeypatch, mo
     """Lien posé mais image perdue : le rapport doit le dire, pas rester muet."""
     monkeypatch.setenv("GENECREW_DRY_RUN", "false")
     monkeypatch.setattr(lieux_wiki, "THROTTLE_S", 0)
+    monkeypatch.setattr(lieux_wiki, "THROTTLE_MEDIA_S", 0)
     monkeypatch.setattr(
         lieux_wiki,
         "frwiki_page_info",
@@ -249,6 +252,7 @@ def test_failed_image_upload_is_reported_not_swallowed(tmp_path, monkeypatch, mo
 def test_run_lieux_wiki_dry_run_writes_nothing(tmp_path, monkeypatch, mocker):
     monkeypatch.setenv("GENECREW_DRY_RUN", "true")
     monkeypatch.setattr(lieux_wiki, "THROTTLE_S", 0)
+    monkeypatch.setattr(lieux_wiki, "THROTTLE_MEDIA_S", 0)
     monkeypatch.setattr(
         lieux_wiki,
         "frwiki_page_info",
@@ -434,3 +438,179 @@ def test_describe_error_porte_le_code_http():
         "HTTPError 429"
     )
     assert lieux_wiki.describe_error(ValueError("x")) == "ValueError"
+
+
+# --- rattrapage d'image : un lien déjà posé ne doit pas condamner l'illustration ---
+
+
+def test_titre_depuis_url_decode_et_deseparne():
+    """Le titre se relit du lien, sans réinterroger Wikipédia pour le retrouver."""
+    t = lieux_wiki.titre_depuis_url
+    assert t("https://fr.wikipedia.org/wiki/Tournus") == "Tournus"
+    assert t("https://fr.wikipedia.org/wiki/Cosne-d%27Allier") == "Cosne-d'Allier"
+    assert t("https://fr.wikipedia.org/wiki/Pays_de_Galles") == "Pays de Galles"
+    assert t("https://fr.wikipedia.org/wiki/Sussex_de_l%27Est") == "Sussex de l'Est"
+
+
+def test_url_wikipedia_rend_le_lien_ou_rien():
+    u = lieux_wiki.url_wikipedia
+    assert u({"urls": [{"path": "https://autre.org"},
+                       {"path": "https://fr.wikipedia.org/wiki/X"}]}) == (
+        "https://fr.wikipedia.org/wiki/X")
+    assert u({"urls": [{"path": "https://autre.org"}]}) is None
+    assert u({}) is None
+
+
+def test_a_enrichir_vise_aussi_un_lieu_lie_sans_image():
+    """Un lien posé et une image manquée sortaient le lieu du champ pour toujours.
+
+    C'est ce qui a rendu 597 lieux inatteignables : le critère confondait « il manque
+    un lien » et « il manque une image ».
+    """
+    lie_sans_image = {"lat": "1", "long": "2",
+                      "urls": [{"path": "https://fr.wikipedia.org/wiki/X"}],
+                      "media_list": []}
+    lie_avec_image = {"lat": "1", "long": "2",
+                      "urls": [{"path": "https://fr.wikipedia.org/wiki/X"}],
+                      "media_list": [{"ref": "M1"}]}
+    nu = {"lat": "1", "long": "2", "urls": [], "media_list": []}
+    sans_gps = {"urls": [], "media_list": []}
+
+    assert lieux_wiki.a_enrichir(lie_sans_image, images=True) is True
+    assert lieux_wiki.a_enrichir(lie_avec_image, images=True) is False
+    assert lieux_wiki.a_enrichir(nu, images=True) is True
+    assert lieux_wiki.a_enrichir(sans_gps, images=True) is False
+
+
+def test_a_enrichir_sans_images_revient_au_critere_du_lien():
+    """`--no-images` ne doit pas retenir des lieux dont il ne ferait rien."""
+    lie_sans_image = {"lat": "1", "long": "2",
+                      "urls": [{"path": "https://fr.wikipedia.org/wiki/X"}],
+                      "media_list": []}
+    assert lieux_wiki.a_enrichir(lie_sans_image, images=False) is False
+    assert lieux_wiki.a_enrichir({"lat": "1", "long": "2"}, images=False) is True
+
+
+def test_lieu_deja_lie_recoit_son_image_sans_reposer_l_url(tmp_path, monkeypatch, mocker):
+    """Rattrapage : on lit le titre du lien existant, on ne re-résout pas, on ne re-lie pas.
+
+    Réinterroger la géolocalisation risquerait de désigner un AUTRE article que celui
+    qu'un humain — ou le référentiel — a déjà validé.
+    """
+    monkeypatch.setenv("GENECREW_DRY_RUN", "false")
+    monkeypatch.setattr(lieux_wiki, "THROTTLE_S", 0)
+    monkeypatch.setattr(lieux_wiki, "THROTTLE_MEDIA_S", 0)
+    monkeypatch.setattr(
+        lieux_wiki,
+        "resolve_article",
+        lambda *a, **kw: pytest.fail("résolution appelée alors que le lien existait"),
+    )
+    titres_demandes = []
+
+    def _page_info(titre, **kw):
+        titres_demandes.append(titre)
+        return {"title": titre, "url": "https://fr.wikipedia.org/wiki/Tiffech",
+                "extract": "…", "image_url": "https://upload.wikimedia.org/x.png",
+                "image_name": "x.png", "lat": 36.19, "lon": 7.78}
+
+    monkeypatch.setattr(lieux_wiki, "frwiki_page_info", _page_info)
+    mocker.patch("requests.get", return_value=mocker.MagicMock(
+        content=b"PNG", headers={"Content-Type": "image/png"},
+        raise_for_status=lambda: None))
+
+    deja_lie = dict(PLACE, urls=[{"path": "https://fr.wikipedia.org/wiki/Tiffech"}])
+    puts = []
+
+    def h(request):
+        pth, m = request.url.path, request.method
+        if m == "GET" and pth == "/api/places/":
+            page = int(request.url.params.get("page"))
+            return httpx.Response(200, json=[dict(deja_lie)] if page == 1 else [])
+        if m == "GET" and pth == "/api/places/HT":
+            return httpx.Response(200, json=dict(deja_lie))
+        if m == "POST" and pth == "/api/media/":
+            return httpx.Response(201, json=[{"type": "add", "handle": "MED1"}])
+        if m == "GET" and pth == "/api/media/MED1":
+            return httpx.Response(200, json={"handle": "MED1", "mime": "image/png"})
+        if m == "PUT":
+            puts.append((pth, json.loads(request.content)))
+            return httpx.Response(200, json={})
+        return httpx.Response(404)
+
+    client = _client(h)
+    mocker.patch.object(write_tools, "get_client", return_value=client)
+    report = run_lieux_wiki(client, tmp_path, date="2026-07-27")
+
+    assert titres_demandes == ["Tiffech"], titres_demandes
+    md = report.read_text(encoding="utf-8")
+    assert "Images importées : 1" in md
+    assert "Liens vérifiés posés : 0" in md      # rien à lier, tout à illustrer
+    place_puts = [b for p_, b in puts if p_ == "/api/places/HT"]
+    assert all(len(b.get("urls", [])) <= 1 for b in place_puts), "URL reposée en double"
+
+
+def _monter_rattrapage(monkeypatch, mocker):
+    """Un lieu déjà lié, sans image, dont l'article porte une miniature."""
+    monkeypatch.setattr(lieux_wiki, "THROTTLE_S", 0)
+    monkeypatch.setattr(lieux_wiki, "THROTTLE_MEDIA_S", 0)
+    monkeypatch.setattr(lieux_wiki, "frwiki_page_info", lambda t, **kw: {
+        "title": t, "url": "https://fr.wikipedia.org/wiki/Tiffech", "extract": "…",
+        "image_url": "https://upload.wikimedia.org/x.png", "image_name": "x.png",
+        "lat": 36.19, "lon": 7.78})
+    mocker.patch("requests.get", return_value=mocker.MagicMock(
+        content=b"PNG", headers={"Content-Type": "image/png"},
+        raise_for_status=lambda: None))
+    deja_lie = dict(PLACE, urls=[{"path": "https://fr.wikipedia.org/wiki/Tiffech"}])
+
+    def h(request):
+        pth, m = request.url.path, request.method
+        if m == "GET" and pth == "/api/places/":
+            page = int(request.url.params.get("page"))
+            return httpx.Response(200, json=[dict(deja_lie)] if page == 1 else [])
+        if m == "GET" and pth == "/api/places/HT":
+            return httpx.Response(200, json=dict(deja_lie))
+        if m == "POST" and pth == "/api/media/":
+            return httpx.Response(201, json=[{"type": "add", "handle": "MED1"}])
+        if m == "GET" and pth == "/api/media/MED1":
+            return httpx.Response(200, json={"handle": "MED1", "mime": "image/png"})
+        if m == "PUT":
+            return httpx.Response(200, json={})
+        return httpx.Response(404)
+
+    client = _client(h)
+    mocker.patch.object(write_tools, "get_client", return_value=client)
+    return client
+
+
+def test_la_simulation_previsualise_les_images(tmp_path, monkeypatch, mocker):
+    """Un dry-run muet sur les images n'est pas un aperçu.
+
+    L'import rend un handle `DRYRUN:` que l'attachement compte comme inchangé : les
+    images ne se comptaient donc jamais en simulation, alors que les liens, eux, se
+    comptent. Sur un run de rattrapage pur, l'aperçu affichait zéro partout.
+    """
+    monkeypatch.setenv("GENECREW_DRY_RUN", "true")
+    client = _monter_rattrapage(monkeypatch, mocker)
+    report = run_lieux_wiki(client, tmp_path, date="2026-07-27", dry_run=True)
+    md = report.read_text(encoding="utf-8")
+    assert "simulation (dry-run)" in md
+    assert "Images importées : 1" in md, md
+
+
+def test_le_rapport_porte_le_mode_dans_son_nom(tmp_path, monkeypatch, mocker):
+    """Une simulation ne doit pas écraser le compte rendu de l'écriture qui l'a suivie.
+
+    C'est arrivé : un `--dry-run` de contrôle a effacé le rapport d'un run réel de
+    41 liens, les deux écrivant `<date>_lieux_wiki.md`.
+    """
+    monkeypatch.setenv("GENECREW_DRY_RUN", "true")
+    client = _monter_rattrapage(monkeypatch, mocker)
+    simule = run_lieux_wiki(client, tmp_path, date="2026-07-27", dry_run=True)
+
+    monkeypatch.setenv("GENECREW_DRY_RUN", "false")
+    client = _monter_rattrapage(monkeypatch, mocker)
+    ecrit = run_lieux_wiki(client, tmp_path, date="2026-07-27")
+
+    assert simule != ecrit, "les deux modes écrivent le même fichier"
+    assert simule.exists() and ecrit.exists()
+    assert "simulation" in simule.name and "ecritures" in ecrit.name

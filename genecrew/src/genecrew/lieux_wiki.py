@@ -8,6 +8,10 @@ centre de Lyon sont des rues et des monuments, l'article « Lyon » n'y figure p
 
 L'image est la miniature de l'article (Wikimedia Commons), importée avec attribution.
 Append-only.
+
+Un lieu déjà lié mais sans image reste dans le champ : l'illustration se rattrape en
+relisant le titre du lien existant, sans re-résoudre — une seconde résolution pourrait
+désigner un autre article que celui déjà validé.
 """
 
 from __future__ import annotations
@@ -16,6 +20,7 @@ import json
 import re
 import time
 from pathlib import Path
+from urllib.parse import unquote
 
 from crewai_custom_tools.tools.genealogy.geo.score import distance_m, similarity
 from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient
@@ -33,6 +38,11 @@ MIN_SIM = 0.85
 AMBIGUITY_MARGIN = 0.05
 MAX_DIST_M = 10_000  # rayon de vérification : l'article doit tomber sur le lieu
 THROTTLE_S = 1.5  # politesse API Wikipédia (429 mesuré)
+# `upload.wikimedia.org` sert des FICHIERS et étrangle bien plus tôt que l'API : à la
+# cadence de 1,5 s calibrée pour `fr.wikipedia.org`, cinq images passent puis c'est le mur
+# (mesuré : 5 succès, 31 échecs). Un backoff ne rattrape pas une cadence de fond trop
+# élevée — il ne fait que payer l'amende après coup.
+THROTTLE_MEDIA_S = 6.0
 BACKOFF_429_S = (20, 60)  # une seule reprise se reprenait un 429 (mesuré en production)
 
 
@@ -123,10 +133,46 @@ def resolve_article(name: str, lat, lon) -> tuple[dict, float] | None:
     return (info, best["dist"]) if info.get("url") else None
 
 
+def url_wikipedia(place: dict) -> str | None:
+    """Le lien Wikipédia déjà porté par le lieu, ou None."""
+    for u in place.get("urls") or []:
+        chemin = u.get("path") or ""
+        if "wikipedia.org" in chemin:
+            return chemin
+    return None
+
+
 def has_wikipedia_url(place: dict) -> bool:
-    return any(
-        "wikipedia.org" in (u.get("path") or "") for u in (place.get("urls") or [])
-    )
+    return url_wikipedia(place) is not None
+
+
+def titre_depuis_url(url: str) -> str:
+    """'…/wiki/Sussex_de_l%27Est' -> "Sussex de l'Est". Pure.
+
+    Relire le titre du lien évite de re-résoudre le lieu pour l'illustrer : une seconde
+    résolution pourrait désigner un AUTRE article que celui qu'un humain — ou le
+    référentiel — a déjà validé, et l'image contredirait alors le lien.
+    """
+    return unquote(url.rsplit("/", 1)[-1]).replace("_", " ")
+
+
+def a_enrichir(place: dict, *, images: bool) -> bool:
+    """Le lieu a-t-il encore quelque chose à recevoir ? Pure.
+
+    Le critère historique — GPS et pas de lien — confondait « il manque un lien » et
+    « il manque une image ». L'image se posant APRÈS le lien dans le même passage, un
+    lien réussi suivi d'une image manquée sortait le lieu du champ pour toujours : 597
+    lieux étaient devenus inatteignables, dont tous ceux que le référentiel avait liés
+    sans jamais tenter d'illustration.
+
+    Sans `--images`, on revient au seul critère du lien : retenir un lieu déjà lié
+    n'aurait alors plus rien à lui apporter.
+    """
+    if not (place.get("lat") and place.get("long")):
+        return False
+    if not has_wikipedia_url(place):
+        return True
+    return images and not (place.get("media_list") or [])
 
 
 def run_lieux_wiki(
@@ -148,11 +194,7 @@ def run_lieux_wiki(
         batch = client.get_json("/places/", params={"page": page, "pagesize": 200})
         if not batch:
             break
-        targets.extend(
-            p
-            for p in batch
-            if p.get("lat") and p.get("long") and not has_wikipedia_url(p)
-        )
+        targets.extend(p for p in batch if a_enrichir(p, images=images))
         if limit and len(targets) >= limit:
             break
         page += 1
@@ -173,27 +215,38 @@ def run_lieux_wiki(
             continue
         time.sleep(THROTTLE_S)
         try:
-            resolved = resolve_article(name, p["lat"], p["long"])
-            if resolved is None:
-                skipped += 1
-                continue
-            info, dist = resolved
-            u = json.loads(
-                url_tool._run(
-                    object_type="places",
-                    handle=p["handle"],
-                    url=info["url"],
-                    description="Wikipédia",
-                    dry_run=dry_run,
+            lien_existant = url_wikipedia(p)
+            if lien_existant:
+                # Rattrapage d'illustration : le lien fait déjà foi, on ne le rejoue pas
+                # et on ne re-résout pas — seule l'image manque.
+                info = _with_backoff(frwiki_page_info, titre_depuis_url(lien_existant))
+                if not info.get("image_url"):
+                    skipped += 1
+                    continue
+            else:
+                resolved = resolve_article(name, p["lat"], p["long"])
+                if resolved is None:
+                    skipped += 1
+                    continue
+                info, dist = resolved
+                u = json.loads(
+                    url_tool._run(
+                        object_type="places",
+                        handle=p["handle"],
+                        url=info["url"],
+                        description="Wikipédia",
+                        dry_run=dry_run,
+                    )
                 )
-            )
-            if not u["success"]:
-                errors.append((name, u["error"]))
-                continue
-            linked.append(
-                (p.get("gramps_id", ""), name, info["title"], round(dist), info["url"])
-            )
+                if not u["success"]:
+                    errors.append((name, u["error"]))
+                    continue
+                linked.append(
+                    (p.get("gramps_id", ""), name, info["title"], round(dist),
+                     info["url"])
+                )
             if images and info.get("image_url"):
+                time.sleep(THROTTLE_MEDIA_S)
                 m = json.loads(
                     up_tool._run(
                         file_url=info["image_url"],
@@ -217,7 +270,10 @@ def run_lieux_wiki(
                     )
                     if not a["success"]:
                         errors.append((name, f"image non attachée : {a['error']}"))
-                    elif a["data"]["changed"]:
+                    # En simulation l'import rend un handle `DRYRUN:` que l'attachement
+                    # compte comme inchangé : sans `or dry_run`, l'aperçu resterait muet
+                    # sur les images alors qu'il annonce déjà les liens.
+                    elif a["data"]["changed"] or dry_run:
                         imaged += 1
         except Exception as exc:
             get_logger().warning("lieux-wiki: échec pour %s", name, exc_info=True)
@@ -229,7 +285,7 @@ def run_lieux_wiki(
         "",
         f"Mode : {mode}.",
         "",
-        f"- Lieux candidats (GPS, sans lien wiki) : {len(targets)}",
+        f"- Lieux à enrichir (GPS, lien ou image manquant) : {len(targets)}",
         f"- Liens vérifiés posés : {len(linked)}",
         f"- Images importées : {imaged}",
         f"- Sans article vérifiable (abstention) : {skipped}",
@@ -244,6 +300,9 @@ def run_lieux_wiki(
     lines.append("")
     out = Path(output_dir) / "lieux"
     out.mkdir(parents=True, exist_ok=True)
-    report_path = out / f"{date}_lieux_wiki.md"
+    # Le mode est dans le NOM, pas seulement dans le corps : une simulation de contrôle a
+    # déjà effacé le compte rendu d'un run réel de 41 liens, les deux visant le même fichier.
+    suffixe = "simulation" if dry_run else "ecritures"
+    report_path = out / f"{date}_lieux_wiki_{suffixe}.md"
     report_path.write_text("\n".join(lines), encoding="utf-8")
     return report_path
