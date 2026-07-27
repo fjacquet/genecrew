@@ -185,6 +185,13 @@ gotchas — c'est elle qui impose l'ordre de livraison entre les deux dépôts.
 - **Dates**: compare via integer `sortval` (Julian day; `0` = unknown/unsortable). Undated events come back as `dateval=[0,0,0,False]`, `year=0`, `sortval=0` (not empty). Text-only dates have `modifier==6`.
 - **Gender int**: `0=F, 1=M, 2=U`.
 - **Form vs fact**: casing = *form* → direct write allowed, guarded by a case-only invariant that refuses any non-casing change. A *fact* stays a proposal for human review — **except gender**, now written at high confidence by `apply gender` (ratio ≥ 0.98 on the INSEE+OFS table, reversible; ADR 0009 relaxes ADR 0008). Other facts (dates, relationships, name spelling) still need a source → proposal.
+- **`gramps-mcp create_person` ne pose pas `birth_ref_index`/`death_ref_index`.** Une personne
+  créée en un seul POST avec son `event_ref_list` sort avec les deux index à `-1` : les événements
+  sont bien attachés, mais Gramps ne sait pas lequel est la naissance, et toutes les vues qui
+  suivent l'index (profil, chronologie, `propose audit`) la voient sans dates. Le serveur
+  recalcule les index au PUT — un second appel `create_person` avec le `handle` suffit à réparer,
+  et il préserve événements et familles. Nos propres outils n'ont pas ce défaut
+  (`write_tools.py` pose l'index à l'attachement) : c'est propre au serveur MCP voisin.
 - **Créer un décès** : `apply deaths` (ADR 0014) écrit une donnée cœur, contrairement à
   `apply citations` qui reste append-only. La garde « la personne n'a pas de décès » est
   vérifiée **au moment de l'écriture** : `GrampsCreateEventTool` refuse d'écraser un
@@ -201,6 +208,15 @@ gotchas — c'est elle qui impose l'ordre de livraison entre les deux dépôts.
 - **Crew write isolation & cost**: only `chroniqueur` agent has write tools (append-only note/tag); `detective` cannot write. A `crew audit` run costs ~23k LLM tokens/person (heavy read correlation) — always bound full-tree runs with `--limit`.
 - **Durable logs**: every `genecrew <verbe> <cible>` appends to `output/logs/<date>_genecrew.log` (START/DONE/FAILED + `genecrew`/`crewai_custom_tools` namespaces); `crew audit` also writes structured agent/tool trace to `output/crew_audit/<date>_crew_audit_<scope>.log.txt` (CrewAI only accepts `.txt`/`.json`), plus its `.md`/`.yaml` report and human-review `<date>_propositions_audit_<scope>.yaml`.
 - **GPS des lieux**: coordonnées **WGS84** décimales ; GeoJSON = `[lon, lat]` (ne pas inverser) ; WKT Wikidata = `Point(lon lat)`, **longitude d'abord aussi** ; swisstopo : lire `lat`/`lon`, **jamais `x`/`y`** (grille suisse LV95). Le géocodage passe par des résolveurs `geo/` routés par pays (`crewai_custom_tools`).
+- **Lien Wikipédia d'un lieu** (`enrich wiki`) : chercher **par le titre**, vérifier **par la
+  position** — jamais l'inverse. La géorecherche trie par distance, et les dix articles les plus
+  proches du centre de Lyon sont ses rues et ses monuments : l'article « Lyon » n'y figure pas.
+  Le run du 2026-07-26 posait 1 lien sur 49 pour cette raison, et élargir `gslimit` n'aurait
+  soigné que le symptôme. `frwiki_page_info` porte `redirects=1`, ce qui résout gratuitement les
+  exonymes de l'arbre (`München` → `Munich`, `Lenzburg` → `Lenzbourg`) — `similarity` les classait
+  sous le seuil de 0.85, donc ils étaient perdus par construction. `frwiki_search_geo` ne sert
+  qu'au rattrapage (page d'homonymie sans coordonnées : `Valence` → `Valence (Drôme)`), et là
+  seulement la similarité et la garde d'ambiguïté reprennent la main.
 - **Communes fusionnées** : absentes de `geo.api.gouv.fr/communes`, qui ne connaît que les communes vivantes. `geo/france_ex_communes.py` bascule sur `/communes_associees_deleguees` (rattachement + code INSEE propre) puis Wikidata (SPARQL par `P374`), et pose **deux placerefs datées** — sous le département avant la fusion, sous la commune absorbante après. La borne est la dissolution **+ 1 jour** : poser `P576` telle quelle ferait démarrer le rattachement moderne un jour où la commune existait encore. **`wdt:P576` rend toujours un `dateTime` complet quelle que soit la précision réelle** (une dissolution à l'année sort `AAAA-01-01`), d'où le contrôle `wikibase:timePrecision == 11`. Rien n'est daté si Wikidata et l'API ne concordent pas sur le successeur.
 - **Ordre de livraison entre les deux dépôts** : la CI checkoute le voisin sur le **tag** `v<version>` lu dans `uv.lock`, pas sur `main`. Bumper la bibliothèque impose donc de **taguer et pousser** avant que la CI de genecrew puisse verdir — `uv sync` seul ne suffit pas, et l'échec se présente comme un `uv sync --locked` qui refuse le lock.
 - **Fusion de personnes irréversible** : `Person.merge()` supprime le titanic et unionne les
