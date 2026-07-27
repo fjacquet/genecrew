@@ -217,6 +217,21 @@ gotchas — c'est elle qui impose l'ordre de livraison entre les deux dépôts.
   sous le seuil de 0.85, donc ils étaient perdus par construction. `frwiki_search_geo` ne sert
   qu'au rattrapage (page d'homonymie sans coordonnées : `Valence` → `Valence (Drôme)`), et là
   seulement la similarité et la garde d'ambiguïté reprennent la main.
+- **Le référentiel ne convient pas au Royaume-Uni** — mesuré le 2026-07-27, ne pas ajouter `GB`
+  à `PAYS_REFERENTIEL` en croyant que c'est une ligne de plus. Deux désaccords structurels, tous
+  deux vérifiés sur l'endpoint : (1) **`Q145` porte lui-même un `P300`, `GB-UKM`**, donc le filtre
+  `STRSTARTS(?iso, "GB-")` ramène le pays dans ses propres subdivisions, où il se prend pour son
+  propre parent — l'écrire créerait un doublon du pays ; (2) les comtés pendent sous des régions
+  anglaises **sans code ISO** (Kent → `Q48015` Angleterre du Sud-Est), donc sans parent dans
+  l'univers, et l'ancre pays — écrite pour les régions françaises sous « France métropolitaine » —
+  les promeut au niveau 1, **devant** l'Angleterre qui tombe au niveau 2. La hiérarchie sort
+  inversée : 209 entités écartées sur ~230. `GB-ESX` est de surcroît porté par deux entités
+  (`Q23293` comté cérémoniel, `Q21694646` comté non métropolitain), collision que la règle 5
+  refuse d'écrire de toute façon. Sur les 9 pays livrés, **seul** le Royaume-Uni porte son propre
+  code ISO 3166-2 : le défaut (1) est latent, non déclenché en production. La hiérarchie
+  britannique se saisit donc à la main — `Country` Royaume-Uni, `Region` nation constitutive,
+  `Province` comté, `Municipality` ville — l'ordre généalogique anglais étant
+  « Ville/Paroisse, Comté, Angleterre », le comté étant la clé des County Record Offices.
 - **Communes fusionnées** : absentes de `geo.api.gouv.fr/communes`, qui ne connaît que les communes vivantes. `geo/france_ex_communes.py` bascule sur `/communes_associees_deleguees` (rattachement + code INSEE propre) puis Wikidata (SPARQL par `P374`), et pose **deux placerefs datées** — sous le département avant la fusion, sous la commune absorbante après. La borne est la dissolution **+ 1 jour** : poser `P576` telle quelle ferait démarrer le rattachement moderne un jour où la commune existait encore. **`wdt:P576` rend toujours un `dateTime` complet quelle que soit la précision réelle** (une dissolution à l'année sort `AAAA-01-01`), d'où le contrôle `wikibase:timePrecision == 11`. Rien n'est daté si Wikidata et l'API ne concordent pas sur le successeur.
 - **Ordre de livraison entre les deux dépôts** : la CI checkoute le voisin sur le **tag** `v<version>` lu dans `uv.lock`, pas sur `main`. Bumper la bibliothèque impose donc de **taguer et pousser** avant que la CI de genecrew puisse verdir — `uv sync` seul ne suffit pas, et l'échec se présente comme un `uv sync --locked` qui refuse le lock.
 - **Fusion de personnes irréversible** : `Person.merge()` supprime le titanic et unionne les
