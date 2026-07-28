@@ -1,19 +1,17 @@
 """Un rapport ne doit jamais effacer celui d'un run précédent."""
 
-from pathlib import Path
+import time
 
 from genecrew.chemins import chemin_libre
 
 
 def _horloge(hhmmss):
     """Horloge figée : le test ne doit pas dépendre de l'heure qu'il est."""
-    import time
-
     return lambda: time.strptime(hhmmss, "%H%M%S")
 
 
 def test_chemin_inchange_quand_il_est_libre(tmp_path):
-    """Cas courant : aucun bruit ajouté au nom tant que rien n'existe."""
+    """Cas courant : aucun bruit ajouté au nom tant qu'il n'y a rien à protéger."""
     cible = tmp_path / "2026-07-27_lieux_wiki_ecritures.md"
     assert chemin_libre(cible, horloge=_horloge("224757")) == cible
 
@@ -26,9 +24,36 @@ def test_un_second_run_n_ecrase_pas_le_premier(tmp_path):
     second = chemin_libre(cible, horloge=_horloge("224757"))
 
     assert second != cible
-    assert not second.exists()
     assert cible.read_text(encoding="utf-8") == "591 images", "le premier a été touché"
     assert second.name == "2026-07-27_lieux_wiki_ecritures_224757.md"
+
+
+def test_la_reservation_est_atomique(tmp_path):
+    """Deux appels sans écriture intercalée doivent déjà différer.
+
+    Un simple `exists()` laisse une fenêtre entre le choix du nom et l'écriture, qui
+    survient bien plus tard chez l'appelant : deux runs se terminant ensemble
+    choisiraient le même fichier — le dégât même que ce module doit empêcher. La
+    réservation crée donc le fichier sur-le-champ, en `O_CREAT | O_EXCL`.
+    """
+    cible = tmp_path / "rapport.md"
+    h = _horloge("120000")
+
+    premier = chemin_libre(cible, horloge=h)
+    deuxieme = chemin_libre(cible, horloge=h)
+    troisieme = chemin_libre(cible, horloge=h)
+
+    assert len({premier, deuxieme, troisieme}) == 3, (premier, deuxieme, troisieme)
+    assert all(p.exists() for p in (premier, deuxieme, troisieme))
+
+
+def test_le_chemin_reserve_est_vide_et_ecrasable_par_l_appelant(tmp_path):
+    """La réservation ne doit pas gêner l'écriture qu'elle protège."""
+    cible = tmp_path / "rapport.md"
+    reserve = chemin_libre(cible, horloge=_horloge("120000"))
+    assert reserve.read_text(encoding="utf-8") == ""
+    reserve.write_text("contenu réel", encoding="utf-8")
+    assert reserve.read_text(encoding="utf-8") == "contenu réel"
 
 
 def test_l_extension_est_preservee(tmp_path):
@@ -38,21 +63,8 @@ def test_l_extension_est_preservee(tmp_path):
     assert chemin_libre(cible, horloge=_horloge("090000")).suffix == ".yaml"
 
 
-def test_deux_collisions_dans_la_meme_seconde_restent_distinctes(tmp_path):
-    """Deux runs bornés peuvent finir dans la même seconde ; l'heure seule ne suffit pas."""
-    cible = tmp_path / "rapport.md"
-    cible.write_text("premier", encoding="utf-8")
-    h = _horloge("120000")
-
-    deuxieme = chemin_libre(cible, horloge=h)
-    deuxieme.write_text("deuxième", encoding="utf-8")
-    troisieme = chemin_libre(cible, horloge=h)
-
-    assert len({cible, deuxieme, troisieme}) == 3, (cible, deuxieme, troisieme)
-    assert not troisieme.exists()
-
-
-def test_un_repertoire_absent_ne_fait_pas_echouer(tmp_path):
-    """Le helper décide d'un nom ; créer le dossier reste au code appelant."""
+def test_le_repertoire_manquant_est_cree(tmp_path):
+    """Réserver suppose de créer : le helper ne peut pas laisser ce soin à l'appelant."""
     cible = tmp_path / "pas_encore" / "rapport.md"
-    assert chemin_libre(cible, horloge=_horloge("120000")) == cible
+    reserve = chemin_libre(cible, horloge=_horloge("120000"))
+    assert reserve == cible and cible.exists()
