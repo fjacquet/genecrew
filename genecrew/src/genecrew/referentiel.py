@@ -19,6 +19,7 @@ from crewai_custom_tools.tools.genealogy.referentiel.chargement import (
 from crewai_custom_tools.tools.genealogy.referentiel.config import PAYS_REFERENTIEL
 
 from genecrew.batching import iter_places
+from genecrew.chemins import chemin_libre
 
 
 def doublons_de_larbre(places: list[dict]) -> list[dict]:
@@ -165,10 +166,10 @@ def run_referentiel(client, output_dir, *, date: str,
     out = Path(output_dir) / "referentiel"
     out.mkdir(parents=True, exist_ok=True)
     suffixe = "tous" if codes_pays is None else "-".join(codes)
-    report_path = out / f"{date}_referentiel_{suffixe}.md"
+    report_path = chemin_libre(out / f"{date}_referentiel_{suffixe}.md")
     report_path.write_text(render_referentiel_report(date, resultats, entites, doublons),
                            encoding="utf-8")
-    yaml_path = out / f"{date}_propositions_referentiel_{suffixe}.yaml"
+    yaml_path = chemin_libre(out / f"{date}_propositions_referentiel_{suffixe}.yaml")
     yaml_path.write_text(render_referentiel_yaml(resultats, entites, doublons),
                          encoding="utf-8")
     return report_path, yaml_path

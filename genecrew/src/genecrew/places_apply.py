@@ -20,6 +20,7 @@ from crewai_custom_tools.tools.genealogy.gramps.write_tools import (
 from crewai_custom_tools.tools.genealogy.models.domain import PlaceMergeProposition
 
 from genecrew.batching import iter_places
+from genecrew.chemins import chemin_libre
 from genecrew.places import build_proposition
 
 
@@ -229,7 +230,7 @@ def run_places_apply(
     out = output_dir / "lieux"
     out.mkdir(parents=True, exist_ok=True)
     scope_slug = scope.replace(":", "_")
-    path = out / f"{date}_lieux_appliques_{scope_slug}.md"
+    path = chemin_libre(out / f"{date}_lieux_appliques_{scope_slug}.md")
     path.write_text(
         render_apply_report(
             scope,
@@ -244,7 +245,7 @@ def run_places_apply(
         encoding="utf-8",
     )
 
-    merges_path = out / f"{date}_fusions_lieux_{scope_slug}.yaml"
+    merges_path = chemin_libre(out / f"{date}_fusions_lieux_{scope_slug}.yaml")
     merges_path.write_text(
         yaml.safe_dump(
             [m.model_dump() for m in merges], allow_unicode=True, sort_keys=False

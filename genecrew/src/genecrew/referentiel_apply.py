@@ -33,6 +33,7 @@ from crewai_custom_tools.tools.genealogy.referentiel.chargement import EntitePay
 from crewai_custom_tools.tools.genealogy.referentiel.config import PAYS_REFERENTIEL
 
 from genecrew.batching import iter_places  # pagination déjà écrite, triée par gramps_id
+from genecrew.chemins import chemin_libre
 
 _WIKIDATA = "https://www.wikidata.org/wiki/"
 
@@ -644,6 +645,6 @@ def run_referentiel_apply(client, yaml_path, output_dir, *, date: str,
     mode = "simulation" if dry_run else "ecritures"
     out = Path(output_dir) / "referentiel"
     out.mkdir(parents=True, exist_ok=True)
-    report_path = out / f"{date}_referentiel_applique_{mode}.md"
+    report_path = chemin_libre(out / f"{date}_referentiel_applique_{mode}.md")
     report_path.write_text(render_apply_report(date, bilan, dry_run), encoding="utf-8")
     return report_path

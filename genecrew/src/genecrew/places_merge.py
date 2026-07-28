@@ -34,6 +34,7 @@ from crewai_custom_tools.tools.genealogy.gramps.write_tools import (
 from crewai_custom_tools.tools.genealogy.models.domain import PlaceFacts
 
 from genecrew.batching import iter_places
+from genecrew.chemins import chemin_libre
 from genecrew.logging_setup import get_logger
 from genecrew.scope import parse_scope
 
@@ -424,7 +425,7 @@ def run_places_merge(
     out = output_dir / "lieux"
     out.mkdir(parents=True, exist_ok=True)
     slug = Path(merges_yaml).stem
-    path = out / f"{date}_fusions_appliquees_{slug}.md"
+    path = chemin_libre(out / f"{date}_fusions_appliquees_{slug}.md")
     path.write_text(
         render_merge_report(date, done, errors, effective_dry_run(dry_run)),
         encoding="utf-8",
@@ -496,7 +497,7 @@ def _ecrire_sorties(
     out = Path(output_dir) / "lieux"
     out.mkdir(parents=True, exist_ok=True)
     scope_slug = scope.replace(":", "_")
-    (out / f"{date}_arbitrage_lieux_{scope_slug}.yaml").write_text(
+    (chemin_libre(out / f"{date}_arbitrage_lieux_{scope_slug}.yaml")).write_text(
         _ENTETE_ARBITRAGE
         + yaml.safe_dump(
             [_ligne_arbitrage(p, faits) for p in arbitrage],
@@ -505,7 +506,7 @@ def _ecrire_sorties(
         ),
         encoding="utf-8",
     )
-    path = out / f"{date}_doublons_lieux_{scope_slug}.md"
+    path = chemin_libre(out / f"{date}_doublons_lieux_{scope_slug}.md")
     path.write_text(
         render_detect_report(
             date,

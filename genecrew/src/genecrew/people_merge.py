@@ -26,6 +26,7 @@ from crewai_custom_tools.tools.genealogy.models.domain import (
 )
 
 from genecrew.batching import iter_people_batches
+from genecrew.chemins import chemin_libre
 
 _TAILLE_LOT = 200
 
@@ -253,13 +254,13 @@ def run_people_merge(
     out = output_dir / "doublons"
     out.mkdir(parents=True, exist_ok=True)
     scope_slug = scope.replace(":", "_")
-    (out / f"{date}_arbitrage_doublons_{scope_slug}.yaml").write_text(
+    (chemin_libre(out / f"{date}_arbitrage_doublons_{scope_slug}.yaml")).write_text(
         yaml.safe_dump(
             [p.model_dump() for p in arbitrage], allow_unicode=True, sort_keys=False
         ),
         encoding="utf-8",
     )
-    path = out / f"{date}_fusions_doublons_{scope_slug}.md"
+    path = chemin_libre(out / f"{date}_fusions_doublons_{scope_slug}.md")
     path.write_text(
         render_people_merge_report(
             date, passes, arbitrage, ignores, eff, fusions=fusions
@@ -316,7 +317,7 @@ def run_people_merge_yaml(
     out = output_dir / "doublons"
     out.mkdir(parents=True, exist_ok=True)
     slug = Path(merges_yaml).stem
-    path = out / f"{date}_fusions_relues_{slug}.md"
+    path = chemin_libre(out / f"{date}_fusions_relues_{slug}.md")
     path.write_text(
         render_people_merge_report(
             date, [(1, len(faites), len(erreurs))], [], [], eff, fusions=faites

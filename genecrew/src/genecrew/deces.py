@@ -20,6 +20,7 @@ from crewai_custom_tools.tools.genealogy.models.domain import PersonFacts
 from crewai_custom_tools.tools.genealogy.pistes import event_iso, first_given
 
 from genecrew.batching import iter_people_batches
+from genecrew.chemins import chemin_libre
 from genecrew.logging_setup import get_logger
 from genecrew.propositions import PropositionAudit
 
@@ -269,9 +270,9 @@ def run_deces(
     out = Path(output_dir) / "deces"
     out.mkdir(parents=True, exist_ok=True)
     slug = scope.replace(":", "_")
-    report_path = out / f"{date}_deces_{slug}.md"
+    report_path = chemin_libre(out / f"{date}_deces_{slug}.md")
     report_path.write_text(report, encoding="utf-8")
-    yaml_path = out / f"{date}_propositions_deces_{slug}.yaml"
+    yaml_path = chemin_libre(out / f"{date}_propositions_deces_{slug}.yaml")
     yaml_path.write_text(
         yaml.safe_dump(
             {"propositions": [p.model_dump() for p in props]},

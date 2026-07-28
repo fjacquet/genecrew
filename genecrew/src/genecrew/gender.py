@@ -19,6 +19,7 @@ from crewai_custom_tools.tools.genealogy.gramps.facts import FactsFetcher
 from crewai_custom_tools.tools.genealogy.models.domain import Proposition
 
 from genecrew.batching import iter_people_batches
+from genecrew.chemins import chemin_libre
 
 _PRIORITE_ORDER = {"haute": 0, "moyenne": 1}
 
@@ -145,11 +146,11 @@ def run_gender(
     out = output_dir / "inference"
     out.mkdir(parents=True, exist_ok=True)
     scope_slug = scope.replace(":", "_")
-    report_path = out / f"{date}_genres_{scope_slug}.md"
+    report_path = chemin_libre(out / f"{date}_genres_{scope_slug}.md")
     report_path.write_text(
         render_gender_report(scope, date, propositions, indecidables, people_count),
         encoding="utf-8",
     )
-    yaml_path = out / f"{date}_propositions_genre_{scope_slug}.yaml"
+    yaml_path = chemin_libre(out / f"{date}_propositions_genre_{scope_slug}.yaml")
     yaml_path.write_text(render_propositions_yaml(propositions), encoding="utf-8")
     return report_path, yaml_path

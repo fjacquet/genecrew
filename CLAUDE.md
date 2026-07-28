@@ -207,6 +207,15 @@ gotchas — c'est elle qui impose l'ordre de livraison entre les deux dépôts.
 - Full-tree `propose audit`/`apply case` runs are slow (minutes: per-family N+1 fetch + O(n²) duplicate check); iterate with `--limit`.
 - **Crew write isolation & cost**: only `chroniqueur` agent has write tools (append-only note/tag); `detective` cannot write. A `crew audit` run costs ~23k LLM tokens/person (heavy read correlation) — always bound full-tree runs with `--limit`.
 - **Durable logs**: every `genecrew <verbe> <cible>` appends to `output/logs/<date>_genecrew.log` (START/DONE/FAILED + `genecrew`/`crewai_custom_tools` namespaces); `crew audit` also writes structured agent/tool trace to `output/crew_audit/<date>_crew_audit_<scope>.log.txt` (CrewAI only accepts `.txt`/`.json`), plus its `.md`/`.yaml` report and human-review `<date>_propositions_audit_<scope>.yaml`.
+- **Un rapport n'écrase plus le précédent.** Tous les noms de rapport sont datés au JOUR
+  (`<date>_<verbe>_<portée>.md`), donc deux passages du même verbe le même jour sur le même
+  périmètre visaient le même fichier et le second gagnait en silence. Mesuré le 2026-07-27 : un
+  `enrich wiki` de 15 lieux a effacé le compte rendu du run qui venait d'en illustrer 591 — et le
+  dégât ne se limite pas au récit, les **YAML de propositions** suivent la même règle et sont relus
+  par un humain avant d'être consommés par `apply`. `chemins.chemin_libre()` rend le chemin
+  inchangé tant qu'il est libre (pas de bruit dans les noms) et n'y insère l'heure que lorsque le
+  fichier existe déjà. Les 31 chemins de rapport des 18 modules passent par lui ; un nouveau
+  rapport doit faire de même.
 - **GPS des lieux**: coordonnées **WGS84** décimales ; GeoJSON = `[lon, lat]` (ne pas inverser) ; WKT Wikidata = `Point(lon lat)`, **longitude d'abord aussi** ; swisstopo : lire `lat`/`lon`, **jamais `x`/`y`** (grille suisse LV95). Le géocodage passe par des résolveurs `geo/` routés par pays (`crewai_custom_tools`).
 - **Lien Wikipédia d'un lieu** (`enrich wiki`) : chercher **par le titre**, vérifier **par la
   position** — jamais l'inverse. La géorecherche trie par distance, et les dix articles les plus

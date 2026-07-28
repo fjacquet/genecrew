@@ -32,6 +32,7 @@ from crewai_custom_tools.tools.genealogy.gramps.write_tools import (
 )
 from crewai_custom_tools.tools.web.wikipedia import frwiki_page_info, frwiki_search_geo
 
+from genecrew.chemins import chemin_libre
 from genecrew.logging_setup import get_logger
 
 MIN_SIM = 0.85
@@ -303,6 +304,6 @@ def run_lieux_wiki(
     # Le mode est dans le NOM, pas seulement dans le corps : une simulation de contrôle a
     # déjà effacé le compte rendu d'un run réel de 41 liens, les deux visant le même fichier.
     suffixe = "simulation" if dry_run else "ecritures"
-    report_path = out / f"{date}_lieux_wiki_{suffixe}.md"
+    report_path = chemin_libre(out / f"{date}_lieux_wiki_{suffixe}.md")
     report_path.write_text("\n".join(lines), encoding="utf-8")
     return report_path

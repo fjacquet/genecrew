@@ -24,6 +24,7 @@ from crewai_custom_tools.tools.genealogy.gramps.write_tools import (
     effective_dry_run,
 )
 
+from genecrew.chemins import chemin_libre
 from genecrew.propositions import PropositionsLot
 
 SOURCE_TITLE = "INSEE — Fichier des personnes décédées"
@@ -204,6 +205,6 @@ def run_deces_apply(
     report = render_apply_report(date, applied, skipped, errors, ignored, dry_run)
     out = Path(output_dir) / "deces"
     out.mkdir(parents=True, exist_ok=True)
-    report_path = out / f"{date}_apply_{Path(propositions_yaml).stem}.md"
+    report_path = chemin_libre(out / f"{date}_apply_{Path(propositions_yaml).stem}.md")
     report_path.write_text(report, encoding="utf-8")
     return report_path

@@ -16,6 +16,7 @@ from crewai_custom_tools.tools.genealogy.models.domain import PlaceProposition
 from crewai_custom_tools.tools.genealogy.standardize.places import parse_pname
 
 from genecrew.batching import iter_places
+from genecrew.chemins import chemin_libre
 
 _PRIORITE = {"haute": 0, "moyenne": 1, "basse": 2}
 
@@ -117,8 +118,8 @@ def run_places(
     out = output_dir / "lieux"
     out.mkdir(parents=True, exist_ok=True)
     scope_slug = scope.replace(":", "_")
-    report_path = out / f"{date}_lieux_{scope_slug}.md"
+    report_path = chemin_libre(out / f"{date}_lieux_{scope_slug}.md")
     report_path.write_text(render_places_report(scope, date, props), encoding="utf-8")
-    yaml_path = out / f"{date}_propositions_lieux_{scope_slug}.yaml"
+    yaml_path = chemin_libre(out / f"{date}_propositions_lieux_{scope_slug}.yaml")
     yaml_path.write_text(render_propositions_yaml(props), encoding="utf-8")
     return report_path, yaml_path

@@ -24,6 +24,7 @@ from crewai_custom_tools.tools.genealogy.gramps.write_tools import (
 )
 
 from genecrew.batching import iter_people_batches
+from genecrew.chemins import chemin_libre
 
 _SEX_TO_INT = {"F": 0, "M": 1}
 _INT_TO_SEX = {0: "F", 1: "M", 2: "U"}
@@ -135,7 +136,7 @@ def run_gender_apply(
     out = output_dir / "inference"
     out.mkdir(parents=True, exist_ok=True)
     scope_slug = scope.replace(":", "_")
-    path = out / f"{date}_genres_appliques_{scope_slug}.md"
+    path = chemin_libre(out / f"{date}_genres_appliques_{scope_slug}.md")
     path.write_text(
         render_apply_report(
             scope, date, applied, below, errors, effective_dry_run(dry_run)
