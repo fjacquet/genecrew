@@ -18,6 +18,7 @@ from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient
 from crewai_custom_tools.tools.genealogy.gramps.facts import FactsFetcher
 
 from genecrew.batching import iter_people_batches
+from genecrew.chemins import chemin_libre
 from genecrew.report import render_report
 
 
@@ -112,10 +113,10 @@ def run_audit(
     report_dir = output_dir / "audit"
     report_dir.mkdir(parents=True, exist_ok=True)
     slug = scope.replace(":", "_")
-    report_path = report_dir / f"{date}_audit_{slug}.md"
+    report_path = chemin_libre(report_dir / f"{date}_audit_{slug}.md")
     report_path.write_text(report, encoding="utf-8")
 
-    yaml_path = report_dir / f"{date}_propositions_audit_deterministes_{slug}.yaml"
+    yaml_path = chemin_libre(report_dir / f"{date}_propositions_audit_deterministes_{slug}.yaml")
     yaml_path.write_text(
         yaml.safe_dump(
             {"propositions": [p.model_dump() for p in propositions]},

@@ -18,6 +18,7 @@ from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient
 from crewai_custom_tools.tools.genealogy.gramps.write_tools import effective_dry_run
 
 from genecrew.audit import collect_audit_findings
+from genecrew.chemins import chemin_libre
 from genecrew.crew import Genecrew, PropositionsLot
 from genecrew.logging_setup import get_logger
 
@@ -253,11 +254,11 @@ def run_crew_audit(
         n_propositions=len(all_propositions),
     )
 
-    report_path = report_dir / f"{date}_crew_audit_{slug}.md"
+    report_path = chemin_libre(report_dir / f"{date}_crew_audit_{slug}.md")
     report_path.write_text(report, encoding="utf-8")
 
     # Propositions actionnables (relues par un humain) — toujours écrit, même vide.
-    propositions_path = report_dir / f"{date}_propositions_audit_{slug}.yaml"
+    propositions_path = chemin_libre(report_dir / f"{date}_propositions_audit_{slug}.yaml")
     propositions_path.write_text(
         yaml.safe_dump(
             {"propositions": [p.model_dump() for p in all_propositions]},
@@ -280,7 +281,7 @@ def run_crew_audit(
         ],
         "tokens_total": sum(b["tokens"] for b in batch_results),
     }
-    yaml_path = report_dir / f"{date}_crew_audit_{slug}.yaml"
+    yaml_path = chemin_libre(report_dir / f"{date}_crew_audit_{slug}.yaml")
     yaml_path.write_text(
         yaml.safe_dump(summary, allow_unicode=True, sort_keys=False), encoding="utf-8"
     )

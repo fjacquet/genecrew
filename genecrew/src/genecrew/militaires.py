@@ -17,6 +17,7 @@ from crewai_custom_tools.tools.genealogy.militaires import match_militaires
 from crewai_custom_tools.tools.genealogy.models.domain import PersonFacts
 
 from genecrew.batching import iter_people_batches
+from genecrew.chemins import chemin_libre
 from genecrew.deces import _dates_concordent, event_iso, is_candidate
 from genecrew.logging_setup import get_logger
 from genecrew.propositions import PropositionAudit
@@ -185,9 +186,9 @@ def run_militaires(
     out = Path(output_dir) / "militaires"
     out.mkdir(parents=True, exist_ok=True)
     slug = scope.replace(":", "_")
-    report_path = out / f"{date}_militaires_{slug}.md"
+    report_path = chemin_libre(out / f"{date}_militaires_{slug}.md")
     report_path.write_text(report, encoding="utf-8")
-    yaml_path = out / f"{date}_propositions_militaires_{slug}.yaml"
+    yaml_path = chemin_libre(out / f"{date}_propositions_militaires_{slug}.yaml")
     yaml_path.write_text(
         yaml.safe_dump(
             {"propositions": [p.model_dump() for p in props]},

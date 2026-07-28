@@ -22,6 +22,7 @@ from crewai_custom_tools.tools.genealogy.standardize.names import (
 )
 
 from genecrew.batching import iter_people_batches
+from genecrew.chemins import chemin_libre
 
 
 def _link(gramps_id: str, base_url: str) -> str:
@@ -138,14 +139,14 @@ def run_names(
     out = output_dir / "standardize"
     out.mkdir(parents=True, exist_ok=True)
     scope_slug = scope.replace(":", "_")
-    report_path = out / f"{date}_noms_{scope_slug}.md"
+    report_path = chemin_libre(out / f"{date}_noms_{scope_slug}.md")
     report_path.write_text(
         render_names_report(
             scope, date, results, incomplete, effective_dry_run(dry_run)
         ),
         encoding="utf-8",
     )
-    incomplete_path = out / f"{date}_noms_a_verifier_{scope_slug}.md"
+    incomplete_path = chemin_libre(out / f"{date}_noms_a_verifier_{scope_slug}.md")
     incomplete_path.write_text(
         render_incomplete_report(scope, date, incomplete), encoding="utf-8"
     )

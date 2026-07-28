@@ -24,6 +24,7 @@ from crewai_custom_tools.tools.genealogy.pistes import (
 from crewai_custom_tools.tools.web.wikidata import sparql_rows
 
 from genecrew.batching import iter_people_batches
+from genecrew.chemins import chemin_libre
 from genecrew.pistes import render_rapport_pistes
 
 logger = logging.getLogger(__name__)
@@ -88,7 +89,7 @@ def run_archives(
             toutes.extend(pistes)
 
     output_dir.mkdir(parents=True, exist_ok=True)
-    chemin = output_dir / f"{date}_pistes_{source}_{scope.replace(':', '-')}.md"
+    chemin = chemin_libre(output_dir / f"{date}_pistes_{source}_{scope.replace(':', '-')}.md")
     chemin.write_text(
         render_rapport_pistes(toutes, date, ecriture=False, echecs=echecs),
         encoding="utf-8",

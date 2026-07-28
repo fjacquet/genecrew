@@ -27,6 +27,7 @@ from crewai_custom_tools.tools.genealogy.gramps.write_tools import (
     effective_dry_run,
 )
 
+from genecrew.chemins import chemin_libre
 from genecrew.deces_apply import citation_page, source_title_for
 from genecrew.evenements import creer_evenement_source, dateval_iso
 from genecrew.propositions import PropositionsLot
@@ -475,7 +476,7 @@ def run_deces_event(
     # la seule chose à quoi confronter le rapport d'écriture ensuite.
     suffixe = "simulation" if dry_run else "ecritures"
     report_path = (
-        out / f"{date}_apply_deaths_{Path(propositions_yaml).stem}_{suffixe}.md"
+        chemin_libre(out / f"{date}_apply_deaths_{Path(propositions_yaml).stem}_{suffixe}.md")
     )
     report_path.write_text(report, encoding="utf-8")
     return report_path
