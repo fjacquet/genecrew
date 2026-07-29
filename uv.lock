@@ -7,6 +7,12 @@ resolution-markers = [
     "sys_platform != 'emscripten' and sys_platform != 'win32'",
 ]
 
+[manifest]
+constraints = [
+    { name = "json-repair", specifier = ">=0.60.1" },
+    { name = "mcp", specifier = ">=1.28.1" },
+]
+
 [[package]]
 name = "aiofiles"
 version = "24.1.0"
