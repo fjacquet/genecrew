@@ -20,6 +20,7 @@ from genecrew.releves import Appariement, ReleveIndexe
 from genecrew.releves_import import (
     PROMPT_INTERPRETATION,
     TAG_RELEVE,
+    _id_lisible,
     _parents_par_handle,
     _prefixe_pays,
     _raw_lieu,
@@ -159,6 +160,11 @@ def _releve_lieu(commune="Saint-Martin-d'Auxigny", departement="Cher", pays="Fra
         evenement_pays=pays,
         texte_brut="…",
     )
+
+
+def _appariement_net():
+    """Un Appariement NET minimal, pour les tests qui ne portent que sur le rendu."""
+    return Appariement(verdict="net", gramps_id="I0305", handle="h_p", poids=0)
 
 
 def test_raw_lieu_assemble_commune_departement_pays():
@@ -1466,6 +1472,95 @@ def test_rapport_sur_personne_introuvable_ne_plante_pas(monkeypatch):
     texte = format_import_releve(out)
     assert "I9999" in texte
     assert "introuvable" in texte
+
+
+def test_le_rapport_montre_le_gramps_id_pas_le_handle():
+    """Un relecteur doit pouvoir vérifier ce qui a été écrit sans traduire à la main.
+
+    Gramps porte deux identifiants : le `handle` interne (32 hexadécimaux, jamais
+    affiché dans l'interface) et le `gramps_id` (E0332). Le rapport montrait le
+    premier, donc rien n'était vérifiable à l'œil.
+    """
+    out = {
+        "releve": _releve_lieu(),
+        "appariement": _appariement_net(),
+        "dry_run": False,
+        "ecrit": True,
+        "raison": "importée",
+        "evenement": {
+            "event_handle": "h_evt",
+            "event_gramps_id": "E0332",
+            "lieu": "h_lieu",
+            "lieu_gramps_id": "P0661",
+            "lieu_provenance": "arbre",
+        },
+    }
+    texte = format_import_releve(out)
+    assert "E0332" in texte
+    assert "P0661" in texte
+    assert "h_evt" not in texte
+
+
+def test_le_rapport_nomme_la_provenance_du_lieu():
+    """Garde-fou de la création automatique.
+
+    Un hameau créé sans GPS est exactement ce qu'une graphie mal lue produirait.
+    Il doit se distinguer à l'œil d'un hameau confirmé par OSM.
+    """
+    out = {
+        "releve": _releve_lieu(),
+        "appariement": _appariement_net(),
+        "dry_run": False,
+        "ecrit": True,
+        "raison": "importée",
+        "evenement": {
+            "event_handle": "h_evt",
+            "event_gramps_id": "E0334",
+            "lieu": "h_lieu",
+            "lieu_gramps_id": "P0663",
+            "lieu_provenance": "cree_sans_gps",
+        },
+    }
+    assert "sans GPS" in format_import_releve(out)
+
+
+def test_en_simulation_aucun_faux_identifiant_n_est_imprime():
+    """Le dry-run rend des handles synthétiques `DRYRUN:…` — pas d'identifiant réel.
+
+    Un rapport de simulation qui ressemble trop à un rapport d'écriture est un
+    piège : les rapports sont relus avant d'être consommés par `apply`.
+    """
+    out = {
+        "releve": _releve_lieu(),
+        "appariement": _appariement_net(),
+        "dry_run": True,
+        "ecrit": False,
+        "raison": "simulation",
+        "evenement": {
+            "event_handle": "DRYRUN:evt",
+            "event_gramps_id": "à créer",
+            "lieu": "DRYRUN:lieu",
+            "lieu_gramps_id": "à créer",
+            "lieu_provenance": "cree_sans_gps",
+        },
+    }
+    texte = format_import_releve(out)
+    assert "DRYRUN" not in texte
+    assert "à créer" in texte
+
+
+def test_id_lisible_ne_fabrique_pas_d_identifiant_en_simulation():
+    """`DRYRUN:…` n'a pas de gramps_id : en inventer un tromperait le relecteur."""
+    assert _id_lisible(None, "event", "DRYRUN:evt") == "à créer"
+
+
+def test_id_lisible_retombe_sur_le_handle_si_la_lecture_echoue():
+    """Mieux vaut une valeur laide qu'un rapport muet sur ce qui vient d'être écrit."""
+
+    def _panne(request):
+        return httpx.Response(500, json={})
+
+    assert _id_lisible(_client(_panne), "event", "h_evt") == "h_evt"
 
 
 # --- résolution géographique : peupler lieux_resolus pour activer le veto ------

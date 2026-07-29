@@ -1157,6 +1157,9 @@ def run_import_releve(
     # raison dit ce qui s'est passé, sans avoir à fouiller le dict.
     evt = completer_evenement_principal(client, releve, appariement, dry_run=dry_run)
     out["evenement"] = evt
+    if evt.get("event_handle"):
+        evt["event_gramps_id"] = _id_lisible(client, "event", evt["event_handle"])
+        evt["lieu_gramps_id"] = _id_lisible(client, "place", evt.get("lieu"))
 
     # Surface B : la naissance estimée du relevé, posée seulement si l'arbre n'en a
     # aucune (ne remplace jamais une date connue).
@@ -1180,6 +1183,35 @@ def run_import_releve(
     if nais is not None:
         out["raison"] += " + naissance estimée"
     return out
+
+
+_LIBELLE_PROVENANCE = {
+    "arbre": "déjà dans l'arbre",
+    "osm": "créé avec GPS (OSM)",
+    "cree_sans_gps": "créé sans GPS",
+    "commune": "commune",
+}
+
+
+def _id_lisible(client: GrampsClient | None, genre: str, handle: str | None) -> str:
+    """`gramps_id` de l'objet, ou "à créer" en simulation, ou le handle en dernier repli.
+
+    En simulation le handle est synthétique (`DRYRUN:…`) : aucun identifiant réel
+    n'existe encore, et en inventer un tromperait le relecteur qui valide sur ce
+    rapport. Le repli sur le handle brut couvre l'échec de lecture — un rapport ne
+    doit jamais faire échouer l'import qu'il décrit.
+    """
+    if not handle:
+        return "aucun"
+    if handle.startswith("DRYRUN:"):
+        return "à créer"
+    if client is None:
+        return handle
+    try:
+        obj = client.get_object(f"{genre}s", handle)
+    except Exception:  # un rapport ne fait jamais échouer un import qu'il décrit
+        return handle
+    return (obj or {}).get("gramps_id") or handle
 
 
 def format_import_releve(resultat: dict) -> str:
@@ -1237,9 +1269,16 @@ def format_import_releve(resultat: dict) -> str:
         lignes.append(f"  Sujet CRÉÉ : handle {sc['handle']} (genre {sc['genre']})")
     evt = resultat.get("evenement") or {}
     if evt.get("event_handle"):
+        lieu_txt = "aucun"
+        if evt.get("lieu"):
+            provenance = _LIBELLE_PROVENANCE.get(
+                evt.get("lieu_provenance", "commune"),
+                evt.get("lieu_provenance", ""),
+            )
+            lieu_txt = f"{evt.get('lieu_gramps_id') or evt['lieu']} — {provenance}"
         lignes.append(
-            f"  {releve.evenement_type} créé : {evt['event_handle']} "
-            f"(lieu {evt.get('lieu') or 'aucun'})"
+            f"  {releve.evenement_type} créé : "
+            f"{evt.get('event_gramps_id') or evt['event_handle']} (lieu {lieu_txt})"
         )
     if (resultat.get("naissance") or {}).get("event_handle"):
         lignes.append(
