@@ -164,9 +164,7 @@ from genecrew.lieux_dits import (
     normaliser_nom,
 )
 
-CONFIG = GrampsConfig(
-    base_url="http://x/api", username="u", password="p", tree_id="t"
-)
+CONFIG = GrampsConfig(api_url="http://x/api", username="u", password="p")
 
 
 def _client(handler):
