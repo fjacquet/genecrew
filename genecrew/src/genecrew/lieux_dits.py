@@ -8,18 +8,22 @@ similarité de chaîne ne mesure pas la plausibilité géographique.
 La garde n'est donc PAS un seuil de score mais l'EMPRISE : bornée à la commune
 déjà résolue, la requête ne peut plus ramener l'Ardèche, quel que soit son score.
 
-Cette tâche implémente le premier étage de la cascade : chercher le lieu-dit
-DANS l'arbre, sous sa commune déjà résolue. Les étages suivants (OSM borné,
-puis création) arrivent aux tâches suivantes et ne sont pas anticipés ici.
+La cascade compte trois étages, du moins cher au plus cher, le premier qui
+répond gagne : l'arbre (gratuit, déterministe), Nominatim borné à l'emprise de
+la commune (une requête), puis la création du lieu sous la commune, sans
+coordonnées si ni l'arbre ni OSM ne l'ont trouvé. `resoudre_lieu_dit` les
+assemble.
 """
 
 from __future__ import annotations
 
+import json
 import logging
 
 import httpx
 from crewai_custom_tools.core.rate_limiter import get_rate_limiter
 from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient
+from crewai_custom_tools.tools.genealogy.gramps.write_tools import GrampsCreatePlaceTool
 
 _LOG = logging.getLogger(__name__)
 
@@ -164,3 +168,74 @@ def interroger_osm(nom: str, viewbox: str) -> tuple[str, str] | None:
         if (r.get("addresstype") or r.get("type") or "") in TYPES_OSM_LIEU_DIT:
             return str(r["lat"]), str(r["lon"])
     return None
+
+
+def _creer_lieu(
+    *,
+    nom: str,
+    parent_handle: str,
+    lat: str | None,
+    long: str | None,
+    dry_run: bool,
+) -> str:
+    """Crée le lieu-dit sous sa commune. Rend son handle. Lève si l'écriture échoue."""
+    creator = GrampsCreatePlaceTool()
+    payload = json.loads(
+        creator._run(
+            name=nom,
+            place_type="Hamlet",
+            parent_handle=parent_handle,
+            lat=lat,
+            long=long,
+            dry_run=dry_run,
+        )
+    )
+    if not payload["success"]:
+        raise RuntimeError(f"création du lieu-dit '{nom}' : {payload['error']}")
+    return payload["data"]["handle"]
+
+
+def resoudre_lieu_dit(
+    client: GrampsClient,
+    nom: str,
+    commune_handle: str,
+    commune_lat: float | None,
+    commune_lon: float | None,
+    commune_bbox: tuple[float, float, float, float] | None = None,
+    *,
+    dry_run: bool = False,
+) -> tuple[str | None, str]:
+    """(handle, provenance) du lieu-dit. Cascade à trois étages, le premier qui répond.
+
+    provenance ∈ {"arbre", "osm", "cree_sans_gps", "abandon"} — le rapport
+    l'affiche telle quelle, pour que le relecteur distingue un hameau confirmé
+    par OSM d'un hameau créé sur la seule foi d'une transcription.
+    """
+    if not nom or not commune_handle:
+        return None, "abandon"
+
+    # Étage 1 — l'arbre. Une PANNE n'est pas une absence : on abandonne plutôt
+    # que de créer un doublon du lieu qu'on n'a pas su lire.
+    try:
+        handle = chercher_dans_arbre(client, nom, commune_handle)
+    except RechercheArbreIndisponible as exc:
+        _LOG.warning("Arbre illisible pour le lieu-dit « %s », aucun lieu posé : %s", nom, exc)
+        return None, "abandon"
+    if handle:
+        return handle, "arbre"
+
+    # Étage 2 — OSM borné à l'emprise de la commune.
+    viewbox = emprise_de_commune(commune_lat, commune_lon, commune_bbox)
+    coords = interroger_osm(nom, viewbox) if viewbox else None
+    if coords:
+        lat, long = coords
+        return (
+            _creer_lieu(nom=nom, parent_handle=commune_handle, lat=lat, long=long, dry_run=dry_run),
+            "osm",
+        )
+
+    # Étage 3 — création sans coordonnées.
+    return (
+        _creer_lieu(nom=nom, parent_handle=commune_handle, lat=None, long=None, dry_run=dry_run),
+        "cree_sans_gps",
+    )

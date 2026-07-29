@@ -10,6 +10,7 @@ from genecrew.lieux_dits import (
     emprise_de_commune,
     interroger_osm,
     normaliser_nom,
+    resoudre_lieu_dit,
 )
 
 CONFIG = GrampsConfig(api_url="http://x/api", username="u", password="p")
@@ -195,3 +196,86 @@ def test_une_panne_osm_rend_none_sans_lever(monkeypatch):
 
     monkeypatch.setattr("genecrew.lieux_dits._http_get_osm", _boom)
     assert interroger_osm("La Rose", "2.29,47.27,2.42,47.16") is None
+
+
+def test_l_arbre_gagne_et_le_reseau_n_est_pas_appele(monkeypatch):
+    """Étage 1 : trouvé dans l'arbre, aucune requête OSM ne part.
+
+    Vérifie l'ORDRE de la cascade, pas seulement son résultat : un étage 1 qui
+    marcherait tout en appelant OSM passerait un test de résultat seul.
+    """
+    appels = []
+    monkeypatch.setattr(
+        "genecrew.lieux_dits._http_get_osm", lambda p: appels.append(p) or []
+    )
+    client = _client(
+        _handler_places(_place("P0661", "h_roches", "Les Roches", "Hamlet", "h_com"))
+    )
+    handle, provenance = resoudre_lieu_dit(client, "Les Roches", "h_com", 47.2, 2.35)
+    assert (handle, provenance) == ("h_roches", "arbre")
+    assert appels == []
+
+
+def test_absent_de_l_arbre_mais_dans_osm_est_cree_avec_gps(monkeypatch):
+    """Étage 2 : OSM connaît La Rose, le lieu naît avec ses coordonnées."""
+    monkeypatch.setattr(
+        "genecrew.lieux_dits._http_get_osm",
+        lambda p: [{"addresstype": "hamlet", "lat": "47.19476", "lon": "2.37858"}],
+    )
+    poses = {}
+    monkeypatch.setattr(
+        "genecrew.lieux_dits._creer_lieu",
+        lambda **kw: poses.update(kw) or "h_neuf",
+    )
+    handle, provenance = resoudre_lieu_dit(
+        _client(_handler_places()), "La Rose", "h_com", 47.2, 2.35
+    )
+    assert (handle, provenance) == ("h_neuf", "osm")
+    assert poses["lat"] == "47.19476"
+    assert poses["parent_handle"] == "h_com"
+
+
+def test_absent_partout_est_cree_sans_gps(monkeypatch):
+    """Étage 3 : Les Roches n'est ni dans l'arbre ni dans OSM. Décision assumée."""
+    monkeypatch.setattr("genecrew.lieux_dits._http_get_osm", lambda p: [])
+    monkeypatch.setattr("genecrew.lieux_dits._creer_lieu", lambda **kw: "h_neuf")
+    handle, provenance = resoudre_lieu_dit(
+        _client(_handler_places()), "Les Roches", "h_com", 47.2, 2.35
+    )
+    assert (handle, provenance) == ("h_neuf", "cree_sans_gps")
+
+
+def test_une_panne_de_lecture_n_autorise_aucune_creation(monkeypatch):
+    """L'ASYMÉTRIE centrale : lecture ratée → on n'écrit rien.
+
+    Créer ici produirait un doublon du lieu qu'on n'a pas su lire, et la fusion
+    de lieux est délicate (ADR 0015). Le point le plus facile à rater du chantier.
+    """
+    creations = []
+    monkeypatch.setattr(
+        "genecrew.lieux_dits._creer_lieu", lambda **kw: creations.append(kw) or "h_x"
+    )
+    monkeypatch.setattr("genecrew.lieux_dits._http_get_osm", lambda p: [])
+
+    def _panne(request):
+        return httpx.Response(500, json={"error": "boom"})
+
+    handle, provenance = resoudre_lieu_dit(
+        _client(_panne), "Les Roches", "h_com", 47.2, 2.35
+    )
+    assert (handle, provenance) == (None, "abandon")
+    assert creations == []
+
+
+def test_commune_sans_gps_saute_osm_et_cree_sans_coordonnees(monkeypatch):
+    """Sans emprise calculable, pas d'étage 2 — on ne borne pas sur du vide."""
+    appels = []
+    monkeypatch.setattr(
+        "genecrew.lieux_dits._http_get_osm", lambda p: appels.append(p) or []
+    )
+    monkeypatch.setattr("genecrew.lieux_dits._creer_lieu", lambda **kw: "h_neuf")
+    handle, provenance = resoudre_lieu_dit(
+        _client(_handler_places()), "Les Roches", "h_com", None, None
+    )
+    assert (handle, provenance) == ("h_neuf", "cree_sans_gps")
+    assert appels == []
