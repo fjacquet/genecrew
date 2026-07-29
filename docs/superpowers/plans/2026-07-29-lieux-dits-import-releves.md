@@ -446,17 +446,16 @@ def test_osm_retient_un_hameau(monkeypatch):
     assert interroger_osm("La Rose", "2.29,47.27,2.42,47.16") == ("47.19476", "2.37858")
 
 
-def test_osm_rejette_une_rue():
+def test_osm_rejette_une_rue(monkeypatch):
     """« Rue de la Rose » n'est PAS le lieu-dit La Rose.
 
     La BAN en rend quatre pour cette commune ; les accepter poserait un
     événement sur une voie.
     """
-    import genecrew.lieux_dits as ld
-
-    ld._http_get_osm = lambda params: [
-        {"addresstype": "road", "lat": "47.19", "lon": "2.37"}
-    ]
+    monkeypatch.setattr(
+        "genecrew.lieux_dits._http_get_osm",
+        lambda params: [{"addresstype": "road", "lat": "47.19", "lon": "2.37"}],
+    )
     assert interroger_osm("La Rose", "2.29,47.27,2.42,47.16") is None
 
 
