@@ -45,6 +45,9 @@ names), `audit.py`, `names.py`, `gender.py`, `gender_apply.py`, `apply_all.py`, 
 `deces_event.py` (`apply deaths` orchestration, ADR 0014), `militaires.py`,
 `lieux_wiki.py`, `lieu_import.py`, `archives.py` (`propose wikidata`/`propose dhs` orchestration —
 network + batching; pure Piste translation lives in library, `genealogy/pistes/`),
+`lieux_dits.py` (`import releve` lieu-dit cascade — tree lookup, then OSM bounded to the
+commune's bbox/fallback square, then creation under the commune; the finest place an act
+names, never a bare Nominatim search),
 `releves.py` (`import releve` smart-match engine — **pure**: models + weighted matching, blocking,
 verdict net/gris/aucun, country-prefixed place-code comparison; no network, offline-tested) and
 `releves_import.py` (`import releve` orchestration — LLM interprets pasted text, then

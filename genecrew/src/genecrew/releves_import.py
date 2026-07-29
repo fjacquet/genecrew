@@ -40,6 +40,7 @@ from genecrew.crew import build_llm
 from genecrew.deces_apply import source_title_for
 from genecrew.evenements import creer_evenement_source, dateval_iso
 from genecrew.lieu_import import run_lieu_import
+from genecrew.lieux_dits import resoudre_lieu_dit
 from genecrew.pistes import _normaliser
 from genecrew.releves import (
     Appariement,
@@ -76,6 +77,7 @@ Rends UNIQUEMENT un objet JSON, sans commentaire, avec exactement ces clés :
   evenement_date   : la date de l'événement en ISO AAAA-MM-JJ, "" si absente
   evenement_lieu   : la commune de l'événement, sans le département ni le pays
   evenement_departement : le département/canton/échelon intermédiaire, "" si absent
+  evenement_lieu_dit : le hameau/lieu-dit de l'événement, "" si absent
   evenement_pays   : le PAYS de l'événement, "" si vraiment inconnu
   naissance_estimee: l'ANNÉE de naissance si elle est approximative, sinon null
   personnes_liees  : [{{"nom": …, "role": "père"|"mère"|"conjoint"|"témoin"|"autre",
@@ -95,6 +97,11 @@ Règles :
 - evenement_departement : recopie l'échelon intermédiaire quand le relevé le donne
   (« Cher », « Vaud »). Il sert à désambiguïser la commune lors de la création du
   lieu ; laisse "" si le relevé ne le mentionne pas. N'en invente pas.
+- evenement_lieu_dit : le HAMEAU ou lieu-dit quand l'acte le nomme (« aux Roches »,
+  « à La Rose », « au Montet »). Il ne remplace PAS la commune : « décédé aux Roches,
+  commune de Saint-Martin-d'Auxigny » donne evenement_lieu="Saint-Martin-d'Auxigny"
+  ET evenement_lieu_dit="Les Roches". Si le texte ne nomme qu'une commune, laisse "".
+  N'en invente pas : un champ vide est un résultat correct, pas un échec.
 - Les abréviations de relevé se lisent : prts=parents, prop=propriétaire,
   gdre=gendre, bfr=beau-frère, tem=témoin.
   (Cette liste vise les relevés FRANÇAIS — c'est un point de départ, pas une
@@ -526,8 +533,10 @@ def _creer_evenement(
     poser l'événement SANS lieu — jamais un lieu faux.
     """
     etype = event_type or releve.evenement_type
-    lieu_handle = (
-        resoudre_ou_creer_lieu(client, releve, dry_run=dry_run) if avec_lieu else None
+    lieu_handle, lieu_provenance = (
+        resoudre_ou_creer_lieu(client, releve, dry_run=dry_run)
+        if avec_lieu
+        else (None, "commune")
     )
     dv = dateval if dateval is not None else dateval_iso(releve.evenement_date)
     citation_handle, raison_cit = _creer_citation_releve(
@@ -558,6 +567,7 @@ def _creer_evenement(
         "posee": posee,
         "event_handle": res["event_handle"],
         "lieu": lieu_handle,
+        "lieu_provenance": lieu_provenance,
         "attache": res["attache"],
         "raison": raison,
     }
@@ -634,6 +644,57 @@ serait INCOMPARABLE à celui d'une commune (voir le contrat de granularité de
 """
 
 
+_SAINT = re.compile(r"\bs(?:ain)?t(e?)\.?[ \-]+", re.IGNORECASE)
+"""« St », « Ste », « St. », « Saint » suivis d'un espace ou d'un tiret.
+
+Le `[ \\-]+` final est ce qui empêche d'attraper « Strasbourg » ou « Stains » :
+il exige un séparateur après le sigle. Le groupe `(e?)` porte le féminin, pour
+que « Ste » devienne « Sainte » et non « Sainte » appliqué à tort à « St ».
+"""
+
+
+PAYS_SAINTS_TRAIT_UNION = frozenset({"france"})
+"""Pays où « Saint- » avec trait d'union est la forme officielle.
+
+Liste d'INCLUSION, et volontairement réduite à un seul membre. La convention
+n'est PAS universelle, et l'arbre porte des branches suisses et allemandes :
+
+  * Suisse   « St. Gallen », « St. Moritz » — jamais « Saint-Gallen ».
+    « Saint-Gall » est l'exonyme français, pas le nom de la commune.
+  * Allemagne « Sankt Augustin » — c'est « Sankt », pas « Saint ».
+  * Anglophone « St Albans », « St Andrews » — sans trait d'union.
+
+Normaliser hors de France fabriquerait donc des noms qui n'existent pas, et
+ferait échouer la résolution au lieu de l'améliorer. Un pays VIDE ne vaut pas
+France : le prompt laisse ce champ vide quand le relevé ne l'indique pas, et le
+projet interdit explicitement de présumer la France par défaut — un lieu suisse
+rangé sous « FR: » produirait la fausse concordance de codes que le veto existe
+pour empêcher.
+"""
+
+
+def normaliser_saints(nom: str) -> str:
+    """« St Martin-d'Auxigny » → « Saint-Martin-d'Auxigny ». Idempotent.
+
+    MESURÉ le 2026-07-29, et le détail qui compte n'est pas celui qu'on croit :
+    développer le sigle NE SUFFIT PAS, c'est le TRAIT D'UNION qui fait basculer
+    sur le résolveur officiel. Sur la même commune —
+
+        « St Martin-d'Auxigny »     → Nominatim, score 0.878, AUCUN code INSEE
+        « Saint Martin-d'Auxigny »  → Nominatim, score 0.8xx, AUCUN code INSEE
+        « Saint-Martin-d'Auxigny »  → geo.api.gouv.fr, score 1.0, INSEE 18223
+
+    Les deux premières formes tombent sous le seuil de 0.90 : aucun lieu n'est
+    écrit, et le code INSEE manque — or c'est LUI que lit le veto d'appariement.
+    Un relevé abrégé perdait donc son lieu ET sa capacité à départager un
+    homonyme. Les registres français abrègent les saints par défaut.
+
+    S'applique aussi en milieu de chaîne (« Villeneuve-St-Georges ») puisque le
+    tiret ouvre une frontière de mot.
+    """
+    return _SAINT.sub(lambda m: f"Saint{m.group(1).lower()}-", nom or "")
+
+
 def _raw_lieu(releve: ReleveIndexe) -> str:
     """« commune, département, pays » pour la CASCADE de création de lieux.
 
@@ -642,14 +703,29 @@ def _raw_lieu(releve: ReleveIndexe) -> str:
     résolveur géographique attend, en sautant les échelons vides. Sans commune il
     n'y a rien à résoudre — on rend "" pour que la cascade ne parte pas sur un
     « Cher, France » qui résoudrait le département comme s'il était une commune.
+
+    Les abréviations de saints sont développées ici, au plus près du résolveur,
+    et SEULEMENT pour les pays de `PAYS_SAINTS_TRAIT_UNION` : la convention
+    « Saint- » est française, l'appliquer à « St. Gallen » fabriquerait un nom
+    qui n'existe pas. Un pays vide ne vaut pas France.
+
+    `releve.evenement_lieu` reste la chaîne BRUTE du relevé, clé de
+    `lieux_resolus`, et n'est pas réécrite — seule la chaîne envoyée à la cascade
+    l'est. Voir `normaliser_saints` pour ce que coûtait l'abréviation.
     """
-    commune = (releve.evenement_lieu or "").strip()
+    pays = (releve.evenement_pays or "").strip()
+    normalise = (
+        normaliser_saints
+        if pays.casefold() in PAYS_SAINTS_TRAIT_UNION
+        else (lambda s: s)
+    )
+    commune = normalise((releve.evenement_lieu or "").strip())
     if not commune:
         return ""
     echelons = [
         commune,
-        (releve.evenement_departement or "").strip(),
-        (releve.evenement_pays or "").strip(),
+        normalise((releve.evenement_departement or "").strip()),
+        pays,
     ]
     return ", ".join(e for e in echelons if e)
 
@@ -688,33 +764,64 @@ def genre_infere(prenom: str) -> int:
 
 def resoudre_ou_creer_lieu(
     client: GrampsClient, releve: ReleveIndexe, *, dry_run: bool = False
-) -> str | None:
-    """Handle du lieu de l'événement, créé en cascade si absent ; None si non résolu.
+) -> tuple[str | None, str]:
+    """(handle, provenance) du lieu de l'événement — le plus fin que l'acte donne.
 
-    Délègue à `run_lieu_import` (mêmes résolveurs que `propose places`) sur la chaîne
-    qualifiée `_raw_lieu`. Rend le handle de la feuille quand la résolution autorise
-    l'écriture (créée OU déjà présente), sinon None : commune absente, résolution
-    ambiguë ou score sous le seuil. Un None fait poser l'événement SANS lieu (rapporté)
-    — jamais un lieu faux. En dry-run le handle rendu est synthétique (`DRYRUN:…`),
-    que `GrampsCreateEventTool` ignore de toute façon.
+    La COMMUNE est résolue d'abord, toujours : elle sert de parent au lieu-dit et
+    d'emprise à la requête OSM bornée. Commune non résolue → aucun lieu-dit tenté.
 
-    `run_lieu_import` peut LEVER (`RuntimeError` si un maillon de la hiérarchie
-    échoue, ou une erreur réseau). Comme la cascade est appelée EN PLEINE écriture
-    d'un sujet créé (après personne + note + tag), on ne laisse pas l'exception
-    tuer l'import à mi-chemin et rendre le sujet orphelin invisible : on retombe
-    sur None (événement sans lieu), le repli déjà prévu pour l'ambiguïté.
+    provenance ∈ {"commune", "arbre", "osm", "cree_sans_gps"}. Un lieu-dit
+    abandonné (arbre illisible) retombe sur la commune plutôt que sur rien.
+
+    Comme la cascade est appelée EN PLEINE écriture d'un sujet créé (après
+    personne + note + tag), on ne laisse pas une exception — qu'elle vienne de
+    la résolution de la commune ou de celle du lieu-dit — tuer l'import à
+    mi-chemin et rendre le sujet orphelin invisible : on retombe sur
+    `(commune_handle, "commune")` (ou `(None, "commune")` si la commune
+    elle-même a échoué), le repli déjà prévu pour l'ambiguïté.
     """
     raw = _raw_lieu(releve)
     if not raw:
-        return None
+        return None, "commune"
     try:
         out = run_lieu_import(client, raw, dry_run=dry_run)
     except (RuntimeError, httpx.HTTPError) as exc:
         _LOG.warning(
             "Cascade de lieu « %s » échouée, événement sans lieu : %s", raw, exc
         )
-        return None
-    return out.get("handle")
+        return None, "commune"
+    commune_handle = out.get("handle")
+    if not commune_handle or not releve.evenement_lieu_dit.strip():
+        return commune_handle, "commune"
+
+    resolved = out.get("resolved") or {}
+    # La conversion est DANS le bloc gardé, et `ValueError` fait partie des
+    # exceptions rattrapées : `resolved` vient d'un résolveur externe, donc
+    # `lat`/`lon` peuvent être non numériques tout en étant vrais (« N/A »).
+    # Convertir avant le `try` remettrait cette fonction dans le mode d'échec
+    # que son docstring dit empêcher — une exception ici remonte sans filet
+    # jusqu'à `main`, ALORS QUE la personne, la note et le tag sont déjà écrits.
+    try:
+        lat = float(resolved["lat"]) if resolved.get("lat") else None
+        lon = float(resolved["long"]) if resolved.get("long") else None
+        handle, provenance = resoudre_lieu_dit(
+            client,
+            releve.evenement_lieu_dit.strip(),
+            commune_handle,
+            lat,
+            lon,
+            dry_run=dry_run,
+        )
+    except (RuntimeError, httpx.HTTPError, ValueError) as exc:
+        _LOG.warning(
+            "Résolution du lieu-dit « %s » échouée, repli sur la commune : %s",
+            releve.evenement_lieu_dit.strip(),
+            exc,
+        )
+        return commune_handle, "commune"
+    if handle:
+        return handle, provenance
+    return commune_handle, "commune"
 
 
 def _prefixe_pays(country: str) -> str | None:
@@ -1083,7 +1190,7 @@ def run_import_releve(
                     f"précédent ({cand.gramps_id})"
                 )
                 return out
-        return creer_sujet(client, releve, out, dry_run=dry_run)
+        return _traduire_identifiants(client, creer_sujet(client, releve, out, dry_run=dry_run))
 
     marqueur = marqueur_releve(releve.fonds, releve.reference)
     if deja_importe(client, appariement.gramps_id, marqueur):
@@ -1159,6 +1266,74 @@ def run_import_releve(
         )
     if nais is not None:
         out["raison"] += " + naissance estimée"
+    return _traduire_identifiants(client, out)
+
+
+_LIBELLE_PROVENANCE = {
+    "arbre": "déjà dans l'arbre",
+    "osm": "créé avec GPS (OSM)",
+    "cree_sans_gps": "créé sans GPS",
+    "commune": "commune",
+}
+
+
+_ENDPOINT_PAR_GENRE = {"event": "events", "place": "places", "person": "people"}
+"""Pluriel de l'endpoint Gramps Web pour chaque genre traduit par `_id_lisible`.
+
+Un pluriel naïf (`f"{genre}s"`) suffirait pour `event`→`events` et
+`place`→`places`, mais PAS pour une personne : Gramps Web expose `/api/people/`,
+pas `/api/persons/`. Sans cette table, la traduction du sujet créé échouerait
+en silence (404 → repli sur le handle brut, aucune erreur visible — juste un
+rapport resté en hexadécimal, exactement le défaut que cette fonction existe
+pour réparer). Le repli `f"{genre}s"` reste le défaut pour tout genre futur
+non listé ici.
+"""
+
+
+def _id_lisible(client: GrampsClient | None, genre: str, handle: str | None) -> str:
+    """`gramps_id` de l'objet, ou "à créer" en simulation, ou le handle en dernier repli.
+
+    En simulation le handle est synthétique (`DRYRUN:…`) : aucun identifiant réel
+    n'existe encore, et en inventer un tromperait le relecteur qui valide sur ce
+    rapport. Le repli sur le handle brut couvre l'échec de lecture — un rapport ne
+    doit jamais faire échouer l'import qu'il décrit.
+    """
+    if not handle:
+        return "aucun"
+    if handle.startswith("DRYRUN:"):
+        return "à créer"
+    if client is None:
+        return handle
+    try:
+        obj = client.get_object(_ENDPOINT_PAR_GENRE.get(genre, f"{genre}s"), handle)
+    except Exception:  # un rapport ne fait jamais échouer un import qu'il décrit
+        return handle
+    return (obj or {}).get("gramps_id") or handle
+
+
+def _traduire_identifiants(client: GrampsClient, out: dict) -> dict:
+    """Résout en `gramps_id` tout handle fraîchement écrit — sujet, événement ET naissance.
+
+    Point de convergence UNIQUE pour les deux chemins d'écriture de
+    `run_import_releve` : le chemin `net`/forcé (qui peuple `out["evenement"]`
+    via `completer_evenement_principal`) et le chemin `aucun` (qui peuple
+    `out["sujet_cree"]` ET `out["evenement"]` via `creer_sujet`). Les deux
+    peuvent aussi peupler `out["naissance"]` (naissance ESTIMÉE, Surface B).
+    Les trois construisent `out` différemment mais le font traduire ICI, juste
+    avant de retourner — ce qui évite de dupliquer les appels à `_id_lisible`
+    à chaque site de retour.
+    """
+    evt = out.get("evenement") or {}
+    if evt.get("event_handle"):
+        evt["event_gramps_id"] = _id_lisible(client, "event", evt["event_handle"])
+        evt["lieu_gramps_id"] = _id_lisible(client, "place", evt.get("lieu"))
+    nais = out.get("naissance") or {}
+    if nais.get("event_handle"):
+        nais["naissance_gramps_id"] = _id_lisible(client, "event", nais["event_handle"])
+        nais["lieu_gramps_id"] = _id_lisible(client, "place", nais.get("lieu"))
+    sc = out.get("sujet_cree") or {}
+    if sc.get("handle"):
+        sc["sujet_gramps_id"] = _id_lisible(client, "person", sc["handle"])
     return out
 
 
@@ -1214,16 +1389,27 @@ def format_import_releve(resultat: dict) -> str:
     # (ou, en simulation, ce qui le serait) sans fouiller l'arbre.
     if resultat.get("sujet_cree"):
         sc = resultat["sujet_cree"]
-        lignes.append(f"  Sujet CRÉÉ : handle {sc['handle']} (genre {sc['genre']})")
+        lignes.append(
+            f"  Sujet CRÉÉ : {sc.get('sujet_gramps_id') or sc['handle']} "
+            f"(genre {sc['genre']})"
+        )
     evt = resultat.get("evenement") or {}
     if evt.get("event_handle"):
+        lieu_txt = "aucun"
+        if evt.get("lieu"):
+            provenance = _LIBELLE_PROVENANCE.get(
+                evt.get("lieu_provenance", "commune"),
+                evt.get("lieu_provenance", ""),
+            )
+            lieu_txt = f"{evt.get('lieu_gramps_id') or evt['lieu']} — {provenance}"
         lignes.append(
-            f"  {releve.evenement_type} créé : {evt['event_handle']} "
-            f"(lieu {evt.get('lieu') or 'aucun'})"
+            f"  {releve.evenement_type} créé : "
+            f"{evt.get('event_gramps_id') or evt['event_handle']} (lieu {lieu_txt})"
         )
-    if (resultat.get("naissance") or {}).get("event_handle"):
+    nais = resultat.get("naissance") or {}
+    if nais.get("event_handle"):
         lignes.append(
-            f"  Naissance estimée créée : {resultat['naissance']['event_handle']}"
+            f"  Naissance estimée créée : {nais.get('naissance_gramps_id') or nais['event_handle']}"
         )
     if app.verdict == "gris":
         lignes += [

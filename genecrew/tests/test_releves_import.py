@@ -20,6 +20,7 @@ from genecrew.releves import Appariement, ReleveIndexe
 from genecrew.releves_import import (
     PROMPT_INTERPRETATION,
     TAG_RELEVE,
+    _id_lisible,
     _parents_par_handle,
     _prefixe_pays,
     _raw_lieu,
@@ -36,6 +37,7 @@ from genecrew.releves_import import (
     genre_infere,
     handle_evenement,
     marqueur_releve,
+    normaliser_saints,
     parse_releve,
     resoudre_ou_creer_lieu,
     run_import_releve,
@@ -121,6 +123,32 @@ def test_parse_departement_absent_vaut_vide():
     assert r.evenement_departement == ""
 
 
+def test_parse_extrait_le_lieu_dit_distinct_de_la_commune():
+    """Le lieu-dit ne doit PAS atterrir dans evenement_lieu.
+
+    C'est le défaut d'origine : le LLM écrivait « Les Roches » dans un champ
+    dont le contrat dit « commune », et le résolveur partait chercher une
+    commune homonyme — qu'il trouvait, en Ardèche. Les deux échelons ont
+    désormais chacun leur champ.
+    """
+    attendu = dict(_JSON_ATTENDU)
+    attendu["evenement_lieu"] = "Saint-Martin-d'Auxigny"
+    attendu["evenement_lieu_dit"] = "Les Roches"
+    releve = parse_releve("peu importe", llm=_LLMStub(json.dumps(attendu)))
+    assert releve.evenement_lieu == "Saint-Martin-d'Auxigny"
+    assert releve.evenement_lieu_dit == "Les Roches"
+
+
+def test_releve_sans_lieu_dit_garde_un_champ_vide():
+    """Un relevé sans lieu-dit est un cas NORMAL, pas un échec.
+
+    La grande majorité des relevés n'en portent pas. Le défaut vide garantit
+    aussi que les appels existants ne cassent pas.
+    """
+    releve = parse_releve("peu importe", llm=_LLMStub(json.dumps(_JSON_ATTENDU)))
+    assert releve.evenement_lieu_dit == ""
+
+
 def _releve_lieu(commune="Saint-Martin-d'Auxigny", departement="Cher", pays="France"):
     return ReleveIndexe(
         fonds="CGHB",
@@ -133,6 +161,11 @@ def _releve_lieu(commune="Saint-Martin-d'Auxigny", departement="Cher", pays="Fra
         evenement_pays=pays,
         texte_brut="…",
     )
+
+
+def _appariement_net():
+    """Un Appariement NET minimal, pour les tests qui ne portent que sur le rendu."""
+    return Appariement(verdict="net", gramps_id="I0305", handle="h_p", poids=0)
 
 
 def test_raw_lieu_assemble_commune_departement_pays():
@@ -184,29 +217,223 @@ def test_genre_infere_sous_le_seuil_reste_inconnu(mocker):
 
 
 def test_resoudre_lieu_rend_le_handle_quand_ecrit(mocker):
+    """Commune résolue, aucun lieu-dit demandé : provenance « commune »."""
     mocker.patch(
         "genecrew.releves_import.run_lieu_import",
         return_value={"action": "ecrire", "handle": "P_SMA", "created": True},
     )
-    h = resoudre_ou_creer_lieu(None, _releve_lieu(), dry_run=False)
-    assert h == "P_SMA"
+    h, provenance = resoudre_ou_creer_lieu(None, _releve_lieu(), dry_run=False)
+    assert (h, provenance) == ("P_SMA", "commune")
 
 
 def test_resoudre_lieu_sans_commune_ne_resout_pas(mocker):
+    """Pas de commune : rien à résoudre, ni cascade de lieu ni tentative de lieu-dit."""
     appels = mocker.patch("genecrew.releves_import.run_lieu_import")
-    h = resoudre_ou_creer_lieu(None, _releve_lieu(commune=""), dry_run=False)
-    assert h is None
+    h, provenance = resoudre_ou_creer_lieu(None, _releve_lieu(commune=""), dry_run=False)
+    assert (h, provenance) == (None, "commune")
     appels.assert_not_called()  # rien à résoudre : pas d'appel réseau
 
 
 def test_resoudre_lieu_ambigu_ne_pose_aucun_lieu(mocker):
-    # run_lieu_import a refusé (score/ambiguïté) : handle None -> événement sans lieu.
+    """run_lieu_import a refusé (score/ambiguïté) : handle None -> événement sans lieu."""
     mocker.patch(
         "genecrew.releves_import.run_lieu_import",
         return_value={"action": "proposer", "handle": None},
     )
-    h = resoudre_ou_creer_lieu(None, _releve_lieu(), dry_run=False)
-    assert h is None
+    h, provenance = resoudre_ou_creer_lieu(None, _releve_lieu(), dry_run=False)
+    assert (h, provenance) == (None, "commune")
+
+
+# --- resoudre_ou_creer_lieu : cascade du lieu-dit (tâche 5) ---
+
+
+def test_le_lieu_dit_est_pose_sur_l_evenement(mocker):
+    """Le lieu le plus fin que l'acte donne — la décision de granularité."""
+    mocker.patch(
+        "genecrew.releves_import.run_lieu_import",
+        return_value={"action": "ecrire", "handle": "h_com", "created": False},
+    )
+    mocker.patch(
+        "genecrew.releves_import.resoudre_lieu_dit",
+        return_value=("h_roches", "arbre"),
+    )
+    releve = _releve_lieu()
+    releve.evenement_lieu_dit = "Les Roches"
+    handle, provenance = resoudre_ou_creer_lieu(_arbre(), releve, dry_run=True)
+    assert (handle, provenance) == ("h_roches", "arbre")
+
+
+def test_sans_lieu_dit_le_comportement_ne_change_pas(mocker):
+    """Rétrocompatibilité : la grande majorité des relevés n'en portent pas."""
+    mocker.patch(
+        "genecrew.releves_import.run_lieu_import",
+        return_value={"action": "ecrire", "handle": "h_com", "created": False},
+    )
+    appels = mocker.patch("genecrew.releves_import.resoudre_lieu_dit")
+    handle, provenance = resoudre_ou_creer_lieu(_arbre(), _releve_lieu(), dry_run=True)
+    assert (handle, provenance) == ("h_com", "commune")
+    appels.assert_not_called()
+
+
+def test_commune_non_resolue_n_essaie_aucun_lieu_dit(mocker):
+    """L'ordre est imposé : le parent ET l'emprise dépendent de la commune."""
+    mocker.patch(
+        "genecrew.releves_import.run_lieu_import",
+        return_value={"action": "proposition", "handle": None},
+    )
+    appels = mocker.patch("genecrew.releves_import.resoudre_lieu_dit")
+    releve = _releve_lieu()
+    releve.evenement_lieu_dit = "Les Roches"
+    handle, provenance = resoudre_ou_creer_lieu(_arbre(), releve, dry_run=True)
+    assert handle is None
+    assert provenance == "commune"  # retour anticipé : le contrat de tuple tient même vide
+    appels.assert_not_called()
+
+
+def test_le_lieu_dit_abandonne_retombe_sur_la_commune(mocker):
+    """Abandon (arbre illisible) → la commune, pas rien. On ne perd pas l'événement."""
+    mocker.patch(
+        "genecrew.releves_import.run_lieu_import",
+        return_value={"action": "ecrire", "handle": "h_com", "created": False},
+    )
+    mocker.patch(
+        "genecrew.releves_import.resoudre_lieu_dit", return_value=(None, "abandon")
+    )
+    releve = _releve_lieu()
+    releve.evenement_lieu_dit = "Les Roches"
+    handle, provenance = resoudre_ou_creer_lieu(_arbre(), releve, dry_run=True)
+    assert (handle, provenance) == ("h_com", "commune")
+
+
+def test_les_coordonnees_de_la_commune_sont_transmises_au_lieu_dit(mocker):
+    """I-5 : le câblage RÉEL qui rend l'étage 2 (OSM borné) atteignable.
+
+    Les autres tests de cette zone simulent `run_lieu_import` SANS clé
+    `resolved` : `lat`/`lon` valent donc toujours None et l'étage 2 n'est
+    jamais traversé par le vrai câblage — trois erreurs resteraient vertes
+    sans ce test : une clé mal nommée (`lon` au lieu de `long`, la clé réelle
+    du dict `resolved`), une inversion latitude/longitude dans l'appel
+    positionnel à `resoudre_lieu_dit`, et une `ValueError` sur un `float()`
+    malformé. Ce dépôt porte un gotcha maison sur l'inversion des
+    coordonnées — d'où l'insistance à vérifier l'ORDRE, pas seulement la
+    valeur.
+    """
+    mocker.patch(
+        "genecrew.releves_import.run_lieu_import",
+        return_value={
+            "action": "ecrire",
+            "handle": "h_com",
+            "created": False,
+            "resolved": {"lat": "47.2164", "long": "2.35"},
+        },
+    )
+    capture: dict[str, float | None] = {}
+
+    def _resoudre(client, nom, commune_handle, lat, lon, *, dry_run=False):
+        capture["lat"] = lat
+        capture["lon"] = lon
+        return ("h_roches", "arbre")
+
+    mocker.patch("genecrew.releves_import.resoudre_lieu_dit", side_effect=_resoudre)
+    releve = _releve_lieu()
+    releve.evenement_lieu_dit = "Les Roches"
+    handle, provenance = resoudre_ou_creer_lieu(_arbre(), releve, dry_run=True)
+    assert (handle, provenance) == ("h_roches", "arbre")
+    # 47.2164 est la LATITUDE (premier argument transmis), 2.35 la LONGITUDE
+    # (second) — l'inverse rattacherait le lieu-dit à un point à des milliers
+    # de kilomètres, dans l'hémisphère nord de l'Atlantique.
+    assert capture == {"lat": 47.2164, "lon": 2.35}
+
+
+def test_une_coordonnee_non_numerique_retombe_sur_la_commune(mocker):
+    """Un `lat` illisible ne doit pas tuer l'import à mi-écriture.
+
+    `resolved` vient d'un résolveur externe : une valeur peut être VRAIE sans
+    être numérique (« N/A »). Convertie hors du bloc gardé, elle levait une
+    `ValueError` que rien n'attrapait jusqu'à `main` — alors que sur le chemin
+    `creer_sujet` la personne, la note et le tag sont DÉJÀ écrits. L'import
+    mourait sans rapport, laissant une fiche orpheline invisible.
+    """
+    mocker.patch(
+        "genecrew.releves_import.run_lieu_import",
+        return_value={
+            "action": "ecrire",
+            "handle": "h_com",
+            "created": False,
+            "resolved": {"lat": "N/A", "long": "2.35"},
+        },
+    )
+    appels = mocker.patch("genecrew.releves_import.resoudre_lieu_dit")
+    releve = _releve_lieu()
+    releve.evenement_lieu_dit = "Les Roches"
+    handle, provenance = resoudre_ou_creer_lieu(_arbre(), releve, dry_run=True)
+    assert (handle, provenance) == ("h_com", "commune")
+    appels.assert_not_called()
+
+
+def test_lieu_dit_dont_la_creation_echoue_retombe_sur_la_commune(mocker):
+    """C-1 : une exception dans la cascade du lieu-dit ne doit JAMAIS tuer l'import.
+
+    `resoudre_lieu_dit` peut lever `RuntimeError` (lieux_dits.py:193-195, la
+    création du lieu refusée par Gramps). Cette cascade est appelée EN PLEINE
+    écriture d'un sujet créé (après personne + note + tag) : laisser
+    l'exception remonter tuerait l'import à mi-chemin et laisserait une fiche
+    orpheline invisible. L'événement doit recevoir la commune, pas rien.
+    """
+    mocker.patch(
+        "genecrew.releves_import.run_lieu_import",
+        return_value={"action": "ecrire", "handle": "h_com", "created": False},
+    )
+    mocker.patch(
+        "genecrew.releves_import.resoudre_lieu_dit",
+        side_effect=RuntimeError("création du lieu-dit 'Les Roches' : conflit Gramps"),
+    )
+    releve = _releve_lieu()
+    releve.evenement_lieu_dit = "Les Roches"
+    handle, provenance = resoudre_ou_creer_lieu(_arbre(), releve, dry_run=True)
+    assert (handle, provenance) == ("h_com", "commune")
+
+
+def test_le_lieu_dit_n_entre_jamais_dans_lieux_resolus(monkeypatch, mocker):
+    """INVARIANT : `lieux_resolus` ne contient que des COMMUNES.
+
+    Le veto d'appariement compare des codes INSEE. Un code de hameau y serait
+    incomparable et produirait un veto FAUX — or un candidat vetoé ne revient
+    jamais devant le relecteur humain.
+
+    Ce n'est PAS `_raw_lieu` qui tient cet invariant : cette fonction alimente
+    la cascade de CRÉATION de lieux (`resoudre_ou_creer_lieu`), un chemin
+    entièrement distinct du veto. Le filet réel est le dict `lieux` construit
+    dans `run_import_releve` (releves_import.py, juste avant l'appel à
+    `construire_lieux_resolus`), peuplé depuis `releve.evenement_lieu` SEUL —
+    jamais `evenement_lieu_dit`. On capture ce dict-là, en le faisant passer
+    par un `evenement_lieu_dit` non vide, pour qu'une future modification qui
+    ferait entrer le hameau dans cette construction (et non plus seulement
+    dans `_raw_lieu`) réveille ce test.
+    """
+    monkeypatch.delenv("GENECREW_DRY_RUN", raising=False)
+    capture: dict[str, str] = {}
+
+    def _capturer(lieux, resolveur=None):
+        capture.update(lieux)
+        return {}
+
+    mocker.patch(
+        "genecrew.releves_import.construire_lieux_resolus", side_effect=_capturer
+    )
+    json_avec_lieu_dit = dict(
+        _JSON_ATTENDU,
+        evenement_departement="Cher",
+        evenement_lieu_dit="Les Roches",
+    )
+    run_import_releve(
+        _arbre(_ROSE_ARBRE),
+        COLLAGE_ROSE,
+        llm=_LLMStub(json.dumps(json_avec_lieu_dit)),
+    )
+    assert capture  # la commune du relevé y est bien entrée
+    assert "roches" not in " ".join(capture).casefold()
+    assert "roches" not in " ".join(capture.values()).casefold()
 
 
 def test_texte_brut_est_conserve_integralement():
@@ -1363,6 +1590,154 @@ def test_rapport_sur_personne_introuvable_ne_plante_pas(monkeypatch):
     assert "introuvable" in texte
 
 
+def test_le_rapport_montre_le_gramps_id_pas_le_handle():
+    """Un relecteur doit pouvoir vérifier ce qui a été écrit sans traduire à la main.
+
+    Gramps porte deux identifiants : le `handle` interne (32 hexadécimaux, jamais
+    affiché dans l'interface) et le `gramps_id` (E0332). Le rapport montrait le
+    premier, donc rien n'était vérifiable à l'œil.
+    """
+    out = {
+        "releve": _releve_lieu(),
+        "appariement": _appariement_net(),
+        "dry_run": False,
+        "ecrit": True,
+        "raison": "importée",
+        "evenement": {
+            "event_handle": "h_evt",
+            "event_gramps_id": "E0332",
+            "lieu": "h_lieu",
+            "lieu_gramps_id": "P0661",
+            "lieu_provenance": "arbre",
+        },
+    }
+    texte = format_import_releve(out)
+    assert "E0332" in texte
+    assert "P0661" in texte
+    assert "h_evt" not in texte
+
+
+def test_le_rapport_nomme_la_provenance_du_lieu():
+    """Garde-fou de la création automatique.
+
+    Un hameau créé sans GPS est exactement ce qu'une graphie mal lue produirait.
+    Il doit se distinguer à l'œil d'un hameau confirmé par OSM.
+    """
+    out = {
+        "releve": _releve_lieu(),
+        "appariement": _appariement_net(),
+        "dry_run": False,
+        "ecrit": True,
+        "raison": "importée",
+        "evenement": {
+            "event_handle": "h_evt",
+            "event_gramps_id": "E0334",
+            "lieu": "h_lieu",
+            "lieu_gramps_id": "P0663",
+            "lieu_provenance": "cree_sans_gps",
+        },
+    }
+    assert "sans GPS" in format_import_releve(out)
+
+
+def test_en_simulation_aucun_faux_identifiant_n_est_imprime():
+    """Le dry-run rend des handles synthétiques `DRYRUN:…` — pas d'identifiant réel.
+
+    Un rapport de simulation qui ressemble trop à un rapport d'écriture est un
+    piège : les rapports sont relus avant d'être consommés par `apply`.
+    """
+    out = {
+        "releve": _releve_lieu(),
+        "appariement": _appariement_net(),
+        "dry_run": True,
+        "ecrit": False,
+        "raison": "simulation",
+        "evenement": {
+            "event_handle": "DRYRUN:evt",
+            "event_gramps_id": "à créer",
+            "lieu": "DRYRUN:lieu",
+            "lieu_gramps_id": "à créer",
+            "lieu_provenance": "cree_sans_gps",
+        },
+    }
+    texte = format_import_releve(out)
+    assert "DRYRUN" not in texte
+    assert "à créer" in texte
+
+
+def test_id_lisible_ne_fabrique_pas_d_identifiant_en_simulation():
+    """`DRYRUN:…` n'a pas de gramps_id : en inventer un tromperait le relecteur."""
+    assert _id_lisible(None, "event", "DRYRUN:evt") == "à créer"
+
+
+def test_id_lisible_retombe_sur_le_handle_si_la_lecture_echoue():
+    """Mieux vaut une valeur laide qu'un rapport muet sur ce qui vient d'être écrit."""
+
+    def _panne(request):
+        return httpx.Response(500, json={})
+
+    assert _id_lisible(_client(_panne), "event", "h_evt") == "h_evt"
+
+
+def test_id_lisible_dune_personne_interroge_lendpoint_people():
+    """Gramps Web expose les personnes sous `/api/people/`, pas `/api/persons/`.
+
+    Le pluriel naïf (`genre + "s"`) qui suffit pour événement et lieu casserait
+    silencieusement ici — c'est le piège que corrige la ronde 2 : le chemin
+    `creer_sujet` a besoin de traduire un handle de PERSONNE, pas seulement
+    d'événement ou de lieu.
+    """
+
+    def _h(request):
+        assert request.url.path == "/api/people/h1"
+        return httpx.Response(200, json={"gramps_id": "I0042"})
+
+    assert _id_lisible(_client(_h), "person", "h1") == "I0042"
+
+
+def test_le_rapport_sujet_cree_montre_le_gramps_id_pas_le_handle():
+    """Même défaut, même remède, sur la ligne « Sujet CRÉÉ ».
+
+    La ronde 1 traduisait déjà l'événement ; la ligne du sujet créé
+    (verdict `aucun`, chemin `creer_sujet`) montrait encore le handle brut.
+    """
+    out = {
+        "releve": _releve_lieu(),
+        "appariement": Appariement(verdict="aucun", handle="h_new", facteurs=[]),
+        "dry_run": False,
+        "ecrit": True,
+        "raison": "sujet créé (genre 0) — Death créé",
+        "sujet_cree": {"handle": "h_new", "genre": 0, "sujet_gramps_id": "I0777"},
+    }
+    texte = format_import_releve(out)
+    assert "I0777" in texte
+    assert "h_new" not in texte
+
+
+def test_en_simulation_le_sujet_cree_n_invente_pas_d_identifiant():
+    """Même garde-fou que l'événement : un `DRYRUN:…` n'a pas de `gramps_id` réel.
+
+    En pratique `creer_sujet` n'est jamais appelée en simulation (la garde de
+    `run_import_releve` retourne avant), mais `format_import_releve` reste PUR :
+    ce test verrouille son contrat de rendu indépendamment de cet appelant.
+    """
+    out = {
+        "releve": _releve_lieu(),
+        "appariement": Appariement(verdict="aucun", handle="DRYRUN:sujet", facteurs=[]),
+        "dry_run": True,
+        "ecrit": False,
+        "raison": "simulation",
+        "sujet_cree": {
+            "handle": "DRYRUN:sujet",
+            "genre": 0,
+            "sujet_gramps_id": "à créer",
+        },
+    }
+    texte = format_import_releve(out)
+    assert "DRYRUN" not in texte
+    assert "à créer" in texte
+
+
 # --- résolution géographique : peupler lieux_resolus pour activer le veto ------
 #
 # Fonctions PURES, résolution réseau INJECTÉE via un stub. Ce qui protège
@@ -1845,6 +2220,106 @@ def test_surface_c_cree_le_sujet_puis_son_deces(monkeypatch, mocker):
     )
 
 
+def test_run_import_releve_traduit_le_sujet_et_l_evenement_crees(monkeypatch, mocker):
+    """Chemin `creer_sujet` (verdict `aucun`), bout en bout via `run_import_releve` :
+    le rapport doit montrer des `gramps_id`, pas des handles — pour le SUJET créé,
+    l'ÉVÉNEMENT principal créé ET la NAISSANCE ESTIMÉE créée (et, en bonus, le lieu
+    de l'événement principal — déjà câblé côté `net`).
+
+    Avant cette correction, la traduction n'était câblée qu'après
+    `completer_evenement_principal` (le chemin `net`) : un import qui CRÉE son
+    sujet rendait un rapport intégralement en hexadécimal — exactement le
+    défaut que la tâche existe pour réparer, resurgi sur le second chemin
+    d'écriture.
+
+    `naissance_estimee` RESTE dans le JSON du LLM (`_JSON_ATTENDU` la porte déjà) :
+    la retirer, comme le faisait la version précédente de ce test, contourne le
+    défaut de traduction du TROISIÈME identifiant au lieu de le révéler. Les deux
+    événements créés (décès + naissance estimée) reçoivent des handles ET des
+    `gramps_id` distincts pour que l'assertion ne puisse pas passer par accident
+    si la naissance récupérait, par erreur, l'identifiant de l'événement principal.
+    """
+    monkeypatch.setenv("GENECREW_DRY_RUN", "false")
+    mocker.patch("genecrew.releves_import.infer_sex", return_value=_inf("F", 0.99))
+    mocker.patch(
+        "genecrew.releves_import.run_lieu_import",
+        return_value={"action": "ecrire", "handle": "P_SMA"},
+    )
+    etranger = _personne("I0009", "h9", prenom="Jean", nom="DURAND")
+
+    def h(request):
+        chemin = request.url.path
+        if chemin == "/api/people/":
+            if request.method == "POST":
+                return httpx.Response(201, json=[{"handle": "h_new"}])
+            if "gramps_id" in request.url.params:
+                return httpx.Response(200, json=[{"extended": {"notes": []}}])
+            if request.url.params.get("page", "1") != "1":
+                return httpx.Response(200, json=[])
+            return httpx.Response(200, json=[etranger])
+        if request.method == "GET" and chemin == "/api/people/h_new":
+            return httpx.Response(
+                200,
+                json={
+                    "_class": "Person",
+                    "handle": "h_new",
+                    "gramps_id": "I0777",
+                    "note_list": [],
+                    "tag_list": [],
+                    "event_ref_list": [],
+                    "death_ref_index": -1,
+                },
+            )
+        if request.method == "PUT" and chemin == "/api/people/h_new":
+            return httpx.Response(200, json={})
+        if request.method == "POST" and chemin == "/api/notes/":
+            return httpx.Response(201, json=[{"handle": "n1"}])
+        if request.method == "GET" and chemin == "/api/tags/":
+            return httpx.Response(200, json=[])
+        if request.method == "POST" and chemin == "/api/tags/":
+            return httpx.Response(201, json=[{"handle": "t1"}])
+        if request.method == "GET" and chemin == "/api/sources/":
+            return httpx.Response(200, json=[])
+        if request.method == "POST" and chemin == "/api/sources/":
+            return httpx.Response(201, json=[{"handle": "s1"}])
+        if request.method == "POST" and chemin == "/api/citations/":
+            return httpx.Response(201, json=[{"handle": "c1"}])
+        if request.method == "POST" and chemin == "/api/events/":
+            # Décès (événement principal) et naissance estimée sont deux POST
+            # distincts ; des handles distincts, résolus en gramps_id distincts,
+            # sont ce qui prouve que le TROISIÈME identifiant est bien traduit.
+            payload = json.loads(request.content)
+            handle = "e_nais" if payload.get("type") == "Birth" else "e_new"
+            return httpx.Response(201, json=[{"handle": handle}])
+        if request.method == "GET" and chemin == "/api/events/e_new":
+            return httpx.Response(200, json={"handle": "e_new", "gramps_id": "E0777"})
+        if request.method == "GET" and chemin == "/api/events/e_nais":
+            return httpx.Response(200, json={"handle": "e_nais", "gramps_id": "E0778"})
+        if request.method == "GET" and chemin == "/api/places/P_SMA":
+            return httpx.Response(200, json={"handle": "P_SMA", "gramps_id": "P0999"})
+        return httpx.Response(404)
+
+    client = _client(h)
+    mocker.patch(
+        "crewai_custom_tools.tools.genealogy.gramps.write_tools.get_client",
+        return_value=client,
+    )
+    out = run_import_releve(client, COLLAGE_ROSE, llm=_LLMStub(json.dumps(_JSON_ATTENDU)))
+
+    assert out["appariement"].verdict == "aucun"
+    assert out["sujet_cree"]["sujet_gramps_id"] == "I0777"
+    assert out["evenement"]["event_gramps_id"] == "E0777"
+    assert out["naissance"]["naissance_gramps_id"] == "E0778"
+    texte = format_import_releve(out)
+    assert "I0777" in texte
+    assert "E0777" in texte
+    assert "E0778" in texte
+    assert "P0999" in texte
+    assert "h_new" not in texte
+    assert "e_new" not in texte
+    assert "e_nais" not in texte
+
+
 # --- Surface B : naissance estimée, écrite seulement si l'arbre n'a rien ---
 
 
@@ -1960,3 +2435,92 @@ def test_surface_b_ne_remplace_pas_une_naissance_connue(monkeypatch, mocker):
 def test_surface_b_sans_estimation_ne_fait_rien():
     r = _releve_avec_naissance_estimee(annee=None)
     assert completer_naissance_estimee(None, r, "h1", gramps_id="I0001") is None
+
+
+def test_le_sigle_saint_est_developpe_avec_son_trait_d_union():
+    """« St » seul ne suffit pas : c'est le TRAIT D'UNION qui change de résolveur.
+
+    Mesuré sur la même commune : « St Martin-d'Auxigny » et « Saint
+    Martin-d'Auxigny » tombent tous deux sur Nominatim, sous le seuil de 0.90 et
+    SANS code INSEE ; « Saint-Martin-d'Auxigny » résout sur geo.api.gouv.fr avec
+    le code 18223. Produire « Saint » sans le tiret ne corrigerait rien.
+    """
+    assert normaliser_saints("St Martin-d'Auxigny") == "Saint-Martin-d'Auxigny"
+    assert normaliser_saints("Saint Martin-d'Auxigny") == "Saint-Martin-d'Auxigny"
+
+
+def test_le_feminin_est_conserve():
+    """« Ste » donne « Sainte », pas « Saint » — Sainte-Solange existe, Saint-Solange non."""
+    assert normaliser_saints("Ste Solange") == "Sainte-Solange"
+    assert normaliser_saints("Ste-Solange") == "Sainte-Solange"
+
+
+def test_une_forme_deja_correcte_reste_intacte():
+    """Idempotence : la normalisation doit pouvoir s'appliquer deux fois sans dégât."""
+    for nom in ("Saint-Martin-d'Auxigny", "Sainte-Solange"):
+        assert normaliser_saints(nom) == nom
+        assert normaliser_saints(normaliser_saints(nom)) == nom
+
+
+def test_un_nom_qui_commence_par_st_n_est_pas_touche():
+    """« Strasbourg » n'est pas « St rasbourg ».
+
+    C'est le séparateur exigé après le sigle qui protège ces noms : sans lui, la
+    normalisation mutilerait toute commune commençant par ces lettres.
+    """
+    for nom in ("Strasbourg", "Stains", "Stenay", "Sté Foy"):
+        assert normaliser_saints(nom).startswith(nom[:3])
+    assert normaliser_saints("Strasbourg") == "Strasbourg"
+    assert normaliser_saints("Stains") == "Stains"
+
+
+def test_le_sigle_est_developpe_aussi_en_milieu_de_chaine():
+    """Le tiret ouvre une frontière de mot : « Villeneuve-St-Georges » compte."""
+    assert (
+        normaliser_saints("Villeneuve-St-Georges") == "Villeneuve-Saint-Georges"
+    )
+
+
+def test_la_cle_du_veto_reste_la_chaine_brute_du_releve():
+    """`_raw_lieu` normalise, mais `evenement_lieu` NE DOIT PAS être réécrit.
+
+    `evenement_lieu` est la clé de `lieux_resolus`, que lit le veto
+    d'appariement. La réécrire ferait diverger la clé de ce que le moteur
+    cherche, et un candidat vetoé ne revient jamais devant un relecteur humain.
+    Seule la chaîne envoyée au résolveur est normalisée.
+    """
+    releve = _releve_lieu()
+    releve.evenement_lieu = "St Martin-d'Auxigny"
+    releve.evenement_departement = "Cher"
+    releve.evenement_pays = "France"
+    assert _raw_lieu(releve) == "Saint-Martin-d'Auxigny, Cher, France"
+    assert releve.evenement_lieu == "St Martin-d'Auxigny"
+
+
+def test_un_lieu_suisse_n_est_pas_francise():
+    """« St. Gallen » ne doit PAS devenir « Saint-Gallen ».
+
+    La convention « Saint- » est française. La commune suisse s'appelle
+    « St. Gallen » ou « Sankt Gallen » ; « Saint-Gall » est l'exonyme français,
+    pas son nom. Franciser ferait ÉCHOUER une résolution qui marchait, et
+    l'arbre porte des branches suisses et allemandes.
+    """
+    releve = _releve_lieu()
+    releve.evenement_lieu = "St. Gallen"
+    releve.evenement_departement = "Saint-Gall"
+    releve.evenement_pays = "Suisse"
+    assert _raw_lieu(releve) == "St. Gallen, Saint-Gall, Suisse"
+
+
+def test_un_pays_vide_ne_vaut_pas_la_France():
+    """Le prompt laisse `evenement_pays` vide quand le relevé ne l'indique pas.
+
+    Le projet interdit de présumer la France par défaut : un lieu suisse rangé
+    sous « FR: » produirait la fausse concordance de codes que le veto existe
+    pour empêcher. Dans le doute, on ne normalise pas.
+    """
+    releve = _releve_lieu()
+    releve.evenement_lieu = "St Martin-d'Auxigny"
+    releve.evenement_departement = ""
+    releve.evenement_pays = ""
+    assert _raw_lieu(releve) == "St Martin-d'Auxigny"
