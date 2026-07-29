@@ -1103,7 +1103,7 @@ def run_import_releve(
                     f"précédent ({cand.gramps_id})"
                 )
                 return out
-        return creer_sujet(client, releve, out, dry_run=dry_run)
+        return _traduire_identifiants(client, creer_sujet(client, releve, out, dry_run=dry_run))
 
     marqueur = marqueur_releve(releve.fonds, releve.reference)
     if deja_importe(client, appariement.gramps_id, marqueur):
@@ -1157,9 +1157,6 @@ def run_import_releve(
     # raison dit ce qui s'est passé, sans avoir à fouiller le dict.
     evt = completer_evenement_principal(client, releve, appariement, dry_run=dry_run)
     out["evenement"] = evt
-    if evt.get("event_handle"):
-        evt["event_gramps_id"] = _id_lisible(client, "event", evt["event_handle"])
-        evt["lieu_gramps_id"] = _id_lisible(client, "place", evt.get("lieu"))
 
     # Surface B : la naissance estimée du relevé, posée seulement si l'arbre n'en a
     # aucune (ne remplace jamais une date connue).
@@ -1182,7 +1179,7 @@ def run_import_releve(
         )
     if nais is not None:
         out["raison"] += " + naissance estimée"
-    return out
+    return _traduire_identifiants(client, out)
 
 
 _LIBELLE_PROVENANCE = {
@@ -1191,6 +1188,19 @@ _LIBELLE_PROVENANCE = {
     "cree_sans_gps": "créé sans GPS",
     "commune": "commune",
 }
+
+
+_ENDPOINT_PAR_GENRE = {"event": "events", "place": "places", "person": "people"}
+"""Pluriel de l'endpoint Gramps Web pour chaque genre traduit par `_id_lisible`.
+
+Un pluriel naïf (`f"{genre}s"`) suffirait pour `event`→`events` et
+`place`→`places`, mais PAS pour une personne : Gramps Web expose `/api/people/`,
+pas `/api/persons/`. Sans cette table, la traduction du sujet créé échouerait
+en silence (404 → repli sur le handle brut, aucune erreur visible — juste un
+rapport resté en hexadécimal, exactement le défaut que cette fonction existe
+pour réparer). Le repli `f"{genre}s"` reste le défaut pour tout genre futur
+non listé ici.
+"""
 
 
 def _id_lisible(client: GrampsClient | None, genre: str, handle: str | None) -> str:
@@ -1208,10 +1218,31 @@ def _id_lisible(client: GrampsClient | None, genre: str, handle: str | None) -> 
     if client is None:
         return handle
     try:
-        obj = client.get_object(f"{genre}s", handle)
+        obj = client.get_object(_ENDPOINT_PAR_GENRE.get(genre, f"{genre}s"), handle)
     except Exception:  # un rapport ne fait jamais échouer un import qu'il décrit
         return handle
     return (obj or {}).get("gramps_id") or handle
+
+
+def _traduire_identifiants(client: GrampsClient, out: dict) -> dict:
+    """Résout en `gramps_id` tout handle fraîchement écrit — sujet ET événement.
+
+    Point de convergence UNIQUE pour les deux chemins d'écriture de
+    `run_import_releve` : le chemin `net`/forcé (qui peuple `out["evenement"]`
+    via `completer_evenement_principal`) et le chemin `aucun` (qui peuple
+    `out["sujet_cree"]` ET `out["evenement"]` via `creer_sujet`). Les deux
+    construisent `out` différemment mais le font traduire ICI, juste avant de
+    retourner — ce qui évite de dupliquer les appels à `_id_lisible` à chaque
+    site de retour.
+    """
+    evt = out.get("evenement") or {}
+    if evt.get("event_handle"):
+        evt["event_gramps_id"] = _id_lisible(client, "event", evt["event_handle"])
+        evt["lieu_gramps_id"] = _id_lisible(client, "place", evt.get("lieu"))
+    sc = out.get("sujet_cree") or {}
+    if sc.get("handle"):
+        sc["sujet_gramps_id"] = _id_lisible(client, "person", sc["handle"])
+    return out
 
 
 def format_import_releve(resultat: dict) -> str:
@@ -1266,7 +1297,10 @@ def format_import_releve(resultat: dict) -> str:
     # (ou, en simulation, ce qui le serait) sans fouiller l'arbre.
     if resultat.get("sujet_cree"):
         sc = resultat["sujet_cree"]
-        lignes.append(f"  Sujet CRÉÉ : handle {sc['handle']} (genre {sc['genre']})")
+        lignes.append(
+            f"  Sujet CRÉÉ : {sc.get('sujet_gramps_id') or sc['handle']} "
+            f"(genre {sc['genre']})"
+        )
     evt = resultat.get("evenement") or {}
     if evt.get("event_handle"):
         lieu_txt = "aucun"

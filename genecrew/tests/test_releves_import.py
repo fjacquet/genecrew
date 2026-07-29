@@ -1563,6 +1563,65 @@ def test_id_lisible_retombe_sur_le_handle_si_la_lecture_echoue():
     assert _id_lisible(_client(_panne), "event", "h_evt") == "h_evt"
 
 
+def test_id_lisible_dune_personne_interroge_lendpoint_people():
+    """Gramps Web expose les personnes sous `/api/people/`, pas `/api/persons/`.
+
+    Le pluriel naïf (`genre + "s"`) qui suffit pour événement et lieu casserait
+    silencieusement ici — c'est le piège que corrige la ronde 2 : le chemin
+    `creer_sujet` a besoin de traduire un handle de PERSONNE, pas seulement
+    d'événement ou de lieu.
+    """
+
+    def _h(request):
+        assert request.url.path == "/api/people/h1"
+        return httpx.Response(200, json={"gramps_id": "I0042"})
+
+    assert _id_lisible(_client(_h), "person", "h1") == "I0042"
+
+
+def test_le_rapport_sujet_cree_montre_le_gramps_id_pas_le_handle():
+    """Même défaut, même remède, sur la ligne « Sujet CRÉÉ ».
+
+    La ronde 1 traduisait déjà l'événement ; la ligne du sujet créé
+    (verdict `aucun`, chemin `creer_sujet`) montrait encore le handle brut.
+    """
+    out = {
+        "releve": _releve_lieu(),
+        "appariement": Appariement(verdict="aucun", handle="h_new", facteurs=[]),
+        "dry_run": False,
+        "ecrit": True,
+        "raison": "sujet créé (genre 0) — Death créé",
+        "sujet_cree": {"handle": "h_new", "genre": 0, "sujet_gramps_id": "I0777"},
+    }
+    texte = format_import_releve(out)
+    assert "I0777" in texte
+    assert "h_new" not in texte
+
+
+def test_en_simulation_le_sujet_cree_n_invente_pas_d_identifiant():
+    """Même garde-fou que l'événement : un `DRYRUN:…` n'a pas de `gramps_id` réel.
+
+    En pratique `creer_sujet` n'est jamais appelée en simulation (la garde de
+    `run_import_releve` retourne avant), mais `format_import_releve` reste PUR :
+    ce test verrouille son contrat de rendu indépendamment de cet appelant.
+    """
+    out = {
+        "releve": _releve_lieu(),
+        "appariement": Appariement(verdict="aucun", handle="DRYRUN:sujet", facteurs=[]),
+        "dry_run": True,
+        "ecrit": False,
+        "raison": "simulation",
+        "sujet_cree": {
+            "handle": "DRYRUN:sujet",
+            "genre": 0,
+            "sujet_gramps_id": "à créer",
+        },
+    }
+    texte = format_import_releve(out)
+    assert "DRYRUN" not in texte
+    assert "à créer" in texte
+
+
 # --- résolution géographique : peupler lieux_resolus pour activer le veto ------
 #
 # Fonctions PURES, résolution réseau INJECTÉE via un stub. Ce qui protège
@@ -2043,6 +2102,94 @@ def test_surface_c_cree_le_sujet_puis_son_deces(monkeypatch, mocker):
         == [{"_class": "EventRef", "ref": "e_new", "role": "Primary"}]
         for put in vu["person_put"]
     )
+
+
+def test_run_import_releve_traduit_le_sujet_et_l_evenement_crees(monkeypatch, mocker):
+    """Chemin `creer_sujet` (verdict `aucun`), bout en bout via `run_import_releve` :
+    le rapport doit montrer des `gramps_id`, pas des handles — pour le SUJET créé
+    ET pour l'ÉVÉNEMENT créé (et, en bonus, le lieu — déjà câblé côté `net`).
+
+    Avant cette correction, la traduction n'était câblée qu'après
+    `completer_evenement_principal` (le chemin `net`) : un import qui CRÉE son
+    sujet rendait un rapport intégralement en hexadécimal — exactement le
+    défaut que la tâche existe pour réparer, resurgi sur le second chemin
+    d'écriture.
+
+    `naissance_estimee` est explicitement absente du JSON du LLM : la ronde 2
+    ne traduit QUE sujet + événement principal, pas la naissance estimée (hors
+    scope de la correction demandée) — l'omettre évite qu'un second événement,
+    non traduit par construction, ne pollue les assertions sur les handles.
+    """
+    monkeypatch.setenv("GENECREW_DRY_RUN", "false")
+    mocker.patch("genecrew.releves_import.infer_sex", return_value=_inf("F", 0.99))
+    mocker.patch(
+        "genecrew.releves_import.run_lieu_import",
+        return_value={"action": "ecrire", "handle": "P_SMA"},
+    )
+    etranger = _personne("I0009", "h9", prenom="Jean", nom="DURAND")
+    donnees = {k: v for k, v in _JSON_ATTENDU.items() if k != "naissance_estimee"}
+
+    def h(request):
+        chemin = request.url.path
+        if chemin == "/api/people/":
+            if request.method == "POST":
+                return httpx.Response(201, json=[{"handle": "h_new"}])
+            if "gramps_id" in request.url.params:
+                return httpx.Response(200, json=[{"extended": {"notes": []}}])
+            if request.url.params.get("page", "1") != "1":
+                return httpx.Response(200, json=[])
+            return httpx.Response(200, json=[etranger])
+        if request.method == "GET" and chemin == "/api/people/h_new":
+            return httpx.Response(
+                200,
+                json={
+                    "_class": "Person",
+                    "handle": "h_new",
+                    "gramps_id": "I0777",
+                    "note_list": [],
+                    "tag_list": [],
+                    "event_ref_list": [],
+                    "death_ref_index": -1,
+                },
+            )
+        if request.method == "PUT" and chemin == "/api/people/h_new":
+            return httpx.Response(200, json={})
+        if request.method == "POST" and chemin == "/api/notes/":
+            return httpx.Response(201, json=[{"handle": "n1"}])
+        if request.method == "GET" and chemin == "/api/tags/":
+            return httpx.Response(200, json=[])
+        if request.method == "POST" and chemin == "/api/tags/":
+            return httpx.Response(201, json=[{"handle": "t1"}])
+        if request.method == "GET" and chemin == "/api/sources/":
+            return httpx.Response(200, json=[])
+        if request.method == "POST" and chemin == "/api/sources/":
+            return httpx.Response(201, json=[{"handle": "s1"}])
+        if request.method == "POST" and chemin == "/api/citations/":
+            return httpx.Response(201, json=[{"handle": "c1"}])
+        if request.method == "POST" and chemin == "/api/events/":
+            return httpx.Response(201, json=[{"handle": "e_new"}])
+        if request.method == "GET" and chemin == "/api/events/e_new":
+            return httpx.Response(200, json={"handle": "e_new", "gramps_id": "E0777"})
+        if request.method == "GET" and chemin == "/api/places/P_SMA":
+            return httpx.Response(200, json={"handle": "P_SMA", "gramps_id": "P0999"})
+        return httpx.Response(404)
+
+    client = _client(h)
+    mocker.patch(
+        "crewai_custom_tools.tools.genealogy.gramps.write_tools.get_client",
+        return_value=client,
+    )
+    out = run_import_releve(client, COLLAGE_ROSE, llm=_LLMStub(json.dumps(donnees)))
+
+    assert out["appariement"].verdict == "aucun"
+    assert out["sujet_cree"]["sujet_gramps_id"] == "I0777"
+    assert out["evenement"]["event_gramps_id"] == "E0777"
+    texte = format_import_releve(out)
+    assert "I0777" in texte
+    assert "E0777" in texte
+    assert "P0999" in texte
+    assert "h_new" not in texte
+    assert "e_new" not in texte
 
 
 # --- Surface B : naissance estimée, écrite seulement si l'arbre n'a rien ---
