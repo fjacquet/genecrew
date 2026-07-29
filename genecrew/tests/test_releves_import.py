@@ -304,20 +304,109 @@ def test_le_lieu_dit_abandonne_retombe_sur_la_commune(mocker):
     assert (handle, provenance) == ("h_com", "commune")
 
 
-def test_le_lieu_dit_n_entre_jamais_dans_lieux_resolus():
+def test_les_coordonnees_de_la_commune_sont_transmises_au_lieu_dit(mocker):
+    """I-5 : le câblage RÉEL qui rend l'étage 2 (OSM borné) atteignable.
+
+    Les autres tests de cette zone simulent `run_lieu_import` SANS clé
+    `resolved` : `lat`/`lon` valent donc toujours None et l'étage 2 n'est
+    jamais traversé par le vrai câblage — trois erreurs resteraient vertes
+    sans ce test : une clé mal nommée (`lon` au lieu de `long`, la clé réelle
+    du dict `resolved`), une inversion latitude/longitude dans l'appel
+    positionnel à `resoudre_lieu_dit`, et une `ValueError` sur un `float()`
+    malformé. Ce dépôt porte un gotcha maison sur l'inversion des
+    coordonnées — d'où l'insistance à vérifier l'ORDRE, pas seulement la
+    valeur.
+    """
+    mocker.patch(
+        "genecrew.releves_import.run_lieu_import",
+        return_value={
+            "action": "ecrire",
+            "handle": "h_com",
+            "created": False,
+            "resolved": {"lat": "47.2164", "long": "2.35"},
+        },
+    )
+    capture: dict[str, float | None] = {}
+
+    def _resoudre(client, nom, commune_handle, lat, lon, *, dry_run=False):
+        capture["lat"] = lat
+        capture["lon"] = lon
+        return ("h_roches", "arbre")
+
+    mocker.patch("genecrew.releves_import.resoudre_lieu_dit", side_effect=_resoudre)
+    releve = _releve_lieu()
+    releve.evenement_lieu_dit = "Les Roches"
+    handle, provenance = resoudre_ou_creer_lieu(_arbre(), releve, dry_run=True)
+    assert (handle, provenance) == ("h_roches", "arbre")
+    # 47.2164 est la LATITUDE (premier argument transmis), 2.35 la LONGITUDE
+    # (second) — l'inverse rattacherait le lieu-dit à un point à des milliers
+    # de kilomètres, dans l'hémisphère nord de l'Atlantique.
+    assert capture == {"lat": 47.2164, "lon": 2.35}
+
+
+def test_lieu_dit_dont_la_creation_echoue_retombe_sur_la_commune(mocker):
+    """C-1 : une exception dans la cascade du lieu-dit ne doit JAMAIS tuer l'import.
+
+    `resoudre_lieu_dit` peut lever `RuntimeError` (lieux_dits.py:193-195, la
+    création du lieu refusée par Gramps). Cette cascade est appelée EN PLEINE
+    écriture d'un sujet créé (après personne + note + tag) : laisser
+    l'exception remonter tuerait l'import à mi-chemin et laisserait une fiche
+    orpheline invisible. L'événement doit recevoir la commune, pas rien.
+    """
+    mocker.patch(
+        "genecrew.releves_import.run_lieu_import",
+        return_value={"action": "ecrire", "handle": "h_com", "created": False},
+    )
+    mocker.patch(
+        "genecrew.releves_import.resoudre_lieu_dit",
+        side_effect=RuntimeError("création du lieu-dit 'Les Roches' : conflit Gramps"),
+    )
+    releve = _releve_lieu()
+    releve.evenement_lieu_dit = "Les Roches"
+    handle, provenance = resoudre_ou_creer_lieu(_arbre(), releve, dry_run=True)
+    assert (handle, provenance) == ("h_com", "commune")
+
+
+def test_le_lieu_dit_n_entre_jamais_dans_lieux_resolus(monkeypatch, mocker):
     """INVARIANT : `lieux_resolus` ne contient que des COMMUNES.
 
     Le veto d'appariement compare des codes INSEE. Un code de hameau y serait
     incomparable et produirait un veto FAUX — or un candidat vetoé ne revient
-    jamais devant le relecteur humain. `_raw_lieu` doit donc ignorer le lieu-dit.
+    jamais devant le relecteur humain.
+
+    Ce n'est PAS `_raw_lieu` qui tient cet invariant : cette fonction alimente
+    la cascade de CRÉATION de lieux (`resoudre_ou_creer_lieu`), un chemin
+    entièrement distinct du veto. Le filet réel est le dict `lieux` construit
+    dans `run_import_releve` (releves_import.py, juste avant l'appel à
+    `construire_lieux_resolus`), peuplé depuis `releve.evenement_lieu` SEUL —
+    jamais `evenement_lieu_dit`. On capture ce dict-là, en le faisant passer
+    par un `evenement_lieu_dit` non vide, pour qu'une future modification qui
+    ferait entrer le hameau dans cette construction (et non plus seulement
+    dans `_raw_lieu`) réveille ce test.
     """
-    releve = _releve_lieu()
-    releve.evenement_lieu = "Saint-Martin-d'Auxigny"
-    releve.evenement_departement = "Cher"
-    releve.evenement_pays = "France"
-    releve.evenement_lieu_dit = "Les Roches"
-    assert "Roches" not in _raw_lieu(releve)
-    assert _raw_lieu(releve) == "Saint-Martin-d'Auxigny, Cher, France"
+    monkeypatch.delenv("GENECREW_DRY_RUN", raising=False)
+    capture: dict[str, str] = {}
+
+    def _capturer(lieux, resolveur=None):
+        capture.update(lieux)
+        return {}
+
+    mocker.patch(
+        "genecrew.releves_import.construire_lieux_resolus", side_effect=_capturer
+    )
+    json_avec_lieu_dit = dict(
+        _JSON_ATTENDU,
+        evenement_departement="Cher",
+        evenement_lieu_dit="Les Roches",
+    )
+    run_import_releve(
+        _arbre(_ROSE_ARBRE),
+        COLLAGE_ROSE,
+        llm=_LLMStub(json.dumps(json_avec_lieu_dit)),
+    )
+    assert capture  # la commune du relevé y est bien entrée
+    assert "roches" not in " ".join(capture).casefold()
+    assert "roches" not in " ".join(capture.values()).casefold()
 
 
 def test_texte_brut_est_conserve_integralement():
@@ -2106,8 +2195,9 @@ def test_surface_c_cree_le_sujet_puis_son_deces(monkeypatch, mocker):
 
 def test_run_import_releve_traduit_le_sujet_et_l_evenement_crees(monkeypatch, mocker):
     """Chemin `creer_sujet` (verdict `aucun`), bout en bout via `run_import_releve` :
-    le rapport doit montrer des `gramps_id`, pas des handles — pour le SUJET créé
-    ET pour l'ÉVÉNEMENT créé (et, en bonus, le lieu — déjà câblé côté `net`).
+    le rapport doit montrer des `gramps_id`, pas des handles — pour le SUJET créé,
+    l'ÉVÉNEMENT principal créé ET la NAISSANCE ESTIMÉE créée (et, en bonus, le lieu
+    de l'événement principal — déjà câblé côté `net`).
 
     Avant cette correction, la traduction n'était câblée qu'après
     `completer_evenement_principal` (le chemin `net`) : un import qui CRÉE son
@@ -2115,10 +2205,12 @@ def test_run_import_releve_traduit_le_sujet_et_l_evenement_crees(monkeypatch, mo
     défaut que la tâche existe pour réparer, resurgi sur le second chemin
     d'écriture.
 
-    `naissance_estimee` est explicitement absente du JSON du LLM : la ronde 2
-    ne traduit QUE sujet + événement principal, pas la naissance estimée (hors
-    scope de la correction demandée) — l'omettre évite qu'un second événement,
-    non traduit par construction, ne pollue les assertions sur les handles.
+    `naissance_estimee` RESTE dans le JSON du LLM (`_JSON_ATTENDU` la porte déjà) :
+    la retirer, comme le faisait la version précédente de ce test, contourne le
+    défaut de traduction du TROISIÈME identifiant au lieu de le révéler. Les deux
+    événements créés (décès + naissance estimée) reçoivent des handles ET des
+    `gramps_id` distincts pour que l'assertion ne puisse pas passer par accident
+    si la naissance récupérait, par erreur, l'identifiant de l'événement principal.
     """
     monkeypatch.setenv("GENECREW_DRY_RUN", "false")
     mocker.patch("genecrew.releves_import.infer_sex", return_value=_inf("F", 0.99))
@@ -2127,7 +2219,6 @@ def test_run_import_releve_traduit_le_sujet_et_l_evenement_crees(monkeypatch, mo
         return_value={"action": "ecrire", "handle": "P_SMA"},
     )
     etranger = _personne("I0009", "h9", prenom="Jean", nom="DURAND")
-    donnees = {k: v for k, v in _JSON_ATTENDU.items() if k != "naissance_estimee"}
 
     def h(request):
         chemin = request.url.path
@@ -2167,9 +2258,16 @@ def test_run_import_releve_traduit_le_sujet_et_l_evenement_crees(monkeypatch, mo
         if request.method == "POST" and chemin == "/api/citations/":
             return httpx.Response(201, json=[{"handle": "c1"}])
         if request.method == "POST" and chemin == "/api/events/":
-            return httpx.Response(201, json=[{"handle": "e_new"}])
+            # Décès (événement principal) et naissance estimée sont deux POST
+            # distincts ; des handles distincts, résolus en gramps_id distincts,
+            # sont ce qui prouve que le TROISIÈME identifiant est bien traduit.
+            payload = json.loads(request.content)
+            handle = "e_nais" if payload.get("type") == "Birth" else "e_new"
+            return httpx.Response(201, json=[{"handle": handle}])
         if request.method == "GET" and chemin == "/api/events/e_new":
             return httpx.Response(200, json={"handle": "e_new", "gramps_id": "E0777"})
+        if request.method == "GET" and chemin == "/api/events/e_nais":
+            return httpx.Response(200, json={"handle": "e_nais", "gramps_id": "E0778"})
         if request.method == "GET" and chemin == "/api/places/P_SMA":
             return httpx.Response(200, json={"handle": "P_SMA", "gramps_id": "P0999"})
         return httpx.Response(404)
@@ -2179,17 +2277,20 @@ def test_run_import_releve_traduit_le_sujet_et_l_evenement_crees(monkeypatch, mo
         "crewai_custom_tools.tools.genealogy.gramps.write_tools.get_client",
         return_value=client,
     )
-    out = run_import_releve(client, COLLAGE_ROSE, llm=_LLMStub(json.dumps(donnees)))
+    out = run_import_releve(client, COLLAGE_ROSE, llm=_LLMStub(json.dumps(_JSON_ATTENDU)))
 
     assert out["appariement"].verdict == "aucun"
     assert out["sujet_cree"]["sujet_gramps_id"] == "I0777"
     assert out["evenement"]["event_gramps_id"] == "E0777"
+    assert out["naissance"]["naissance_gramps_id"] == "E0778"
     texte = format_import_releve(out)
     assert "I0777" in texte
     assert "E0777" in texte
+    assert "E0778" in texte
     assert "P0999" in texte
     assert "h_new" not in texte
     assert "e_new" not in texte
+    assert "e_nais" not in texte
 
 
 # --- Surface B : naissance estimée, écrite seulement si l'arbre n'a rien ---

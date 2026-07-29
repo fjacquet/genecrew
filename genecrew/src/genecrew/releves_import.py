@@ -706,6 +706,13 @@ def resoudre_ou_creer_lieu(
 
     provenance ∈ {"commune", "arbre", "osm", "cree_sans_gps"}. Un lieu-dit
     abandonné (arbre illisible) retombe sur la commune plutôt que sur rien.
+
+    Comme la cascade est appelée EN PLEINE écriture d'un sujet créé (après
+    personne + note + tag), on ne laisse pas une exception — qu'elle vienne de
+    la résolution de la commune ou de celle du lieu-dit — tuer l'import à
+    mi-chemin et rendre le sujet orphelin invisible : on retombe sur
+    `(commune_handle, "commune")` (ou `(None, "commune")` si la commune
+    elle-même a échoué), le repli déjà prévu pour l'ambiguïté.
     """
     raw = _raw_lieu(releve)
     if not raw:
@@ -724,14 +731,22 @@ def resoudre_ou_creer_lieu(
     resolved = out.get("resolved") or {}
     lat = float(resolved["lat"]) if resolved.get("lat") else None
     lon = float(resolved["long"]) if resolved.get("long") else None
-    handle, provenance = resoudre_lieu_dit(
-        client,
-        releve.evenement_lieu_dit.strip(),
-        commune_handle,
-        lat,
-        lon,
-        dry_run=dry_run,
-    )
+    try:
+        handle, provenance = resoudre_lieu_dit(
+            client,
+            releve.evenement_lieu_dit.strip(),
+            commune_handle,
+            lat,
+            lon,
+            dry_run=dry_run,
+        )
+    except (RuntimeError, httpx.HTTPError) as exc:
+        _LOG.warning(
+            "Résolution du lieu-dit « %s » échouée, repli sur la commune : %s",
+            releve.evenement_lieu_dit.strip(),
+            exc,
+        )
+        return commune_handle, "commune"
     if handle:
         return handle, provenance
     return commune_handle, "commune"
@@ -1225,20 +1240,25 @@ def _id_lisible(client: GrampsClient | None, genre: str, handle: str | None) -> 
 
 
 def _traduire_identifiants(client: GrampsClient, out: dict) -> dict:
-    """Résout en `gramps_id` tout handle fraîchement écrit — sujet ET événement.
+    """Résout en `gramps_id` tout handle fraîchement écrit — sujet, événement ET naissance.
 
     Point de convergence UNIQUE pour les deux chemins d'écriture de
     `run_import_releve` : le chemin `net`/forcé (qui peuple `out["evenement"]`
     via `completer_evenement_principal`) et le chemin `aucun` (qui peuple
     `out["sujet_cree"]` ET `out["evenement"]` via `creer_sujet`). Les deux
-    construisent `out` différemment mais le font traduire ICI, juste avant de
-    retourner — ce qui évite de dupliquer les appels à `_id_lisible` à chaque
-    site de retour.
+    peuvent aussi peupler `out["naissance"]` (naissance ESTIMÉE, Surface B).
+    Les trois construisent `out` différemment mais le font traduire ICI, juste
+    avant de retourner — ce qui évite de dupliquer les appels à `_id_lisible`
+    à chaque site de retour.
     """
     evt = out.get("evenement") or {}
     if evt.get("event_handle"):
         evt["event_gramps_id"] = _id_lisible(client, "event", evt["event_handle"])
         evt["lieu_gramps_id"] = _id_lisible(client, "place", evt.get("lieu"))
+    nais = out.get("naissance") or {}
+    if nais.get("event_handle"):
+        nais["naissance_gramps_id"] = _id_lisible(client, "event", nais["event_handle"])
+        nais["lieu_gramps_id"] = _id_lisible(client, "place", nais.get("lieu"))
     sc = out.get("sujet_cree") or {}
     if sc.get("handle"):
         sc["sujet_gramps_id"] = _id_lisible(client, "person", sc["handle"])
@@ -1314,9 +1334,10 @@ def format_import_releve(resultat: dict) -> str:
             f"  {releve.evenement_type} créé : "
             f"{evt.get('event_gramps_id') or evt['event_handle']} (lieu {lieu_txt})"
         )
-    if (resultat.get("naissance") or {}).get("event_handle"):
+    nais = resultat.get("naissance") or {}
+    if nais.get("event_handle"):
         lignes.append(
-            f"  Naissance estimée créée : {resultat['naissance']['event_handle']}"
+            f"  Naissance estimée créée : {nais.get('naissance_gramps_id') or nais['event_handle']}"
         )
     if app.verdict == "gris":
         lignes += [
