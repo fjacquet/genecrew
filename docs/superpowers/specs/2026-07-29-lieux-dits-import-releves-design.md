@@ -144,11 +144,15 @@ d'OSM, pas une erreur de lecture d'acte.
 
 ### Le modèle
 
-`ReleveIndexe` gagne `evenement_lieu_dit`, distinct de `evenement_lieu`. Le prompt
-d'interprétation demande explicitement la séparation : la commune d'un côté, le
-lieu-dit de l'autre, et n'en invente aucun.
+`ReleveIndexe` gagne `evenement_lieu_dit: str = ""`, distinct de `evenement_lieu`.
+Champ **optionnel, défaut vide** — la très grande majorité des relevés n'en portent
+pas, et un défaut vide évite de casser les appels existants.
 
-Sans lieu-dit, le comportement actuel est inchangé.
+Le prompt d'interprétation demande explicitement la séparation : la commune d'un
+côté, le lieu-dit de l'autre, et **n'en invente aucun** — un champ laissé vide est
+un résultat correct, pas un échec.
+
+Sans lieu-dit, le comportement actuel est inchangé, y compris le contenu du rapport.
 
 ### La cascade
 
@@ -161,13 +165,33 @@ gagne.
 | 2 | Nominatim **borné à l'emprise de la commune** | 1 requête | Un lieu créé, avec GPS |
 | 3 | Création sous la commune | 0 | Un lieu créé, sans GPS |
 
-**Étage 1** — appariement sur nom normalisé + type + parent. Déterministe sur cet
-arbre (voir « Ce qui a été mesuré »).
+**Étage 1** — appariement sur nom normalisé + type + parent. **Normalisation :
+`strip()` puis `casefold()`**, exactement celle qui a servi à mesurer les
+3 collisions ci-dessus ; le chiffre ne vaut que pour cette normalisation-là.
+Déterministe sur cet arbre.
 
 **Étage 2** — n'accepte qu'un `type` OSM parmi `hamlet`, `locality`, `village`,
 `isolated_dwelling`. Un `street` ou un `administrative` est **rejeté** : « Rue de
 la Rose » n'est pas le lieu-dit La Rose. Le bornage remplace le seuil de score ;
 la garde devient géométrique, donc non contournable par un score de 1.0.
+
+**D'où vient l'emprise.** Elle se dérive de la commune **déjà résolue**, dans cet
+ordre de préférence :
+
+1. La `boundingbox` que Nominatim rend pour la commune elle-même, si la résolution
+   de commune l'a conservée — c'est l'emprise réelle, pas une approximation.
+2. À défaut, un carré de **±0,06° autour des coordonnées de la commune**
+   (≈ 6,7 km en latitude, ≈ 4,5 km en longitude à cette latitude). C'est la valeur
+   employée pour la mesure de conception, et elle a suffi à trouver La Rose à
+   2,7 km du bourg.
+
+Le repli 2 est volontairement généreux : une emprise trop large ne peut ramener
+qu'un lieu-dit de la commune voisine, à quelques kilomètres — jamais l'Ardèche.
+Le coût d'erreur reste sans commune mesure avec celui de l'appel non borné.
+
+**Commune sans coordonnées → pas d'étage 2.** Sans centre ni bounding box, aucune
+emprise n'est calculable ; on passe directement à l'étage 3. C'est le cas des
+communes que l'arbre porte sans GPS.
 
 **Étage 3** — décision 2. Le lieu-dit entre dans l'arbre même invérifiable.
 
