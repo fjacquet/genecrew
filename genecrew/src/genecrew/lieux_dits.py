@@ -64,8 +64,22 @@ def chercher_dans_arbre(client: GrampsClient, nom: str, parent_handle: str) -> s
     cible = normaliser_nom(nom)
     if not cible or not parent_handle:
         return None
+    places: list[dict] = []
     try:
-        places = client.get_json("/places/?keys=handle,name,place_type,placeref_list")
+        page = 1
+        while True:
+            batch = client.get_json(
+                "/places/",
+                params={
+                    "page": page,
+                    "pagesize": 200,
+                    "keys": "handle,name,place_type,placeref_list",
+                },
+            )
+            if not batch:
+                break
+            places.extend(batch)
+            page += 1
     except (httpx.HTTPError, RuntimeError, ValueError) as exc:
         raise RechercheArbreIndisponible(str(exc)) from exc
 
@@ -111,6 +125,8 @@ ramener qu'un lieu-dit de la commune voisine, jamais l'Ardèche.
 def emprise_de_commune(
     lat: float | None,
     lon: float | None,
+    # Aucun résolveur `geo/` ne rend de bbox aujourd'hui — branche gardée pour
+    # le jour où l'un d'eux en produira une (voir docstring : ordre à respecter).
     bbox: tuple[float, float, float, float] | None,
 ) -> str | None:
     """Paramètre `viewbox` Nominatim (`lon_min,lat_max,lon_max,lat_min`), ou None.
@@ -118,6 +134,13 @@ def emprise_de_commune(
     Préfère la bounding box réelle de la commune ; à défaut, un carré de
     ±`MARGE_EMPRISE_DEG` autour de son centre. Sans centre ni bbox, rend None :
     l'étage 2 est alors sauté plutôt que borné sur du vide.
+
+    ATTENTION À L'ORDRE si `bbox` est un jour câblé : ce paramètre attend
+    l'ordre *viewbox* de Nominatim, `(lon_min, lat_max, lon_max, lat_min)` —
+    PAS l'ordre que rend le champ `boundingbox` des réponses Nominatim,
+    `[lat_min, lat_max, lon_min, lon_max]`. Les deux ordres diffèrent à la
+    fois sur l'axe (lat/lon inversés) et sur le regroupement ; les confondre
+    reproduirait le gotcha maison sur l'inversion longitude/latitude.
     """
     if bbox is not None:
         return ",".join(str(v) for v in bbox)
@@ -201,6 +224,8 @@ def resoudre_lieu_dit(
     commune_handle: str,
     commune_lat: float | None,
     commune_lon: float | None,
+    # Toujours None en production : `ResolvedPlace` ne porte aucun champ de bbox
+    # et aucun résolveur `geo/` n'en produit — branche gardée pour le jour où.
     commune_bbox: tuple[float, float, float, float] | None = None,
     *,
     dry_run: bool = False,

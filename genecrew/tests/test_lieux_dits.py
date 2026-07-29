@@ -39,10 +39,17 @@ def _place(gramps_id, handle, nom, place_type, parent_handle):
 
 
 def _handler_places(*places):
-    """Répond /api/places/ avec la liste donnée."""
+    """Répond /api/places/ avec la liste donnée, PAGINÉE : page 1 = tout, au-delà = vide.
+
+    `chercher_dans_arbre` pagine réellement (comme `places_apply.py`,
+    `deces_event.py`, `lieux_wiki.py`, `batching.py`) : un mock qui renverrait
+    la même page indéfiniment boucle sans fin.
+    """
 
     def _h(request):
         if request.url.path == "/api/places/":
+            if request.url.params.get("page", "1") != "1":
+                return httpx.Response(200, json=[])
             return httpx.Response(200, json=list(places))
         return httpx.Response(404, json={})
 
@@ -102,6 +109,32 @@ def test_deux_homonymes_de_meme_type_sous_la_meme_commune_font_refuser():
         )
     )
     assert chercher_dans_arbre(client, "Les Roches", "h_commune") is None
+
+
+def test_pagine_au_dela_de_la_premiere_page():
+    """I-2 : `chercher_dans_arbre` doit paginer, comme `places_apply.py`,
+    `deces_event.py`, `lieux_wiki.py` et `batching.py` le font tous.
+
+    Le lieu-dit cherché n'existe que sur la SECONDE page. Une lecture non
+    paginée le manquerait et le lirait comme ABSENT — exactement ce que
+    l'étage 3 prend pour un feu vert à créer un doublon du lieu.
+    """
+    cible = _place("P0900", "h_roches", "Les Roches", "Hamlet", "h_commune")
+
+    def _h(request):
+        if request.url.path != "/api/places/":
+            return httpx.Response(404, json={})
+        page = request.url.params.get("page", "1")
+        if page == "1":
+            return httpx.Response(
+                200,
+                json=[_place("P0001", "h_autre", "Autre lieu", "Hamlet", "h_commune")],
+            )
+        if page == "2":
+            return httpx.Response(200, json=[cible])
+        return httpx.Response(200, json=[])
+
+    assert chercher_dans_arbre(_client(_h), "Les Roches", "h_commune") == "h_roches"
 
 
 def test_une_panne_de_lecture_leve_au_lieu_de_rendre_none():
