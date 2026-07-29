@@ -37,6 +37,7 @@ from genecrew.releves_import import (
     genre_infere,
     handle_evenement,
     marqueur_releve,
+    normaliser_saints,
     parse_releve,
     resoudre_ou_creer_lieu,
     run_import_releve,
@@ -2434,3 +2435,92 @@ def test_surface_b_ne_remplace_pas_une_naissance_connue(monkeypatch, mocker):
 def test_surface_b_sans_estimation_ne_fait_rien():
     r = _releve_avec_naissance_estimee(annee=None)
     assert completer_naissance_estimee(None, r, "h1", gramps_id="I0001") is None
+
+
+def test_le_sigle_saint_est_developpe_avec_son_trait_d_union():
+    """« St » seul ne suffit pas : c'est le TRAIT D'UNION qui change de résolveur.
+
+    Mesuré sur la même commune : « St Martin-d'Auxigny » et « Saint
+    Martin-d'Auxigny » tombent tous deux sur Nominatim, sous le seuil de 0.90 et
+    SANS code INSEE ; « Saint-Martin-d'Auxigny » résout sur geo.api.gouv.fr avec
+    le code 18223. Produire « Saint » sans le tiret ne corrigerait rien.
+    """
+    assert normaliser_saints("St Martin-d'Auxigny") == "Saint-Martin-d'Auxigny"
+    assert normaliser_saints("Saint Martin-d'Auxigny") == "Saint-Martin-d'Auxigny"
+
+
+def test_le_feminin_est_conserve():
+    """« Ste » donne « Sainte », pas « Saint » — Sainte-Solange existe, Saint-Solange non."""
+    assert normaliser_saints("Ste Solange") == "Sainte-Solange"
+    assert normaliser_saints("Ste-Solange") == "Sainte-Solange"
+
+
+def test_une_forme_deja_correcte_reste_intacte():
+    """Idempotence : la normalisation doit pouvoir s'appliquer deux fois sans dégât."""
+    for nom in ("Saint-Martin-d'Auxigny", "Sainte-Solange"):
+        assert normaliser_saints(nom) == nom
+        assert normaliser_saints(normaliser_saints(nom)) == nom
+
+
+def test_un_nom_qui_commence_par_st_n_est_pas_touche():
+    """« Strasbourg » n'est pas « St rasbourg ».
+
+    C'est le séparateur exigé après le sigle qui protège ces noms : sans lui, la
+    normalisation mutilerait toute commune commençant par ces lettres.
+    """
+    for nom in ("Strasbourg", "Stains", "Stenay", "Sté Foy"):
+        assert normaliser_saints(nom).startswith(nom[:3])
+    assert normaliser_saints("Strasbourg") == "Strasbourg"
+    assert normaliser_saints("Stains") == "Stains"
+
+
+def test_le_sigle_est_developpe_aussi_en_milieu_de_chaine():
+    """Le tiret ouvre une frontière de mot : « Villeneuve-St-Georges » compte."""
+    assert (
+        normaliser_saints("Villeneuve-St-Georges") == "Villeneuve-Saint-Georges"
+    )
+
+
+def test_la_cle_du_veto_reste_la_chaine_brute_du_releve():
+    """`_raw_lieu` normalise, mais `evenement_lieu` NE DOIT PAS être réécrit.
+
+    `evenement_lieu` est la clé de `lieux_resolus`, que lit le veto
+    d'appariement. La réécrire ferait diverger la clé de ce que le moteur
+    cherche, et un candidat vetoé ne revient jamais devant un relecteur humain.
+    Seule la chaîne envoyée au résolveur est normalisée.
+    """
+    releve = _releve_lieu()
+    releve.evenement_lieu = "St Martin-d'Auxigny"
+    releve.evenement_departement = "Cher"
+    releve.evenement_pays = "France"
+    assert _raw_lieu(releve) == "Saint-Martin-d'Auxigny, Cher, France"
+    assert releve.evenement_lieu == "St Martin-d'Auxigny"
+
+
+def test_un_lieu_suisse_n_est_pas_francise():
+    """« St. Gallen » ne doit PAS devenir « Saint-Gallen ».
+
+    La convention « Saint- » est française. La commune suisse s'appelle
+    « St. Gallen » ou « Sankt Gallen » ; « Saint-Gall » est l'exonyme français,
+    pas son nom. Franciser ferait ÉCHOUER une résolution qui marchait, et
+    l'arbre porte des branches suisses et allemandes.
+    """
+    releve = _releve_lieu()
+    releve.evenement_lieu = "St. Gallen"
+    releve.evenement_departement = "Saint-Gall"
+    releve.evenement_pays = "Suisse"
+    assert _raw_lieu(releve) == "St. Gallen, Saint-Gall, Suisse"
+
+
+def test_un_pays_vide_ne_vaut_pas_la_France():
+    """Le prompt laisse `evenement_pays` vide quand le relevé ne l'indique pas.
+
+    Le projet interdit de présumer la France par défaut : un lieu suisse rangé
+    sous « FR: » produirait la fausse concordance de codes que le veto existe
+    pour empêcher. Dans le doute, on ne normalise pas.
+    """
+    releve = _releve_lieu()
+    releve.evenement_lieu = "St Martin-d'Auxigny"
+    releve.evenement_departement = ""
+    releve.evenement_pays = ""
+    assert _raw_lieu(releve) == "St Martin-d'Auxigny"

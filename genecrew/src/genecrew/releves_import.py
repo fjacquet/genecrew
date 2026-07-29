@@ -644,6 +644,57 @@ serait INCOMPARABLE à celui d'une commune (voir le contrat de granularité de
 """
 
 
+_SAINT = re.compile(r"\bs(?:ain)?t(e?)\.?[ \-]+", re.IGNORECASE)
+"""« St », « Ste », « St. », « Saint » suivis d'un espace ou d'un tiret.
+
+Le `[ \\-]+` final est ce qui empêche d'attraper « Strasbourg » ou « Stains » :
+il exige un séparateur après le sigle. Le groupe `(e?)` porte le féminin, pour
+que « Ste » devienne « Sainte » et non « Sainte » appliqué à tort à « St ».
+"""
+
+
+PAYS_SAINTS_TRAIT_UNION = frozenset({"france"})
+"""Pays où « Saint- » avec trait d'union est la forme officielle.
+
+Liste d'INCLUSION, et volontairement réduite à un seul membre. La convention
+n'est PAS universelle, et l'arbre porte des branches suisses et allemandes :
+
+  * Suisse   « St. Gallen », « St. Moritz » — jamais « Saint-Gallen ».
+    « Saint-Gall » est l'exonyme français, pas le nom de la commune.
+  * Allemagne « Sankt Augustin » — c'est « Sankt », pas « Saint ».
+  * Anglophone « St Albans », « St Andrews » — sans trait d'union.
+
+Normaliser hors de France fabriquerait donc des noms qui n'existent pas, et
+ferait échouer la résolution au lieu de l'améliorer. Un pays VIDE ne vaut pas
+France : le prompt laisse ce champ vide quand le relevé ne l'indique pas, et le
+projet interdit explicitement de présumer la France par défaut — un lieu suisse
+rangé sous « FR: » produirait la fausse concordance de codes que le veto existe
+pour empêcher.
+"""
+
+
+def normaliser_saints(nom: str) -> str:
+    """« St Martin-d'Auxigny » → « Saint-Martin-d'Auxigny ». Idempotent.
+
+    MESURÉ le 2026-07-29, et le détail qui compte n'est pas celui qu'on croit :
+    développer le sigle NE SUFFIT PAS, c'est le TRAIT D'UNION qui fait basculer
+    sur le résolveur officiel. Sur la même commune —
+
+        « St Martin-d'Auxigny »     → Nominatim, score 0.878, AUCUN code INSEE
+        « Saint Martin-d'Auxigny »  → Nominatim, score 0.8xx, AUCUN code INSEE
+        « Saint-Martin-d'Auxigny »  → geo.api.gouv.fr, score 1.0, INSEE 18223
+
+    Les deux premières formes tombent sous le seuil de 0.90 : aucun lieu n'est
+    écrit, et le code INSEE manque — or c'est LUI que lit le veto d'appariement.
+    Un relevé abrégé perdait donc son lieu ET sa capacité à départager un
+    homonyme. Les registres français abrègent les saints par défaut.
+
+    S'applique aussi en milieu de chaîne (« Villeneuve-St-Georges ») puisque le
+    tiret ouvre une frontière de mot.
+    """
+    return _SAINT.sub(lambda m: f"Saint{m.group(1).lower()}-", nom or "")
+
+
 def _raw_lieu(releve: ReleveIndexe) -> str:
     """« commune, département, pays » pour la CASCADE de création de lieux.
 
@@ -652,14 +703,29 @@ def _raw_lieu(releve: ReleveIndexe) -> str:
     résolveur géographique attend, en sautant les échelons vides. Sans commune il
     n'y a rien à résoudre — on rend "" pour que la cascade ne parte pas sur un
     « Cher, France » qui résoudrait le département comme s'il était une commune.
+
+    Les abréviations de saints sont développées ici, au plus près du résolveur,
+    et SEULEMENT pour les pays de `PAYS_SAINTS_TRAIT_UNION` : la convention
+    « Saint- » est française, l'appliquer à « St. Gallen » fabriquerait un nom
+    qui n'existe pas. Un pays vide ne vaut pas France.
+
+    `releve.evenement_lieu` reste la chaîne BRUTE du relevé, clé de
+    `lieux_resolus`, et n'est pas réécrite — seule la chaîne envoyée à la cascade
+    l'est. Voir `normaliser_saints` pour ce que coûtait l'abréviation.
     """
-    commune = (releve.evenement_lieu or "").strip()
+    pays = (releve.evenement_pays or "").strip()
+    normalise = (
+        normaliser_saints
+        if pays.casefold() in PAYS_SAINTS_TRAIT_UNION
+        else (lambda s: s)
+    )
+    commune = normalise((releve.evenement_lieu or "").strip())
     if not commune:
         return ""
     echelons = [
         commune,
-        (releve.evenement_departement or "").strip(),
-        (releve.evenement_pays or "").strip(),
+        normalise((releve.evenement_departement or "").strip()),
+        pays,
     ]
     return ", ".join(e for e in echelons if e)
 
