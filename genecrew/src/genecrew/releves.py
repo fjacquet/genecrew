@@ -139,6 +139,14 @@ class ReleveIndexe(BaseModel):
     # Sans lui, la création d'un décès pour un sujet créé retombe sur une résolution
     # ambiguë — donc pas de lieu posé. Défaut "" → rétrocompatible.
     evenement_departement: str = ""
+    # Le LIEU-DIT (hameau, écart, ferme) quand l'acte le nomme — « Les Roches »,
+    # « La Rose ». Distinct de `evenement_lieu`, qui reste la COMMUNE NUE et la clé
+    # de `lieux_resolus`. La séparation est le cœur de la correction : un champ dont
+    # le contrat dit « commune » recevait des lieux-dits, et le résolveur partait
+    # alors chercher une commune homonyme — qu'il trouvait, à 400 km. Ce champ ne
+    # participe JAMAIS à l'appariement, seulement au lieu posé sur l'événement.
+    # Défaut "" → rétrocompatible, et un champ vide est un résultat correct.
+    evenement_lieu_dit: str = ""
     naissance_estimee: int | None = None
     personnes_liees: list[PersonneLiee] = Field(default_factory=list)
     texte_brut: str

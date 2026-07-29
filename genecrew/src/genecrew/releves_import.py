@@ -76,6 +76,7 @@ Rends UNIQUEMENT un objet JSON, sans commentaire, avec exactement ces clés :
   evenement_date   : la date de l'événement en ISO AAAA-MM-JJ, "" si absente
   evenement_lieu   : la commune de l'événement, sans le département ni le pays
   evenement_departement : le département/canton/échelon intermédiaire, "" si absent
+  evenement_lieu_dit : le hameau/lieu-dit de l'événement, "" si absent
   evenement_pays   : le PAYS de l'événement, "" si vraiment inconnu
   naissance_estimee: l'ANNÉE de naissance si elle est approximative, sinon null
   personnes_liees  : [{{"nom": …, "role": "père"|"mère"|"conjoint"|"témoin"|"autre",
@@ -95,6 +96,11 @@ Règles :
 - evenement_departement : recopie l'échelon intermédiaire quand le relevé le donne
   (« Cher », « Vaud »). Il sert à désambiguïser la commune lors de la création du
   lieu ; laisse "" si le relevé ne le mentionne pas. N'en invente pas.
+- evenement_lieu_dit : le HAMEAU ou lieu-dit quand l'acte le nomme (« aux Roches »,
+  « à La Rose », « au Montet »). Il ne remplace PAS la commune : « décédé aux Roches,
+  commune de Saint-Martin-d'Auxigny » donne evenement_lieu="Saint-Martin-d'Auxigny"
+  ET evenement_lieu_dit="Les Roches". Si le texte ne nomme qu'une commune, laisse "".
+  N'en invente pas : un champ vide est un résultat correct, pas un échec.
 - Les abréviations de relevé se lisent : prts=parents, prop=propriétaire,
   gdre=gendre, bfr=beau-frère, tem=témoin.
   (Cette liste vise les relevés FRANÇAIS — c'est un point de départ, pas une

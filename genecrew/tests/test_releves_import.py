@@ -121,6 +121,32 @@ def test_parse_departement_absent_vaut_vide():
     assert r.evenement_departement == ""
 
 
+def test_parse_extrait_le_lieu_dit_distinct_de_la_commune():
+    """Le lieu-dit ne doit PAS atterrir dans evenement_lieu.
+
+    C'est le défaut d'origine : le LLM écrivait « Les Roches » dans un champ
+    dont le contrat dit « commune », et le résolveur partait chercher une
+    commune homonyme — qu'il trouvait, en Ardèche. Les deux échelons ont
+    désormais chacun leur champ.
+    """
+    attendu = dict(_JSON_ATTENDU)
+    attendu["evenement_lieu"] = "Saint-Martin-d'Auxigny"
+    attendu["evenement_lieu_dit"] = "Les Roches"
+    releve = parse_releve("peu importe", llm=_LLMStub(json.dumps(attendu)))
+    assert releve.evenement_lieu == "Saint-Martin-d'Auxigny"
+    assert releve.evenement_lieu_dit == "Les Roches"
+
+
+def test_releve_sans_lieu_dit_garde_un_champ_vide():
+    """Un relevé sans lieu-dit est un cas NORMAL, pas un échec.
+
+    La grande majorité des relevés n'en portent pas. Le défaut vide garantit
+    aussi que les appels existants ne cassent pas.
+    """
+    releve = parse_releve("peu importe", llm=_LLMStub(json.dumps(_JSON_ATTENDU)))
+    assert releve.evenement_lieu_dit == ""
+
+
 def _releve_lieu(commune="Saint-Martin-d'Auxigny", departement="Cher", pays="France"):
     return ReleveIndexe(
         fonds="CGHB",
