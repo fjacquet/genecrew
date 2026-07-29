@@ -210,29 +210,108 @@ def test_genre_infere_sous_le_seuil_reste_inconnu(mocker):
 
 
 def test_resoudre_lieu_rend_le_handle_quand_ecrit(mocker):
+    """Commune résolue, aucun lieu-dit demandé : provenance « commune »."""
     mocker.patch(
         "genecrew.releves_import.run_lieu_import",
         return_value={"action": "ecrire", "handle": "P_SMA", "created": True},
     )
-    h = resoudre_ou_creer_lieu(None, _releve_lieu(), dry_run=False)
-    assert h == "P_SMA"
+    h, provenance = resoudre_ou_creer_lieu(None, _releve_lieu(), dry_run=False)
+    assert (h, provenance) == ("P_SMA", "commune")
 
 
 def test_resoudre_lieu_sans_commune_ne_resout_pas(mocker):
+    """Pas de commune : rien à résoudre, ni cascade de lieu ni tentative de lieu-dit."""
     appels = mocker.patch("genecrew.releves_import.run_lieu_import")
-    h = resoudre_ou_creer_lieu(None, _releve_lieu(commune=""), dry_run=False)
-    assert h is None
+    h, provenance = resoudre_ou_creer_lieu(None, _releve_lieu(commune=""), dry_run=False)
+    assert (h, provenance) == (None, "commune")
     appels.assert_not_called()  # rien à résoudre : pas d'appel réseau
 
 
 def test_resoudre_lieu_ambigu_ne_pose_aucun_lieu(mocker):
-    # run_lieu_import a refusé (score/ambiguïté) : handle None -> événement sans lieu.
+    """run_lieu_import a refusé (score/ambiguïté) : handle None -> événement sans lieu."""
     mocker.patch(
         "genecrew.releves_import.run_lieu_import",
         return_value={"action": "proposer", "handle": None},
     )
-    h = resoudre_ou_creer_lieu(None, _releve_lieu(), dry_run=False)
-    assert h is None
+    h, provenance = resoudre_ou_creer_lieu(None, _releve_lieu(), dry_run=False)
+    assert (h, provenance) == (None, "commune")
+
+
+# --- resoudre_ou_creer_lieu : cascade du lieu-dit (tâche 5) ---
+
+
+def test_le_lieu_dit_est_pose_sur_l_evenement(mocker):
+    """Le lieu le plus fin que l'acte donne — la décision de granularité."""
+    mocker.patch(
+        "genecrew.releves_import.run_lieu_import",
+        return_value={"action": "ecrire", "handle": "h_com", "created": False},
+    )
+    mocker.patch(
+        "genecrew.releves_import.resoudre_lieu_dit",
+        return_value=("h_roches", "arbre"),
+    )
+    releve = _releve_lieu()
+    releve.evenement_lieu_dit = "Les Roches"
+    handle, provenance = resoudre_ou_creer_lieu(_arbre(), releve, dry_run=True)
+    assert (handle, provenance) == ("h_roches", "arbre")
+
+
+def test_sans_lieu_dit_le_comportement_ne_change_pas(mocker):
+    """Rétrocompatibilité : la grande majorité des relevés n'en portent pas."""
+    mocker.patch(
+        "genecrew.releves_import.run_lieu_import",
+        return_value={"action": "ecrire", "handle": "h_com", "created": False},
+    )
+    appels = mocker.patch("genecrew.releves_import.resoudre_lieu_dit")
+    handle, provenance = resoudre_ou_creer_lieu(_arbre(), _releve_lieu(), dry_run=True)
+    assert (handle, provenance) == ("h_com", "commune")
+    appels.assert_not_called()
+
+
+def test_commune_non_resolue_n_essaie_aucun_lieu_dit(mocker):
+    """L'ordre est imposé : le parent ET l'emprise dépendent de la commune."""
+    mocker.patch(
+        "genecrew.releves_import.run_lieu_import",
+        return_value={"action": "proposition", "handle": None},
+    )
+    appels = mocker.patch("genecrew.releves_import.resoudre_lieu_dit")
+    releve = _releve_lieu()
+    releve.evenement_lieu_dit = "Les Roches"
+    handle, provenance = resoudre_ou_creer_lieu(_arbre(), releve, dry_run=True)
+    assert handle is None
+    assert provenance == "commune"  # retour anticipé : le contrat de tuple tient même vide
+    appels.assert_not_called()
+
+
+def test_le_lieu_dit_abandonne_retombe_sur_la_commune(mocker):
+    """Abandon (arbre illisible) → la commune, pas rien. On ne perd pas l'événement."""
+    mocker.patch(
+        "genecrew.releves_import.run_lieu_import",
+        return_value={"action": "ecrire", "handle": "h_com", "created": False},
+    )
+    mocker.patch(
+        "genecrew.releves_import.resoudre_lieu_dit", return_value=(None, "abandon")
+    )
+    releve = _releve_lieu()
+    releve.evenement_lieu_dit = "Les Roches"
+    handle, provenance = resoudre_ou_creer_lieu(_arbre(), releve, dry_run=True)
+    assert (handle, provenance) == ("h_com", "commune")
+
+
+def test_le_lieu_dit_n_entre_jamais_dans_lieux_resolus():
+    """INVARIANT : `lieux_resolus` ne contient que des COMMUNES.
+
+    Le veto d'appariement compare des codes INSEE. Un code de hameau y serait
+    incomparable et produirait un veto FAUX — or un candidat vetoé ne revient
+    jamais devant le relecteur humain. `_raw_lieu` doit donc ignorer le lieu-dit.
+    """
+    releve = _releve_lieu()
+    releve.evenement_lieu = "Saint-Martin-d'Auxigny"
+    releve.evenement_departement = "Cher"
+    releve.evenement_pays = "France"
+    releve.evenement_lieu_dit = "Les Roches"
+    assert "Roches" not in _raw_lieu(releve)
+    assert _raw_lieu(releve) == "Saint-Martin-d'Auxigny, Cher, France"
 
 
 def test_texte_brut_est_conserve_integralement():

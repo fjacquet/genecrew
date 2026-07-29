@@ -40,6 +40,7 @@ from genecrew.crew import build_llm
 from genecrew.deces_apply import source_title_for
 from genecrew.evenements import creer_evenement_source, dateval_iso
 from genecrew.lieu_import import run_lieu_import
+from genecrew.lieux_dits import resoudre_lieu_dit
 from genecrew.pistes import _normaliser
 from genecrew.releves import (
     Appariement,
@@ -532,8 +533,10 @@ def _creer_evenement(
     poser l'événement SANS lieu — jamais un lieu faux.
     """
     etype = event_type or releve.evenement_type
-    lieu_handle = (
-        resoudre_ou_creer_lieu(client, releve, dry_run=dry_run) if avec_lieu else None
+    lieu_handle, lieu_provenance = (
+        resoudre_ou_creer_lieu(client, releve, dry_run=dry_run)
+        if avec_lieu
+        else (None, "commune")
     )
     dv = dateval if dateval is not None else dateval_iso(releve.evenement_date)
     citation_handle, raison_cit = _creer_citation_releve(
@@ -564,6 +567,7 @@ def _creer_evenement(
         "posee": posee,
         "event_handle": res["event_handle"],
         "lieu": lieu_handle,
+        "lieu_provenance": lieu_provenance,
         "attache": res["attache"],
         "raison": raison,
     }
@@ -694,33 +698,43 @@ def genre_infere(prenom: str) -> int:
 
 def resoudre_ou_creer_lieu(
     client: GrampsClient, releve: ReleveIndexe, *, dry_run: bool = False
-) -> str | None:
-    """Handle du lieu de l'événement, créé en cascade si absent ; None si non résolu.
+) -> tuple[str | None, str]:
+    """(handle, provenance) du lieu de l'événement — le plus fin que l'acte donne.
 
-    Délègue à `run_lieu_import` (mêmes résolveurs que `propose places`) sur la chaîne
-    qualifiée `_raw_lieu`. Rend le handle de la feuille quand la résolution autorise
-    l'écriture (créée OU déjà présente), sinon None : commune absente, résolution
-    ambiguë ou score sous le seuil. Un None fait poser l'événement SANS lieu (rapporté)
-    — jamais un lieu faux. En dry-run le handle rendu est synthétique (`DRYRUN:…`),
-    que `GrampsCreateEventTool` ignore de toute façon.
+    La COMMUNE est résolue d'abord, toujours : elle sert de parent au lieu-dit et
+    d'emprise à la requête OSM bornée. Commune non résolue → aucun lieu-dit tenté.
 
-    `run_lieu_import` peut LEVER (`RuntimeError` si un maillon de la hiérarchie
-    échoue, ou une erreur réseau). Comme la cascade est appelée EN PLEINE écriture
-    d'un sujet créé (après personne + note + tag), on ne laisse pas l'exception
-    tuer l'import à mi-chemin et rendre le sujet orphelin invisible : on retombe
-    sur None (événement sans lieu), le repli déjà prévu pour l'ambiguïté.
+    provenance ∈ {"commune", "arbre", "osm", "cree_sans_gps"}. Un lieu-dit
+    abandonné (arbre illisible) retombe sur la commune plutôt que sur rien.
     """
     raw = _raw_lieu(releve)
     if not raw:
-        return None
+        return None, "commune"
     try:
         out = run_lieu_import(client, raw, dry_run=dry_run)
     except (RuntimeError, httpx.HTTPError) as exc:
         _LOG.warning(
             "Cascade de lieu « %s » échouée, événement sans lieu : %s", raw, exc
         )
-        return None
-    return out.get("handle")
+        return None, "commune"
+    commune_handle = out.get("handle")
+    if not commune_handle or not releve.evenement_lieu_dit.strip():
+        return commune_handle, "commune"
+
+    resolved = out.get("resolved") or {}
+    lat = float(resolved["lat"]) if resolved.get("lat") else None
+    lon = float(resolved["long"]) if resolved.get("long") else None
+    handle, provenance = resoudre_lieu_dit(
+        client,
+        releve.evenement_lieu_dit.strip(),
+        commune_handle,
+        lat,
+        lon,
+        dry_run=dry_run,
+    )
+    if handle:
+        return handle, provenance
+    return commune_handle, "commune"
 
 
 def _prefixe_pays(country: str) -> str | None:
