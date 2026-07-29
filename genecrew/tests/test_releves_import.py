@@ -344,6 +344,32 @@ def test_les_coordonnees_de_la_commune_sont_transmises_au_lieu_dit(mocker):
     assert capture == {"lat": 47.2164, "lon": 2.35}
 
 
+def test_une_coordonnee_non_numerique_retombe_sur_la_commune(mocker):
+    """Un `lat` illisible ne doit pas tuer l'import à mi-écriture.
+
+    `resolved` vient d'un résolveur externe : une valeur peut être VRAIE sans
+    être numérique (« N/A »). Convertie hors du bloc gardé, elle levait une
+    `ValueError` que rien n'attrapait jusqu'à `main` — alors que sur le chemin
+    `creer_sujet` la personne, la note et le tag sont DÉJÀ écrits. L'import
+    mourait sans rapport, laissant une fiche orpheline invisible.
+    """
+    mocker.patch(
+        "genecrew.releves_import.run_lieu_import",
+        return_value={
+            "action": "ecrire",
+            "handle": "h_com",
+            "created": False,
+            "resolved": {"lat": "N/A", "long": "2.35"},
+        },
+    )
+    appels = mocker.patch("genecrew.releves_import.resoudre_lieu_dit")
+    releve = _releve_lieu()
+    releve.evenement_lieu_dit = "Les Roches"
+    handle, provenance = resoudre_ou_creer_lieu(_arbre(), releve, dry_run=True)
+    assert (handle, provenance) == ("h_com", "commune")
+    appels.assert_not_called()
+
+
 def test_lieu_dit_dont_la_creation_echoue_retombe_sur_la_commune(mocker):
     """C-1 : une exception dans la cascade du lieu-dit ne doit JAMAIS tuer l'import.
 
