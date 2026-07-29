@@ -130,9 +130,18 @@ d'OSM, pas une erreur de lecture d'acte.
    P0661 existe — mais laisserait le lieu-dit suivant repartir chercher une
    commune homonyme.
 
-4. **Rien ne bouge dans `crewai_custom_tools`.** La cascade vit dans
-   `releves_import.py` ; les résolveurs `geo/` sont consommés tels quels. Donc pas
-   de cycle bump → tag → `uv sync` entre les deux dépôts.
+4. **Rien ne bouge dans `crewai_custom_tools`.** On en *importe* — `get_rate_limiter`,
+   `GrampsCreatePlaceTool`, `effective_dry_run` — on n'y écrit pas. Donc pas de
+   cycle bump → tag → `uv sync` entre les deux dépôts.
+
+   Cette décision a un coût, découvert à la rédaction du plan :
+   `geo/nominatim.py::map_nominatim()` **code en dur `place_type="Municipality"`**
+   et est donc structurellement incapable de rendre un `hamlet`. L'étage 2 ne peut
+   pas la réutiliser. La cascade vit par conséquent dans un module genecrew dédié,
+   **`genecrew/src/genecrew/lieux_dits.py`**, qui fait sa propre requête bornée.
+   Ce n'est pas une duplication gratuite : `releves_import.py` fait déjà 1234 lignes
+   et son fichier de tests 76 Ko, et une cascade réseau y serait moins testable
+   qu'isolée.
 
    *Écarté* : généraliser `index_lieux()` en index partagé monté dans la
    bibliothèque. Ça règlerait la classe entière, mais le CLAUDE.md réserve
@@ -254,9 +263,12 @@ Le repli sur exception existe déjà à cet endroit (`RuntimeError`, `httpx.HTTP
 attrapés en `releves_import.py:712`) pour qu'une exception ne tue pas un import à
 mi-parcours en laissant un sujet orphelin invisible. La cascade s'y conforme.
 
-**Cadence Nominatim** — un lieu-dit par relevé, donc pas de rafale à l'unité. Un
-import en lot devra respecter la seconde entre requêtes ; à câbler avant que le
-lot n'existe, pas après.
+**Cadence Nominatim** — **déjà câblée**, contrairement à ce que disait la première
+rédaction de cette spec. `geo/nominatim.py::_http_get()` appelle
+`get_rate_limiter().acquire("Nominatim")` avant chaque requête. La cascade importe
+ce limiteur **partagé** plutôt que d'en réimplémenter un : la politique d'usage de
+Nominatim est d'une requête par seconde tous appelants confondus, donc un compteur
+propre au module la violerait dès qu'un autre chemin appelle aussi. Rien à câbler.
 
 ## Tests
 
