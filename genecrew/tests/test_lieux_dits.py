@@ -4,8 +4,11 @@ import httpx
 import pytest
 from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient, GrampsConfig
 from genecrew.lieux_dits import (
+    MARGE_EMPRISE_DEG,
     RechercheArbreIndisponible,
     chercher_dans_arbre,
+    emprise_de_commune,
+    interroger_osm,
     normaliser_nom,
 )
 
@@ -118,3 +121,77 @@ def test_une_panne_de_lecture_leve_au_lieu_de_rendre_none():
 def test_normaliser_nom_est_strip_puis_casefold():
     """Verrouille la normalisation : la mesure des collisions n'a de sens qu'ainsi."""
     assert normaliser_nom("  Les Roches ") == "les roches"
+
+
+def test_emprise_preferee_est_la_bounding_box_de_la_commune():
+    """La bbox réelle vaut mieux qu'un carré approché autour du centre."""
+    assert emprise_de_commune(47.2164, 2.35, (2.29, 47.27, 2.42, 47.16)) == (
+        "2.29,47.27,2.42,47.16"
+    )
+
+
+def test_emprise_de_repli_est_un_carre_autour_du_centre():
+    """Sans bbox, un carré de ±MARGE_EMPRISE_DEG — la valeur de la mesure."""
+    viewbox = emprise_de_commune(47.2164, 2.35, None)
+    lon_min, lat_max, lon_max, lat_min = (float(v) for v in viewbox.split(","))
+    assert lon_min == pytest.approx(2.35 - MARGE_EMPRISE_DEG)
+    assert lon_max == pytest.approx(2.35 + MARGE_EMPRISE_DEG)
+    assert lat_max == pytest.approx(47.2164 + MARGE_EMPRISE_DEG)
+    assert lat_min == pytest.approx(47.2164 - MARGE_EMPRISE_DEG)
+
+
+def test_commune_sans_coordonnees_ne_donne_aucune_emprise():
+    """Sans centre ni bbox, rien n'est calculable — l'étage 2 sera sauté."""
+    assert emprise_de_commune(None, None, None) is None
+
+
+def test_osm_retient_un_hameau(monkeypatch):
+    """Cas mesuré le 2026-07-29 : La Rose est dans OSM, correctement typée."""
+    monkeypatch.setattr(
+        "genecrew.lieux_dits._http_get_osm",
+        lambda params: [
+            {"addresstype": "hamlet", "lat": "47.19476", "lon": "2.37858"}
+        ],
+    )
+    assert interroger_osm("La Rose", "2.29,47.27,2.42,47.16") == ("47.19476", "2.37858")
+
+
+def test_osm_rejette_une_rue(monkeypatch):
+    """« Rue de la Rose » n'est PAS le lieu-dit La Rose.
+
+    La BAN en rend quatre pour cette commune ; les accepter poserait un
+    événement sur une voie.
+    """
+    monkeypatch.setattr(
+        "genecrew.lieux_dits._http_get_osm",
+        lambda params: [{"addresstype": "road", "lat": "47.19", "lon": "2.37"}],
+    )
+    assert interroger_osm("La Rose", "2.29,47.27,2.42,47.16") is None
+
+
+def test_osm_muet_rend_none(monkeypatch):
+    """Les Roches est absent d'OSM — lacune connue, pas une erreur."""
+    monkeypatch.setattr("genecrew.lieux_dits._http_get_osm", lambda params: [])
+    assert interroger_osm("Les Roches", "2.29,47.27,2.42,47.16") is None
+
+
+def test_la_requete_osm_est_bien_bornee(monkeypatch):
+    """La garde est GÉOMÉTRIQUE : sans bounded=1, le score de 1.0 de l'Ardèche gagne."""
+    vus = {}
+    monkeypatch.setattr(
+        "genecrew.lieux_dits._http_get_osm",
+        lambda params: vus.update(params) or [],
+    )
+    interroger_osm("Les Roches", "2.29,47.27,2.42,47.16")
+    assert vus["viewbox"] == "2.29,47.27,2.42,47.16"
+    assert vus["bounded"] == 1
+
+
+def test_une_panne_osm_rend_none_sans_lever(monkeypatch):
+    """Le réseau qui tombe fait retomber sur l'étage 3, il ne tue pas l'import."""
+
+    def _boom(params):
+        raise httpx.ConnectError("réseau")
+
+    monkeypatch.setattr("genecrew.lieux_dits._http_get_osm", _boom)
+    assert interroger_osm("La Rose", "2.29,47.27,2.42,47.16") is None

@@ -18,6 +18,7 @@ from __future__ import annotations
 import logging
 
 import httpx
+from crewai_custom_tools.core.rate_limiter import get_rate_limiter
 from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient
 
 _LOG = logging.getLogger(__name__)
@@ -81,3 +82,85 @@ def chercher_dans_arbre(client: GrampsClient, nom: str, parent_handle: str) -> s
             )
         return None
     return trouves[0]
+
+
+_URL_OSM = "https://nominatim.openstreetmap.org/search"
+_UA_OSM = "genecrew/1.0 (genealogy place standardizer; +https://github.com/)"
+_PROVIDER_OSM = "Nominatim"
+
+TYPES_OSM_LIEU_DIT = frozenset({"hamlet", "locality", "village", "isolated_dwelling"})
+"""Types OSM acceptés pour un lieu-dit.
+
+`road`, `administrative`, `house` sont rejetés : « Rue de la Rose » n'est pas le
+lieu-dit La Rose, et la BAN en rend quatre variantes pour cette seule commune.
+"""
+
+MARGE_EMPRISE_DEG = 0.06
+"""Demi-côté du carré de repli, en degrés (≈ 6,7 km en latitude).
+
+Valeur employée pour la mesure de conception ; elle a suffi à trouver La Rose à
+2,7 km du bourg. Volontairement généreuse : une emprise trop large ne peut
+ramener qu'un lieu-dit de la commune voisine, jamais l'Ardèche.
+"""
+
+
+def emprise_de_commune(
+    lat: float | None,
+    lon: float | None,
+    bbox: tuple[float, float, float, float] | None,
+) -> str | None:
+    """Paramètre `viewbox` Nominatim (`lon_min,lat_max,lon_max,lat_min`), ou None.
+
+    Préfère la bounding box réelle de la commune ; à défaut, un carré de
+    ±`MARGE_EMPRISE_DEG` autour de son centre. Sans centre ni bbox, rend None :
+    l'étage 2 est alors sauté plutôt que borné sur du vide.
+    """
+    if bbox is not None:
+        return ",".join(str(v) for v in bbox)
+    if lat is None or lon is None:
+        return None
+    return (
+        f"{lon - MARGE_EMPRISE_DEG},{lat + MARGE_EMPRISE_DEG},"
+        f"{lon + MARGE_EMPRISE_DEG},{lat - MARGE_EMPRISE_DEG}"
+    )
+
+
+def _http_get_osm(params: dict) -> list:
+    """Appel Nominatim, cadencé par le limiteur PARTAGÉ de la bibliothèque.
+
+    Le limiteur est importé, pas réimplémenté : la politique d'usage de Nominatim
+    est d'une requête par seconde tous appelants confondus, donc un compteur
+    propre à ce module la violerait dès qu'un autre chemin appelle aussi.
+    """
+    get_rate_limiter().acquire(_PROVIDER_OSM)
+    resp = httpx.get(_URL_OSM, params=params, headers={"User-Agent": _UA_OSM}, timeout=15.0)
+    resp.raise_for_status()
+    return resp.json()
+
+
+def interroger_osm(nom: str, viewbox: str) -> tuple[str, str] | None:
+    """(lat, lon) du lieu-dit dans l'emprise, ou None.
+
+    `bounded=1` est ce qui rend la garde géométrique : hors de la boîte, aucun
+    résultat ne remonte, quel que soit son score de similarité.
+    """
+    if not nom or not viewbox:
+        return None
+    try:
+        resultats = _http_get_osm(
+            {
+                "q": nom,
+                "format": "jsonv2",
+                "limit": 5,
+                "accept-language": "fr",
+                "viewbox": viewbox,
+                "bounded": 1,
+            }
+        )
+    except (httpx.HTTPError, ValueError) as exc:
+        _LOG.warning("Nominatim borné indisponible pour « %s » : %s", nom, exc)
+        return None
+    for r in resultats:
+        if (r.get("addresstype") or r.get("type") or "") in TYPES_OSM_LIEU_DIT:
+            return str(r["lat"]), str(r["lon"])
+    return None
