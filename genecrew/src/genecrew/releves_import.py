@@ -729,9 +729,15 @@ def resoudre_ou_creer_lieu(
         return commune_handle, "commune"
 
     resolved = out.get("resolved") or {}
-    lat = float(resolved["lat"]) if resolved.get("lat") else None
-    lon = float(resolved["long"]) if resolved.get("long") else None
+    # La conversion est DANS le bloc gardé, et `ValueError` fait partie des
+    # exceptions rattrapées : `resolved` vient d'un résolveur externe, donc
+    # `lat`/`lon` peuvent être non numériques tout en étant vrais (« N/A »).
+    # Convertir avant le `try` remettrait cette fonction dans le mode d'échec
+    # que son docstring dit empêcher — une exception ici remonte sans filet
+    # jusqu'à `main`, ALORS QUE la personne, la note et le tag sont déjà écrits.
     try:
+        lat = float(resolved["lat"]) if resolved.get("lat") else None
+        lon = float(resolved["long"]) if resolved.get("long") else None
         handle, provenance = resoudre_lieu_dit(
             client,
             releve.evenement_lieu_dit.strip(),
@@ -740,7 +746,7 @@ def resoudre_ou_creer_lieu(
             lon,
             dry_run=dry_run,
         )
-    except (RuntimeError, httpx.HTTPError) as exc:
+    except (RuntimeError, httpx.HTTPError, ValueError) as exc:
         _LOG.warning(
             "Résolution du lieu-dit « %s » échouée, repli sur la commune : %s",
             releve.evenement_lieu_dit.strip(),
