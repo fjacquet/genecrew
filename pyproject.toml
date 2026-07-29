@@ -30,6 +30,24 @@ packages = ["genecrew/src/genecrew"]
 [tool.crewai]
 type = "crew"
 
+[tool.uv]
+# Planchers de sécurité sur des dépendances TRANSITIVES (tirées par crewai, qui
+# les déclare sans contrainte de version). `constraint-dependencies` relève le
+# plancher sans en faire des dépendances directes : on ne les importe pas, on
+# refuse seulement d'en installer une version vulnérable.
+#
+#   mcp         >= 1.28.1  GHSA-hvrp-rf83-w775, GHSA-jpw9-pfvf-9f58,
+#                          GHSA-vj7q-gjh5-988w  (3 HAUTES)
+#   json-repair >= 0.60.1  GHSA-xf7x-x43h-rpqh  (HAUTE, déni de service par
+#                          `$ref` circulaire dans un schéma JSON)
+#
+# À retirer le jour où crewai relève lui-même ses planchers : une contrainte qui
+# a cessé d'être nécessaire finit par bloquer une résolution légitime.
+constraint-dependencies = [
+    "mcp>=1.28.1",
+    "json-repair>=0.60.1",
+]
+
 [tool.uv.sources]
 crewai-custom-tools = { path = "../crewai_custom_tools", editable = true }
 
