@@ -7,6 +7,30 @@ Non publié / non versionné (`0.1.0`) : entrées **datées par livraison**. La 
 
 ---
 
+## 2026-08-01
+
+### Added
+
+- **`docs/archives-online.md` — le protocole du portail suisse, relevé et vérifié.**
+  [Archives Online](https://www.archives-online.org/) fédère une cinquantaine d'archives suisses
+  (dont les Archives d'État de Genève) et **n'expose aucune API** : ni REST, ni OAI-PMH, ni rien
+  d'annoncé. Son formulaire reste pilotable sans navigateur — protocole SignalR relevé de bout en
+  bout le 2026-07-28, sans authentification ni jeton anti-CSRF, `robots.txt` en `Allow: /`. La
+  note documente la séquence complète et **ses limites**, pour qu'un futur `propose <base>` parte
+  d'un protocole vérifié plutôt que d'un tâtonnement.
+
+### Changed
+
+- `CLAUDE.md` — prose compressée (articles, tournures redondantes) ; chemins, symboles,
+  commandes, seuils et avertissements inchangés.
+- Dépendances (`uv sync -U`) — 16 paquets, dont `crewai` 1.15.8 → 1.15.10, `cryptography`
+  49 → 50, `openai` 2.50 → 2.52, `ruff` 0.16.0 → 0.16.1. 664 tests verts, ruff propre.
+  `chromadb` reste en 1.1.1 : la plage vulnérable de l'alerte critique GitHub
+  (`>= 1.0.0, <= 1.5.9`) couvre la dernière version publiée, **aucun correctif amont n'existe**.
+  Sans effet ici — dépendance transitive de `crewai`, jamais importée, et la faille vise le
+  *serveur* ChromaDB que genecrew ne lance pas (ni `memory=True`, ni `knowledge_sources`).
+  À réexaminer si l'un des deux est activé.
+
 ## 2026-07-22
 
 ### Added
