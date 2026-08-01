@@ -31,6 +31,75 @@ Non publié / non versionné (`0.1.0`) : entrées **datées par livraison**. La 
   *serveur* ChromaDB que genecrew ne lance pas (ni `memory=True`, ni `knowledge_sources`).
   À réexaminer si l'un des deux est activé.
 
+## 2026-07-29
+
+### Added
+
+- **`import releve` pose le lieu-dit que l'acte nomme, plus seulement la commune.** Un import
+  avait créé l'événement E0332 **sans lieu** alors que l'acte dit « décédé aux Roches » et que
+  le hameau P0661 « Les Roches » existait déjà dans l'arbre, correctement rattaché. Trois
+  défauts superposés : un contrat de champ violé (`_raw_lieu()` promet une commune, le LLM y
+  écrivait parfois un lieu-dit), l'arbre jamais consulté (`resoudre_ou_creer_lieu` déléguait
+  tout aux résolveurs `geo/`, donc au réseau — P0661 était invisible), et un rapport imprimant
+  le `handle` interne au lieu du `gramps_id`.
+
+  **La garde est géométrique, pas un seuil.** Mesuré : `Les Roches, Saint-Martin-d'Auxigny,
+  Cher, France` non borné rend un lieu **en Ardèche** avec un score de **1.0** ; `La Rose`
+  rend **Marseille**, score **1.0** — la commune est à 47.21 / 2.35. Le score mesure une
+  ressemblance de chaîne, pas une plausibilité géographique : abaisser un seuil n'aurait rien
+  changé. Bornée à l'emprise de la commune, la même requête rend le bon hameau. Cascade
+  `lieux_dits.py` : arbre d'abord, puis OSM borné à la bbox de la commune, puis création sous
+  la commune. Une panne de lecture n'est jamais traitée comme une absence — créer sur une
+  ignorance produirait un doublon.
+
+### Fixed
+
+- **Un `RuntimeError` pouvait tuer l'import à mi-écriture**, après la personne, la note et le
+  tag, laissant une fiche orpheline invisible et sans rapport : un refactoring avait déplacé
+  l'appel hors de son `try/except` **et supprimé le paragraphe qui l'expliquait**.
+- `_id_lisible` construisait l'URL par pluriel naïf — correct pour `event`/`place`, faux pour
+  une personne (Gramps Web expose `/api/people/`), et le repli sur exception aurait avalé le
+  404 en silence. `chercher_dans_arbre` ne paginait pas, seul du dépôt : une lecture tronquée
+  se présente comme une absence, donc comme un doublon à créer. Le test gardant l'invariant du
+  veto visait la mauvaise fonction.
+- **Plancher de version sur deux dépendances transitives vulnérables** (4 avis HAUTS, aucune
+  déclarée dans `pyproject.toml`, toutes deux tirées par `crewai`) : `mcp` 1.26.0 → **1.28.1**
+  (GHSA-hvrp-rf83-w775, GHSA-jpw9-pfvf-9f58, GHSA-vj7q-gjh5-988w), `json-repair` 0.25.3 →
+  **0.60.1** (GHSA-xf7x-x43h-rpqh, déni de service par `$ref` circulaire).
+
+  `crewai` déclare ces paquets **sans contrainte de version**, donc `uv lock --upgrade-package`
+  ne bougeait rien : rien dans le graphe ne demandait mieux. `[tool.uv] constraint-dependencies`
+  relève le plancher **sans en faire des dépendances directes** — on ne les importe pas, on
+  refuse seulement d'en installer une version vulnérable. À retirer quand `crewai` relèvera les
+  siennes : une contrainte devenue inutile finit par bloquer une résolution légitime.
+
+  **Non corrigé** : `chromadb` porte GHSA-f4j7-r4q5-qw2c, **CRITIQUE** (injection de code
+  pré-authentification), et aucune version corrigée n'est publiée — non traitable par montée de
+  version. Alertes établies via **OSV.dev** sur les 179 paquets installés, l'API Dependabot
+  rendant `totalCount: 0` faute du périmètre `security_events` sur le jeton.
+
+## 2026-07-28
+
+### Fixed
+
+- **Un run n'efface plus le compte rendu du précédent.** Tous les rapports sont datés au
+  **jour** (`<date>_<verbe>_<portée>.md`) : deux passages du même verbe, le même jour, sur le
+  même périmètre visaient le même fichier — et le second gagnait en silence. Mesuré : un
+  `enrich wiki` complet a tourné 1 h 25 et posé **591 images sans une seule erreur** ; un
+  second passage de 34 secondes, ne traitant que les 15 lieux restants, a écrasé son compte
+  rendu. Le rapport survivant annonçait « Images importées : 0 ».
+
+  **Le dégât ne se limite pas au récit** : les YAML de propositions suivent la même règle de
+  nommage et sont **relus par un humain avant d'être consommés par `apply`** — les écraser fait
+  disparaître l'arbitrage qui autorisait l'écriture. C'est le cas le plus grave, et il n'avait
+  simplement pas encore mordu.
+
+  `chemins.chemin_libre()` rend le chemin **inchangé** tant qu'il est libre (le premier run de
+  la journée ne gagne aucun bruit dans son nom) et n'insère l'heure que lorsque le fichier
+  existe déjà ; repli sur compteur si deux runs bornés finissent dans la même seconde. Les
+  **31 chemins des 18 modules** qui écrivent un rapport y passent, YAML de propositions
+  compris — le piège était partout, corriger le seul `enrich wiki` aurait laissé les autres.
+
 ## 2026-07-22
 
 ### Added
