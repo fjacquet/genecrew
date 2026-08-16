@@ -166,12 +166,46 @@ def run_places_apply(
 
     for batch in iter_places(client, scope, batch_size, limit):
         for place in batch:
-            if (place.get("place_type") or "Unknown") != "Unknown":
+            already_typed = (place.get("place_type") or "Unknown") != "Unknown"
+            has_gps = bool(place.get("lat") and place.get("long"))
+            if already_typed and has_gps:
                 skipped += (
-                    1  # déjà structuré (parent créé ou feuille enrichie) : idempotent
+                    1  # déjà structuré et géolocalisé : idempotent, rien à reconsidérer
                 )
                 continue
             prop = build_proposition(place, min_score)
+            if already_typed:
+                # Lieu déjà typé par une curation antérieure (humaine ou import), mais sans
+                # GPS. On ne retype ni ne redéfinit son nom ou sa hiérarchie ici — seul le
+                # champ manquant est comblé, et seulement à confiance maximale (score 1.0,
+                # non ambigu) : la barre `min_score` de la branche Unknown ci-dessous serait
+                # trop permissive pour toucher un lieu qu'un humain a déjà structuré.
+                rp = prop.resolution
+                if rp is None or rp.ambiguous or rp.score < 1.0:
+                    proposals.append(prop)
+                    continue
+                name = (place.get("name") or {}).get("value", "")
+                try:
+                    payload = json.loads(
+                        updater._run(
+                            handle=prop.handle,
+                            name=name,
+                            place_type=place.get("place_type"),
+                            lat=rp.lat,
+                            long=rp.long,
+                            provenance=prop.preuve,
+                            dry_run=dry_run,
+                        )
+                    )
+                    if payload["success"]:
+                        applied.append(
+                            (prop.gramps_id, name, place.get("place_type"), rp.lat, rp.long)
+                        )
+                    else:
+                        errors.append((prop.gramps_id, payload["error"]))
+                except RuntimeError as exc:
+                    errors.append((prop.gramps_id, str(exc)))
+                continue
             if prop.action != "ecrire":
                 proposals.append(prop)
                 continue

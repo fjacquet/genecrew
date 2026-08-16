@@ -122,13 +122,16 @@ def test_apply_dry_run_writes_nothing(tmp_path, monkeypatch, mocker):
     assert not records  # aucun POST/PUT
 
 
-# deux lieux DÉJÀ structurés : un parent Country et une feuille Municipality avec placeref
+# deux lieux DÉJÀ structurés ET géolocalisés : un parent Country et une feuille Municipality
+# avec placeref — rien ne manque, un re-run doit être un pur no-op.
 STRUCTURED_PLACES = [
     {
         "handle": "hFrance",
         "gramps_id": "P0100",
         "name": {"value": "France"},
         "place_type": "Country",
+        "lat": "46.0",
+        "long": "2.0",
         "alt_names": [],
         "placeref_list": [],
     },
@@ -137,18 +140,68 @@ STRUCTURED_PLACES = [
         "gramps_id": "P0002",
         "name": {"value": "Bourges"},
         "place_type": "Municipality",
+        "lat": "47.081",
+        "long": "2.399",
         "alt_names": [],
         "placeref_list": [{"ref": "hFrance"}],
     },
 ]
 
-# France existe déjà (Country) + une feuille plate (Unknown) à résoudre sous France>Cher
+# lieu déjà typé (curation humaine ou import antérieur) mais SANS GPS — le cas que la
+# complétion GPS-only doit pouvoir combler, sans retyper ni redéfinir la hiérarchie.
+TYPED_WITHOUT_GPS = [
+    {
+        "handle": "hRymanow",
+        "gramps_id": "P0720",
+        "name": {"value": "Rymanów-Zdrój, Pologne"},
+        "place_type": "Town",
+        "alt_names": [],
+        "placeref_list": [{"ref": "hSomeParent"}],
+    },
+]
+
+
+def _gps_only_resolution(score=1.0, ambiguous=False):
+    from crewai_custom_tools.tools.genealogy.models.domain import PlaceProposition
+
+    def _prop(place, min_score):
+        rp = ResolvedPlace(
+            name="Rymanów-Zdrój",  # nom du résolveur : ne doit PAS écraser le nom existant
+            place_type="Municipality",  # idem pour le type
+            lat="49.4",
+            long="21.9",
+            chains=[DatedChain(levels=[PlaceLevel(name="Pologne", place_type="Country")])],
+            score=score,
+            ambiguous=ambiguous,
+            source="Nominatim/OSM",
+            query="Rymanów-Zdrój, Pologne",
+        )
+        return PlaceProposition(
+            type="lieu_resolu",
+            gramps_id=place["gramps_id"],
+            handle=place["handle"],
+            original=place["name"]["value"],
+            country="Pologne",
+            resolution=rp,
+            action="ecrire" if (score >= 1.0 and not ambiguous) else "proposition",
+            confiance="haute" if (score >= 1.0 and not ambiguous) else "basse",
+            priorite="haute",
+            preuve="…",
+        )
+
+    return _prop
+
+# France existe déjà (Country, géolocalisé) + une feuille plate (Unknown) à résoudre sous
+# France>Cher — le GPS sur France est là pour la sortir du champ de la complétion GPS-only,
+# hors sujet pour ce test qui porte sur la réutilisation de parent.
 EXISTING_FRANCE_PLUS_LEAF = [
     {
         "handle": "hFrance",
         "gramps_id": "P0100",
         "name": {"value": "France"},
         "place_type": "Country",
+        "lat": "46.0",
+        "long": "2.0",
         "alt_names": [],
         "placeref_list": [],
     },
@@ -183,6 +236,44 @@ def test_apply_skips_already_structured_places_idempotent(
     assert records == []  # aucun POST/PUT : re-run idempotent
     assert calls == []  # build_proposition jamais appelé
     assert "Déjà structurés (ignorés) : 2" in report.read_text(encoding="utf-8")
+
+
+def test_apply_completes_gps_on_already_typed_place_without_renaming_or_retyping(
+    tmp_path, monkeypatch, mocker
+):
+    """Un lieu déjà typé mais sans GPS, résolu à confiance maximale (score 1.0, non
+    ambigu), reçoit son GPS — mais ni son nom, ni son type, ni sa hiérarchie ne bougent :
+    seul le champ qui manquait vraiment est écrit."""
+    monkeypatch.setattr(places_apply, "build_proposition", _gps_only_resolution())
+    records = []
+    client = _client(records, places=TYPED_WITHOUT_GPS)
+    mocker.patch.object(write_tools, "get_client", return_value=client)
+    report = run_places_apply(client, "all", tmp_path, date="2026-08-16", dry_run=False)
+    posts = [r for m, r in records if m == "POST"]
+    puts = [r for m, r in records if m == "PUT"]
+    assert posts == []  # aucun parent créé : la hiérarchie existante n'est pas touchée
+    assert len(puts) == 1
+    put = puts[0]
+    assert put["name"]["value"] == "Rymanów-Zdrój, Pologne"  # nom d'origine préservé
+    assert put["place_type"] == "Town"  # type d'origine préservé
+    assert put["lat"] == "49.4" and put["long"] == "21.9"  # GPS complété
+    assert put["placeref_list"] == [{"ref": "hSomeParent"}]  # hiérarchie inchangée
+    assert "Lieux écrits : 1" in report.read_text(encoding="utf-8")
+
+
+def test_apply_does_not_complete_gps_below_score_one_or_ambiguous(
+    tmp_path, monkeypatch, mocker
+):
+    """La barre pour toucher un lieu déjà typé est plus haute que pour un lieu Unknown :
+    score 1.0 non ambigu strictement, `min_score` (0.90 par défaut) ne suffit pas ici —
+    faute de quoi une résolution incertaine écraserait un lieu déjà curé par un humain."""
+    monkeypatch.setattr(places_apply, "build_proposition", _gps_only_resolution(score=0.95))
+    records = []
+    client = _client(records, places=TYPED_WITHOUT_GPS)
+    mocker.patch.object(write_tools, "get_client", return_value=client)
+    report = run_places_apply(client, "all", tmp_path, date="2026-08-16", dry_run=False)
+    assert records == []  # aucune écriture
+    assert "Propositions (non écrites) : 1" in report.read_text(encoding="utf-8")
 
 
 def test_apply_seeds_parent_index_reuses_existing_parent(tmp_path, monkeypatch, mocker):
