@@ -71,11 +71,23 @@ def describe_error(exc: Exception) -> str:
 
 
 _PAREN_RE = re.compile(r"\s*\([^)]*\)\s*$")
+_NON_LATIN_TAIL_RE = re.compile(r"\s+[^\x00-ɏ]+.*$")
 
 
 def title_core(title: str) -> str:
     """Titre d'article sans le désambiguïsateur final : 'Annaba (ville)' -> 'Annaba'. Pure."""
     return _PAREN_RE.sub("", title or "").strip()
+
+
+def nom_recherche(name: str) -> str:
+    """Nom sans le suffixe en écriture non latine (tifinagh, arabe…) ajouté au nom français.
+
+    'Annaba ⵄⴻⵍⵍⴰⴲⴰ عنابة' fait échouer les deux étages de `resolve_article` : le titre
+    exact tombe sur un article sans coordonnées (étage 1), puis la similarité au titre
+    simple 'Annaba' retombe sous le seuil (étage 2) — le suffixe alourdit la distance
+    d'édition. Le préfixe latin seul résout les deux. Pure.
+    """
+    return _NON_LATIN_TAIL_RE.sub("", name).strip() or name
 
 
 def pick_article(place_name: str, candidates: list[dict]) -> dict | None:
@@ -117,17 +129,18 @@ def resolve_article(name: str, lat, lon) -> tuple[dict, float] | None:
     d'homonymie sans coordonnées (`Valence` → `Valence (Drôme)`). Le titre rendu n'est
     plus celui demandé : la similarité et la garde d'ambiguïté y reprennent la main.
     """
-    info = _with_backoff(frwiki_page_info, name)
+    query = nom_recherche(name)
+    info = _with_backoff(frwiki_page_info, query)
     dist = _dist_or_none(lat, lon, info)
     if info.get("url") and dist is not None and dist <= MAX_DIST_M:
         return info, dist
 
     candidates = []
-    for hit in _with_backoff(frwiki_search_geo, name):
+    for hit in _with_backoff(frwiki_search_geo, query):
         hit_dist = _dist_or_none(lat, lon, hit)
         if hit_dist is not None and hit_dist <= MAX_DIST_M:
             candidates.append({**hit, "dist": hit_dist})
-    best = pick_article(name, candidates)
+    best = pick_article(query, candidates)
     if best is None:
         return None
     info = _with_backoff(frwiki_page_info, best["title"])
