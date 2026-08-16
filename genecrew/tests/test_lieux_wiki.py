@@ -9,6 +9,7 @@ from crewai_custom_tools.tools.genealogy.gramps import write_tools
 from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient, GrampsConfig
 from genecrew.lieux_wiki import (
     has_wikipedia_url,
+    nom_recherche,
     pick_article,
     run_lieux_wiki,
     title_core,
@@ -68,6 +69,21 @@ def test_pick_article_still_ranks_a_missing_distance_last(monkeypatch):
     monkeypatch.setattr(lieux_wiki, "AMBIGUITY_MARGIN", 0.0)
     cands = [{"title": "Tiffech"}, {"title": "Tiffech", "dist": 42.0}]
     assert pick_article("Tiffech", cands)["dist"] == 42.0
+
+
+def test_nom_recherche_retire_le_suffixe_pays_de_la_hierarchie_brute():
+    """Mesuré : le nom Gramps brut d'un lieu importé garde son suffixe pays
+    ('Rymanów-Zdrój, Pologne'). Sans nettoyage, la requête cherche littéralement une page
+    titrée 'Rymanów-Zdrój, Pologne' — qui n'existe pas — alors que l'article français
+    'Rymanów-Zdrój' existe bel et bien."""
+    assert nom_recherche("Rymanów-Zdrój, Pologne") == "Rymanów-Zdrój"
+    assert nom_recherche("Kraków, Pologne") == "Kraków"
+
+
+def test_nom_recherche_garde_le_nettoyage_du_suffixe_non_latin():
+    """Non-régression : le nettoyage du suffixe pays ne doit pas perdre celui du suffixe
+    en écriture non latine, sur un nom SANS virgule (segment unique)."""
+    assert nom_recherche("Annaba ⵄⴻⵍⵍⴰⴲⴰ عنابة") == "Annaba"
 
 
 def test_has_wikipedia_url():
@@ -311,6 +327,31 @@ def test_resolve_article_tranche_sur_le_titre_sans_recherche(monkeypatch):
 
     info, dist = lieux_wiki.resolve_article("Lyon", "45.7580", "4.8320")
     assert info["title"] == "Lyon"
+    assert dist < 1000
+
+
+def test_resolve_article_ignore_le_suffixe_pays_du_nom_gramps_brut(monkeypatch):
+    """Reproduit le raté mesuré sur P0720 : nom Gramps brut 'Rymanów-Zdrój, Pologne', GPS
+    posé par `apply places`, article français existant mais jamais trouvé — la requête
+    portait le suffixe pays entier."""
+    queried = []
+
+    def _info(t, **kw):
+        queried.append(t)
+        return _page("Rymanów-Zdrój", 49.55, 21.85)
+
+    monkeypatch.setattr(lieux_wiki, "frwiki_page_info", _info)
+    monkeypatch.setattr(
+        lieux_wiki,
+        "frwiki_search_geo",
+        lambda *a, **kw: pytest.fail("recherche appelée alors que le titre suffisait"),
+    )
+
+    info, dist = lieux_wiki.resolve_article(
+        "Rymanów-Zdrój, Pologne", "49.5497500", "21.8512900"
+    )
+    assert queried == ["Rymanów-Zdrój"]  # pas 'Rymanów-Zdrój, Pologne'
+    assert info["title"] == "Rymanów-Zdrój"
     assert dist < 1000
 
 

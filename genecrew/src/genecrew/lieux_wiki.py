@@ -30,6 +30,7 @@ from crewai_custom_tools.tools.genealogy.gramps.write_tools import (
     GrampsUploadMediaTool,
     effective_dry_run,
 )
+from crewai_custom_tools.tools.genealogy.standardize.places import parse_pname
 from crewai_custom_tools.tools.web.wikipedia import frwiki_page_info, frwiki_search_geo
 
 from genecrew.chemins import chemin_libre
@@ -80,14 +81,21 @@ def title_core(title: str) -> str:
 
 
 def nom_recherche(name: str) -> str:
-    """Nom sans le suffixe en écriture non latine (tifinagh, arabe…) ajouté au nom français.
+    """Nom nettoyé pour interroger Wikipédia : sans hiérarchie brute, sans suffixe non latin.
+
+    Le nom Gramps brut d'un lieu importé garde souvent son pays ('Rymanów-Zdrój, Pologne') :
+    sans retrait, la requête cherche littéralement une page titrée avec la virgule et le
+    pays, qui n'existe jamais, alors que l'article français existe bel et bien sous le nom
+    seul. `parse_pname` (déjà éprouvé sur ce type de chaîne par le pipeline lieux) isole la
+    commune ; sur un nom à segment unique elle rend le nom lui-même, inchangé.
 
     'Annaba ⵄⴻⵍⵍⴰⴲⴰ عنابة' fait échouer les deux étages de `resolve_article` : le titre
     exact tombe sur un article sans coordonnées (étage 1), puis la similarité au titre
     simple 'Annaba' retombe sous le seuil (étage 2) — le suffixe alourdit la distance
     d'édition. Le préfixe latin seul résout les deux. Pure.
     """
-    return _NON_LATIN_TAIL_RE.sub("", name).strip() or name
+    commune = parse_pname(name).commune or name
+    return _NON_LATIN_TAIL_RE.sub("", commune).strip() or commune
 
 
 def pick_article(place_name: str, candidates: list[dict]) -> dict | None:
