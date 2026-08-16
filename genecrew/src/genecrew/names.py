@@ -29,6 +29,21 @@ def _link(gramps_id: str, base_url: str) -> str:
     return f"[{gramps_id}]({base_url}/person/{gramps_id})"
 
 
+def valider_noms_famille_majuscules(noms: list[str]) -> list[str]:
+    """Retourne, parmi `noms`, ceux qui ne sont pas tout en capitales.
+
+    Convention généalogique française : NOM de famille tout en capitales
+    (distingue du prénom, utile vu la fréquence des patronymes-prénoms).
+    Une valeur sans lettre (vide, '?', chiffres) ne peut pas être jugée non
+    conforme et est ignorée.
+    """
+    return [
+        nom
+        for nom in noms
+        if any(c.isalpha() for c in nom) and not all(c.isupper() for c in nom if c.isalpha())
+    ]
+
+
 def render_names_report(
     scope, date, results, incomplete, dry_run, base_url="http://localhost"
 ) -> str:

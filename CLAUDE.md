@@ -183,6 +183,14 @@ gotchas — impose ordre livraison entre deux dépôts.
 - **Dates**: compare via integer `sortval` (Julian day; `0` = unknown/unsortable). Undated events come back `dateval=[0,0,0,False]`, `year=0`, `sortval=0` (not empty). Text-only dates: `modifier==6`.
 - **Gender int**: `0=F, 1=M, 2=U`.
 - **Form vs fact**: casing = *form* → direct write allowed, guarded by case-only invariant refusing any non-casing change. *Fact* stays proposal for human review — **except gender**, now written high confidence by `apply gender` (ratio ≥ 0.98 on INSEE+OFS table, reversible; ADR 0009 relaxes ADR 0008). Other facts (dates, relationships, name spelling) still need source → proposal.
+- **Surname casing target is Title Case, not ALL CAPS.** `names.py`/`GrampsUpdateNameTool`
+  recase `JACQUET`→`Jacquet`, never the reverse — matches GEDCOM 5.5.1, which explicitly says
+  to lowercase-then-capitalize name parts, not uppercase them. ALL-CAPS surname is a
+  French-specific formal/international-correspondence convention (confirmed via Geneanet/
+  guide-genealogie forums), not a universal genealogy standard — do not "fix" the write
+  direction to uppercase against this reasoning. `valider_noms_famille_majuscules()` in
+  `names.py` exists to *flag* ALL-CAPS surnames as the exception worth a human look (report
+  only, no write path), not to enforce them. Verified 2026-08-16.
 - **`gramps-mcp create_person` ne pose pas `birth_ref_index`/`death_ref_index`.** Personne
   créée en un seul POST avec `event_ref_list` sort avec deux index à `-1` : événements bien
   attachés, mais Gramps ne sait pas lequel est naissance, et toutes vues suivant l'index

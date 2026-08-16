@@ -4,7 +4,7 @@ import httpx
 import pytest
 from crewai_custom_tools.tools.genealogy.gramps.client import GrampsClient, GrampsConfig
 from crewai_custom_tools.tools.genealogy.models.domain import PersonFacts
-from genecrew.names import render_names_report, run_names
+from genecrew.names import render_names_report, run_names, valider_noms_famille_majuscules
 
 CONFIG = GrampsConfig(api_url="http://g.test/api", username="u", password="p")
 
@@ -112,6 +112,16 @@ def test_report_shows_write_errors():
 def test_report_no_errors_line():
     out = render_names_report("all", "2026-07-18", [], [], dry_run=False)
     assert "Aucune erreur" in out
+
+
+def test_valider_noms_famille_majuscules_signale_non_conformes():
+    # convention généalogique FR : nom de famille tout en capitales (Geneanet)
+    non_conformes = valider_noms_famille_majuscules(["JACQUET", "Dupont", "MARIE-CLAIRE"])
+    assert non_conformes == ["Dupont"]
+
+
+def test_valider_noms_famille_majuscules_ignore_valeurs_sans_lettres():
+    assert valider_noms_famille_majuscules(["", "?", "123"]) == []
 
 
 def test_run_names_lists_incomplete_but_never_writes_it(tmp_path, mocker):
