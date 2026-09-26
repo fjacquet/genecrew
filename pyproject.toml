@@ -49,7 +49,13 @@ constraint-dependencies = [
 ]
 
 [tool.uv.sources]
-crewai-custom-tools = { path = "../crewai_custom_tools", editable = true }
+# Le chemin relatif ../crewai_custom_tools n'existe pas dans le runner CI (seul
+# ce dépôt est checkouté) : "editable+../crewai_custom_tools" échouait avec
+# "Distribution not found". On épingle donc le paquet public sur GitHub à son
+# tag de version courant. Les sources git ne supportent pas `editable` : pour
+# le développement local avec la copie locale, réinstaller par-dessus avec
+# `uv pip install -e ../crewai_custom_tools` (ou une source `path` temporaire).
+crewai-custom-tools = { git = "https://github.com/fjacquet/crewai-custom-tools", tag = "v0.31.2" }
 
 
 [dependency-groups]
