@@ -36,6 +36,36 @@ Non publié / non versionné (`0.1.0`) : entrées **datées par livraison**. La 
 
 - `crewai-custom-tools` 0.31.1 → 0.31.2 (User-Agent du `GrampsClient`).
 
+## 2026-08-16
+
+### Added
+
+- **`names` — validation des surnames tout-capitales** : `valider_noms_famille_majuscules()`
+  (rapport seul, aucune écriture) signale les surnames écrits en MAJUSCULES. La convention
+  GEDCOM 5.5.1 recommande le Title Case ; les MAJUSCULES sont une convention française, pas un
+  standard international. Le sens d'écriture existant (`JACQUET` → `Jacquet`) reste donc correct.
+  Documenté dans les deux `CLAUDE.md` (genecrew et gramps-mcp).
+- **`places-apply` — complète le GPS des lieux déjà typés, sans les retyper.** Un lieu portant déjà
+  un `place_type` autre que `Unknown` était ignoré même sans coordonnées (ex. Rymanów-Zdrój, type
+  `Town` posé ; Brésil, type `Country` posé). Seul le GPS est écrit, et seulement à certitude
+  totale : score 1,0 non ambigu, pas le `min_score` configurable. Nom, type et hiérarchie restent
+  tels quels.
+
+### Changed
+
+- `crewai-custom-tools` 0.31.0 → 0.31.1 : `parse_pname` déplie la parenthèse hiérarchique.
+
+### Fixed
+
+- **`lieux_wiki` — suffixe non latin tronqué avant la recherche Wikipédia.** Un nom comme
+  `Annaba ⵄⴻⵍⵍⴰⴲⴰ عنابة` faisait échouer `resolve_article` aux deux étages : le titre exact tombait sur
+  un article sans coordonnées, puis la similarité retombait sous le seuil. `nom_recherche()` isole
+  le préfixe latin.
+- **`lieux_wiki` — suffixe pays retiré du nom brut avant la requête.** Un nom Gramps importé garde
+  souvent son pays (`Rymanów-Zdrój, Pologne`) et la requête cherchait une page titrée avec la
+  virgule et le pays, qui n'existe jamais. `parse_pname` isole la commune ; un nom à segment unique
+  reste inchangé.
+
 ## 2026-08-01
 
 ### Added
