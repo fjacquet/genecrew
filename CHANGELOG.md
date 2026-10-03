@@ -7,6 +7,35 @@ Non publié / non versionné (`0.1.0`) : entrées **datées par livraison**. La 
 
 ---
 
+## 2026-10-02
+
+### Changed
+
+- Dépendances — rafraîchissement complet du `uv.lock` (`uv lock --upgrade`) ; tests et lint
+  verts. `chromadb` reste bloqué : les avis GitHub sur ce paquet n'ont toujours **aucun
+  correctif amont** (même analyse que le 2026-08-01 : dépendance transitive de `crewai`,
+  jamais importée, serveur ChromaDB non lancé).
+
+## 2026-09-26
+
+### Changed
+
+- `crewai-custom-tools` épinglé sur son dépôt git (tag `v0.31.2`) au lieu d'un chemin éditable
+  `../crewai_custom_tools`, introuvable dans le runner CI. Pour le développement local, réinstaller
+  par-dessus avec `uv pip install -e ../crewai_custom_tools`.
+
+## 2026-09-25
+
+### Added
+
+- CI : workflow `security.yml` et cibles Makefile `security` / `vuln`.
+
+## 2026-09-20
+
+### Changed
+
+- `crewai-custom-tools` 0.31.1 → 0.31.2 (User-Agent du `GrampsClient`).
+
 ## 2026-08-01
 
 ### Added
