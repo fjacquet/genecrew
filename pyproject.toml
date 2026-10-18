@@ -56,7 +56,7 @@ constraint-dependencies = [
 # tag de version courant. Les sources git ne supportent pas `editable` : pour
 # le développement local avec la copie locale, réinstaller par-dessus avec
 # `uv pip install -e ../crewai_custom_tools` (ou une source `path` temporaire).
-crewai-custom-tools = { git = "https://github.com/fjacquet/crewai-custom-tools", tag = "v0.31.2" }
+crewai-custom-tools = { git = "https://github.com/fjacquet/crewai-custom-tools", tag = "v0.32.0" }
 
 
 [dependency-groups]
