@@ -31,6 +31,7 @@ packages = ["genecrew/src/genecrew"]
 type = "crew"
 
 [tool.uv]
+override-dependencies = ["mcp>=1.30.0"]  # crewai pins mcp~=1.28.1; GHSA-84m7-p3x7-pcfv fixed in 1.30.0
 # Planchers de sécurité sur des dépendances TRANSITIVES (tirées par crewai, qui
 # les déclare sans contrainte de version). `constraint-dependencies` relève le
 # plancher sans en faire des dépendances directes : on ne les importe pas, on
