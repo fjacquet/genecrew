@@ -7,6 +7,21 @@ Non publié / non versionné (`0.1.0`) : entrées **datées par livraison**. La 
 
 ---
 
+## 2026-10-18
+
+### Security
+
+- `mcp` passe de 1.28.1 à 2.3.0 pour corriger GHSA-84m7-p3x7-pcfv (corrigé en 1.30.0).
+  crewai fixe `mcp~=1.28.1`, d'où un `override-dependencies` uv dans `pyproject.toml`.
+  genecrew n'importe pas `mcp` directement.
+
+### Changed
+
+- `crewai_custom_tools` épinglé sur `v0.32.0` (au lieu de `v0.31.2`), la release qui migre
+  son serveur MCP vers l'API mcp 2.
+- Workflow `security` planifié chaque lundi (`23 4 * * 1`), pour qu'une nouvelle advisory
+  remonte même sans push.
+
 ## 2026-10-02
 
 ### Changed

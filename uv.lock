@@ -497,8 +497,8 @@ wheels = [
 
 [[package]]
 name = "crewai-custom-tools"
-version = "0.31.2"
-source = { git = "https://github.com/fjacquet/crewai-custom-tools?tag=v0.31.2#68c1702187a86aa4d3b91b8b1ca8c637242c2d41" }
+version = "0.32.0"
+source = { git = "https://github.com/fjacquet/crewai-custom-tools?tag=v0.32.0#0623e0fafa4131bd73ef1e6fbed871ecee0f452d" }
 dependencies = [
     { name = "beautifulsoup4" },
     { name = "crewai" },
@@ -793,7 +793,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "crewai", extras = ["tools"], specifier = ">=1.15.2" },
-    { name = "crewai-custom-tools", git = "https://github.com/fjacquet/crewai-custom-tools?tag=v0.31.2" },
+    { name = "crewai-custom-tools", git = "https://github.com/fjacquet/crewai-custom-tools?tag=v0.32.0" },
     { name = "litellm", specifier = ">=1.93.0" },
     { name = "python-dotenv", specifier = ">=1.0.0" },
 ]
