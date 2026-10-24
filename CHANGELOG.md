@@ -7,6 +7,19 @@ Non publié / non versionné (`0.1.0`) : entrées **datées par livraison**. La 
 
 ---
 
+## 2026-10-24
+
+### Security
+
+- Rafraîchissement complet `uv lock --upgrade` : `certifi` → 2026.10.23 (GHSA-6q48-6c7w-9gw2) et `uv`
+  0.11.33 → 0.13.5 (GHSA-hq85-5cpj-mr62). `pillow` était déjà en 13.0.0.
+- Reste ouvert, sans correctif disponible : `chromadb` 1.5.9 (dernière version publiée, quatre
+  advisories serveur, tirée par crewai).
+- `filelock` 3.32.7 → 4.2.4 (GHSA-v4x8-3wr5-3wq8 High, GHSA-9vhv-jxww-xfm5, GHSA-567q-5qvw-pf92) via
+  `override-dependencies` `filelock>=4.2.1,<5` : litellm le plafonne sous 4.0. Ses dépendants
+  n'utilisent que `FileLock`, `SoftFileLock`, `BaseFileLock` et `Timeout`. À retirer dès que litellm
+  accepte filelock 4.2.1.
+
 ## 2026-10-18
 
 ### Security
