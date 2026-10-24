@@ -1,0 +1,26 @@
+# chromadb is a forced transitive dependency of crewai (no extra marker).
+# Every record below targets the ChromaDB *server* /api/v2 surface; genecrew
+# never starts or exposes a server (grep for chroma/HttpClient/RagTool in src/ and
+# tests/ is empty, checked 2026-10-24). All records are `last_affected: 1.5.9`
+# with no fixed version; upstream fix chroma-core/chroma PR #7602 is still open.
+# Per-id waivers (not PackageOverrides) so a future reachable advisory still reddens CI.
+
+[[IgnoredVulns]]
+id = "GHSA-f4j7-r4q5-qw2c"  # pre-auth RCE via ChromaDB server (CVSS 9.3)
+ignoreUntil = 2026-12-01
+reason = "chromadb is a transitive pin of crewai; genecrew never starts or exposes the ChromaDB HTTP server, so the server-side RCE is unreachable. No fixed version exists."
+
+[[IgnoredVulns]]
+id = "GHSA-36p7-vc44-83pf"  # trust_remote_code code injection, server API
+ignoreUntil = 2026-12-01
+reason = "Same server-API-only sink as GHSA-f4j7-r4q5-qw2c; no ChromaDB server or endpoint is exposed by genecrew. No fixed version exists."
+
+[[IgnoredVulns]]
+id = "GHSA-2wm9-hf6c-p5cr"  # cross-tenant access over /api/v2
+ignoreUntil = 2026-12-01
+reason = "Requires the ChromaDB server /api/v2 surface with authenticated tenants; genecrew has no server, no tenants, no network listener."
+
+[[IgnoredVulns]]
+id = "GHSA-xph7-9rjv-w5fr"  # SimpleRBACAuthorizationProvider scope bypass
+ignoreUntil = 2026-12-01
+reason = "Part of the ChromaDB server authorization stack, which genecrew never instantiates."
