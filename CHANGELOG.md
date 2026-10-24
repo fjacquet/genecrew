@@ -7,6 +7,15 @@ Non publié / non versionné (`0.1.0`) : entrées **datées par livraison**. La 
 
 ---
 
+## 2026-10-24
+
+### Security
+
+- Rafraîchissement complet `uv lock --upgrade` : `pillow` 12.3.0 → 13.0.0 (41 advisories), `certifi`
+  et `uv` sur leurs versions corrigées.
+- Restent ouverts, sans correctif disponible : `chromadb` 1.5.9 (dernière version publiée, quatre
+  advisories serveur, tirée par crewai) et `filelock` 3.32.7 (litellm le plafonne sous 4.0).
+
 ## 2026-10-18
 
 ### Security
