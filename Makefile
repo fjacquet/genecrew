@@ -7,4 +7,4 @@ security:  # advisory: reports findings but never blocks the build (CodeQL/osv a
 	uvx semgrep scan --config auto --skip-unknown-extensions || true
 
 vuln:
-	uvx osv-scanner scan --lockfile=uv.lock || true
+	osv-scanner scan source --recursive .

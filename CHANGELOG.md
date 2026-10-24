@@ -11,6 +11,14 @@ Non publié / non versionné (`0.1.0`) : entrées **datées par livraison**. La 
 
 ### Security
 
+- **`make vuln` et le workflow Security analysent enfin vraiment.** `uvx osv-scanner` ne se
+  résolvait jamais (osv-scanner est un binaire Go, absent de PyPI) et `|| true` masquait l'échec :
+  aucun run CI n'avait jamais analysé `uv.lock`. `make vuln` lance désormais
+  `osv-scanner scan source --recursive .` et échoue sur une vulnérabilité ; fjacquet/ci v1.6.0
+  installe un binaire épinglé et vérifié par checksum en CI.
+- `chromadb` 1.5.9 : les quatre avis serveur (GHSA-f4j7-r4q5-qw2c, GHSA-36p7-vc44-83pf,
+  GHSA-2wm9-hf6c-p5cr, GHSA-xph7-9rjv-w5fr) sont désormais levés explicitement dans
+  `osv-scanner.toml` jusqu'au 2026-12-01 : genecrew ne démarre ni n'expose jamais de serveur ChromaDB.
 - Rafraîchissement complet `uv lock --upgrade` : `certifi` → 2026.10.23 (GHSA-6q48-6c7w-9gw2) et `uv`
   0.11.33 → 0.13.5 (GHSA-hq85-5cpj-mr62). `pillow` était déjà en 13.0.0.
 - Reste ouvert, sans correctif disponible : `chromadb` 1.5.9 (dernière version publiée, quatre
